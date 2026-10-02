@@ -49,6 +49,9 @@ class CoverState(Model):
     state: Literal["none", "offered", "covered"] = "none"
     request_id: str | None = Field(default=None, description="The cover request offered to other providers")
     original_provider_id: str | None = None
+    confirmations_sent_at: datetime | None = Field(
+        default=None, description="The cover's messages have all been written (repair resends until then)"
+    )
 
 
 class Visit(Timestamped):

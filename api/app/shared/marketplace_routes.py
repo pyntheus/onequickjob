@@ -28,18 +28,25 @@ SettingsDep = Annotated[Settings, Depends(settings_dep)]
 
 async def _confirmed(db: Db, s: Settings, out: BookingOutcome) -> BookingConfirmed:
     b, v = out.booking, out.first_visit
-    provider = await Providers(db).get(b.provider_id)
-    sp = money.split_for_source(b.price_pence, b.source, s)
+    if out.request.cover_for_visit_id:
+        # Cover: the terms are the covered visit's, for the cover provider, with the fee from
+        # money.split_for_visit (standard 15%, even on an own customer's visit: decisions.md A4).
+        provider_id, price, unit, recurring = v.provider_id, v.price_pence, "one-off", False
+        sp = money.split_for_visit(v.price_pence, v.source, v.performer.kind, s)
+    else:
+        provider_id, price, unit, recurring = b.provider_id, b.price_pence, b.unit, b.recurring
+        sp = money.split_for_source(b.price_pence, b.source, s)
+    provider = await Providers(db).get(provider_id)
     return BookingConfirmed(
         request_ref=out.request.ref,
         booking_id=b.id,
         booking_ref=b.ref,
         via=out.via,  # type: ignore[arg-type]
-        provider_id=b.provider_id,
+        provider_id=provider_id,
         provider_short=provider.short if provider else "",
-        price_pence=b.price_pence,
-        unit=b.unit,
-        recurring=b.recurring,
+        price_pence=price,
+        unit=unit,
+        recurring=recurring,
         provider_pence=sp.provider_pence,
         fee_pence=sp.fee_pence,
         first_visit=VisitBrief(

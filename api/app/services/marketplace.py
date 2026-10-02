@@ -166,20 +166,13 @@ async def complete_claimed(db: Db, s: Settings, req: JobRequest) -> BookingOutco
         pricing_version_id=req.pricing_version_id,
     )
 
-    lapsed = await Offers(db).lapse_pending(req.id, except_offer_id=b.offer_id)
-    for o in lapsed:
-        await _notify_provider(
-            db,
-            s,
-            o.provider_id,
-            "job_taken",
-            {"category": wording.lower_name(cat), "area": req.address.area},
-            Related(request_id=req.id, offer_id=o.id),
-            idempotency_key=f"offer:{o.id}:job_taken",
-        )
-    # Booking messages carry idempotency keys, so however many completions run (a retry, the
-    # repair task, concurrently), each is written exactly once; then the booking is marked.
+    await Offers(db).lapse_pending(req.id, except_offer_id=b.offer_id)
+    # Messages carry idempotency keys and go out before the booking is marked, so a retry or
+    # the repair task resends whatever a crash left unsent, and nothing is sent twice. Job-taken
+    # notices go to every lapsed counter on the request (not just the ones lapsed this time), so
+    # they survive a crash between lapsing the offers and writing the notices.
     if booking.confirmations_sent_at is None:
+        await _notify_lapsed(db, s, req, cat)
         await _notify_booked(db, s, req, cat, customer, provider, booking, first)
         booking = await Bookings(db).update(booking.id, {"confirmations_sent_at": utcnow()}) or booking
     return BookingOutcome(request=req, booking=booking, first_visit=first, via=b.via)
@@ -189,59 +182,99 @@ async def _complete_cover(db: Db, s: Settings, req: JobRequest) -> BookingOutcom
     """A cover request was taken: the covering provider performs and is paid for that one
     visit, at the same price; the customer stays the regular provider's. The visit becomes
     performer kind "cover", so money.split_for_visit charges the standard fee even on an
-    own customer's visit (decisions.md, rulings after F review)."""
+    own customer's visit (decisions.md A4).
+
+    Resumable like booking setup: the reassignment is guarded (only the first completion
+    makes it, so the original provider is recorded once); the messages are keyed and written
+    before cover.confirmations_sent_at is set, so a retry or the repair task resends any a
+    crash left unsent."""
     assert req.booked is not None and req.cover_for_visit_id
     visits = Visits(db)
     visit = await visits.get(req.cover_for_visit_id)
     cover = await Providers(db).get(req.booked.provider_id)
     assert visit is not None and cover is not None
     if visit.cover.state != "covered":
-        visit = (
-            await visits.update(
-                visit.id,
-                {
-                    "provider_id": cover.id,
-                    "performer": Performer(
-                        kind="cover", provider_id=cover.id, user_id=cover.user_id, name=cover.short
-                    ).model_dump(),
-                    "cover": {"state": "covered", "request_id": req.id, "original_provider_id": visit.provider_id},
-                },
-            )
-            or visit
+        await visits.update(
+            visit.id,
+            {
+                "provider_id": cover.id,
+                "performer": Performer(
+                    kind="cover", provider_id=cover.id, user_id=cover.user_id, name=cover.short
+                ).model_dump(),
+                "cover": {"state": "covered", "request_id": req.id, "original_provider_id": visit.provider_id},
+            },
+            extra_filter={"cover.state": {"$ne": "covered"}},
         )
-        booking = await Bookings(db).get(visit.booking_id)
-        regular = await Providers(db).get(visit.cover.original_provider_id or "")
-        customer = await Customers(db).get(visit.customer_id)
-        cat = await _category(db, visit.category_id)
-        cu = await Users(db).get(customer.user_id) if customer else None
-        related = Related(
-            request_id=req.id,
-            visit_id=visit.id,
-            booking_id=visit.booking_id,
-            customer_id=visit.customer_id,
-            provider_id=cover.id,
-        )
-        if cu and cu.phone and regular:
-            await notify(
-                db,
-                "cover_coming",
-                to=recipient_for(cu),
-                settings=s,
-                related=related,
-                idempotency_key=f"cover:{req.id}:cover_coming",
-                data={
-                    "provider": regular.short,
-                    "date": wording.day_text(visit.local_date),
-                    "cover": cover.short,
-                    "category": wording.lower_name(cat),
-                },
-            )
-        await Offers(db).lapse_pending(req.id, except_offer_id=req.booked.offer_id)
-        assert booking is not None
-        return BookingOutcome(request=req, booking=booking, first_visit=visit, via=req.booked.via)
+        visit = await visits.get(visit.id) or visit
     booking = await Bookings(db).get(visit.booking_id)
     assert booking is not None
+    if visit.cover.confirmations_sent_at is None:
+        await Offers(db).lapse_pending(req.id, except_offer_id=req.booked.offer_id)
+        cat = await _category(db, visit.category_id)
+        await _notify_lapsed(db, s, req, cat)
+        await _notify_cover(db, s, req, cat, visit, cover)
+        visit = await visits.update(visit.id, {"cover.confirmations_sent_at": utcnow()}) or visit
     return BookingOutcome(request=req, booking=booking, first_visit=visit, via=req.booked.via)
+
+
+async def _notify_cover(db: Db, s: Settings, req: JobRequest, cat: Category, visit: Visit, cover: Provider) -> None:
+    regular = await Providers(db).get(visit.cover.original_provider_id or "")
+    customer = await Customers(db).get(visit.customer_id)
+    cu = await Users(db).get(customer.user_id) if customer else None
+    related = Related(
+        request_id=req.id,
+        visit_id=visit.id,
+        booking_id=visit.booking_id,
+        customer_id=visit.customer_id,
+        provider_id=cover.id,
+    )
+    if cu and cu.phone and regular:
+        await notify(
+            db,
+            "cover_coming",
+            to=recipient_for(cu),
+            settings=s,
+            related=related,
+            idempotency_key=f"cover:{req.id}:cover_coming",
+            data={
+                "provider": regular.short,
+                "date": wording.day_text(visit.local_date),
+                "cover": cover.short,
+                "category": wording.lower_name(cat),
+            },
+        )
+    sp = money.split_for_visit(visit.price_pence, visit.source, visit.performer.kind, s)
+    await _notify_provider(
+        db,
+        s,
+        cover.id,
+        "booking_confirmed",
+        {
+            "category": cat.name,
+            "area": req.address.area,
+            "when_text": wording.when_text(visit.scheduled_start, False),
+            "net": wording.money(sp.provider_pence),
+            "unit": "one-off",
+            "fee_percent": sp.rate_percent,
+            "link": link("/p/today", s),
+        },
+        related,
+        idempotency_key=f"cover:{req.id}:booking_confirmed",
+    )
+
+
+async def _notify_lapsed(db: Db, s: Settings, req: JobRequest, cat: Category) -> None:
+    """Job-taken notices for every counter on this request that lapsed (keyed: sent once)."""
+    for o in await Offers(db).find({"request_id": req.id, "status": "lapsed"}):
+        await _notify_provider(
+            db,
+            s,
+            o.provider_id,
+            "job_taken",
+            {"category": wording.lower_name(cat), "area": req.address.area},
+            Related(request_id=req.id, offer_id=o.id),
+            idempotency_key=f"offer:{o.id}:job_taken",
+        )
 
 
 async def _check_not_own_cover(db: Db, provider: Provider, req: JobRequest) -> None:

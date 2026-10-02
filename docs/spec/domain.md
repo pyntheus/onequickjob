@@ -951,6 +951,7 @@ Indexes:
 | `state` | Literal['none', 'offered', 'covered'] |  |
 | `request_id` | str \| None (optional) | The cover request offered to other providers |
 | `original_provider_id` | str \| None (optional) |  |
+| `confirmations_sent_at` | datetime \| None (optional) | The cover's messages have all been written (repair resends until then) |
 
 ### `CustomerPayment`
 

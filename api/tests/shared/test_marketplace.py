@@ -542,3 +542,128 @@ async def test_a_resumed_reservation_rechecks_eligibility(app, client, db, catal
     await repair_acceptances(db, make_settings())
     assert (await Offers(db).get(offer.id)).status == "lapsed"
     assert await Bookings(db).count({}) == 0
+
+
+async def _own_customer_cover(db):
+    """Dave's own customer (£28 fortnightly mowing) with a cover request for a later visit."""
+    from app.models.job_requests import JobRequest
+    from app.services.bookings import create_booking
+    from tests.factories import HAZLEMERE
+
+    customer = await make_customer(db, "Pat Green", "+447700900137")
+    dave = await make_provider(db, "Dave Hughes", "+447700900201", ["mowing"])
+    mike = await make_provider(db, "Mike Reynolds", "+447700900202", ["mowing"])
+    booking, _ = await create_booking(
+        db,
+        source="own_customer",
+        via="invite",
+        customer=customer,
+        provider=dave,
+        category_id="mowing",
+        price_pence=2800,
+        first_price_pence=None,
+        unit="a visit",
+        frequency="fortnightly",
+        est_mins=38,
+        first_est_mins=None,
+        address=HAZLEMERE,
+        answers={},
+        notes="",
+        days="weekdays",
+        window="morning",
+        invite_id="inv-pat",
+    )
+    later = (await Visits(db).for_booking(booking.id))[2]
+    req = await make_request(db, customer)
+    cover = JobRequest.model_validate(
+        {
+            **req.model_dump(exclude={"id", "ref", "status", "booked", "events"}),
+            "ref": "R-9101",
+            "cover_for_visit_id": later.id,
+            "guide_pence": later.price_pence,
+            "first_pence": None,
+        }
+    )
+    await JobRequests(db).insert(cover)
+    await db["job_requests"].delete_one({"_id": req.id})
+    return customer, dave, mike, later, cover
+
+
+async def test_cover_acceptance_shows_the_cover_providers_terms_at_the_standard_fee(app, db, catalogue):
+    """Codex post-review (medium): the response must use the covered visit and A4's fee."""
+    _, _dave, mike, later, cover = await _own_customer_cover(db)
+    async with await new_client(app) as mc:
+        await sign_in(mc, db, "+447700900202")
+        r = await mc.post(f"/api/p/requests/{cover.ref}/accept")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert (body["provider_id"], body["provider_short"]) == (mike.id, "Mike R.")
+    assert (body["price_pence"], body["fee_pence"], body["provider_pence"]) == (2800, 420, 2380)
+    assert body["first_visit"]["id"] == later.id
+    msg = await db["outbox"].find_one({"template_id": "booking_confirmed", "related.provider_id": mike.id})
+    assert msg and "You'll get £23.80 one-off after the 15% OneQuickJob fee" in msg["body"]
+
+
+async def test_cover_notices_survive_a_crash_after_the_reassignment(db, catalogue, monkeypatch):
+    """Codex post-review (medium): a failed outbox write is retried until the cover is confirmed."""
+    from datetime import timedelta
+
+    from app.core.timeutil import utcnow
+    from app.services import notify as notify_module
+    from app.shared.tasks import repair_claimed
+
+    _, dave, mike, later, cover = await _own_customer_cover(db)
+    original = notify_module.notify
+    calls = {"n": 0}
+
+    async def fail_first_cover_notice(*args, **kwargs):
+        if args[1] == "cover_coming":
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise RuntimeError("outbox write failed")
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(marketplace, "notify", fail_first_cover_notice)
+    with pytest.raises(RuntimeError):
+        await marketplace.accept_at_guide(db, make_settings(), cover.ref, mike)
+    v = await Visits(db).get(later.id)
+    assert v.cover.state == "covered" and v.cover.confirmations_sent_at is None
+    await db["job_requests"].update_one({"_id": cover.id}, {"$set": {"booked.at": utcnow() - timedelta(minutes=5)}})
+    await repair_claimed(db, make_settings())
+    await repair_claimed(db, make_settings())
+    v = await Visits(db).get(later.id)
+    assert v.cover.confirmations_sent_at is not None and v.cover.original_provider_id == dave.id
+    assert await db["outbox"].count_documents({"template_id": "cover_coming"}) == 1
+    assert await db["outbox"].count_documents({"template_id": "booking_confirmed", "related.provider_id": mike.id}) == 1
+
+
+async def test_job_taken_notices_survive_a_crash_after_lapsing_the_offers(app, db, catalogue, monkeypatch):
+    """Codex post-review (medium): lapsed counters still get their notice after a crash."""
+    from datetime import timedelta
+
+    from app.core.timeutil import utcnow
+    from app.shared.tasks import repair_claimed
+
+    customer = await make_customer(db)
+    await make_provider(db, "Mike Reynolds", "+447700900202", ["mowing"])
+    dave = await make_provider(db, "Dave Hughes", "+447700900201", ["mowing"])
+    req = await make_request(db, customer)
+    async with await new_client(app) as mc:
+        await sign_in(mc, db, "+447700900202")
+        await mc.post(f"/api/p/requests/{req.ref}/counter", json={"price_pence": 3700})
+    original = marketplace._notify_provider
+
+    async def fail_job_taken_once(*args, **kwargs):
+        if args[3] == "job_taken" and not getattr(fail_job_taken_once, "done", False):
+            fail_job_taken_once.done = True
+            raise RuntimeError("outbox write failed")
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(marketplace, "_notify_provider", fail_job_taken_once)
+    with pytest.raises(RuntimeError):
+        await marketplace.accept_at_guide(db, make_settings(), req.ref, dave)
+    assert await db["offers"].count_documents({"status": "lapsed"}) == 1
+    await db["job_requests"].update_one({"_id": req.id}, {"$set": {"booked.at": utcnow() - timedelta(minutes=5)}})
+    await repair_claimed(db, make_settings())
+    assert await db["outbox"].count_documents({"template_id": "job_taken"}) == 1
+    assert (await Bookings(db).by_request(req.id)).confirmations_sent_at is not None

@@ -51,7 +51,7 @@ async def repair_claimed(db: Db, s: Settings) -> None:
     for req in await JobRequests(db).find({"status": "booked", "booked.at": window}):
         if req.cover_for_visit_id:
             visit = await visits.get(req.cover_for_visit_id)
-            done = visit is None or visit.cover.state == "covered"
+            done = visit is None or (visit.cover.state == "covered" and visit.cover.confirmations_sent_at is not None)
         else:
             booking = await bookings.by_request(req.id)
             done = booking is not None and booking.setup_complete and booking.confirmations_sent_at is not None
