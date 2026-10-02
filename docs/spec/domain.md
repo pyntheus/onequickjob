@@ -393,7 +393,7 @@ Indexes:
 
 ## `offers`
 
-offers: a provider's counter-offer on an open request. Owner: F (marketplace core).
+Immutable terms: a provider who changes their price withdraws this offer and makes a new one, so a customer always accepts exactly the price they saw.
 
 Model `app.models.offers.Offer`; repo `app.repos.offers.Offers`. Owner F.
 
@@ -410,6 +410,7 @@ Model `app.models.offers.Offer`; repo `app.repos.offers.Offers`. Owner F.
 | `reasons` | list[str] |  |
 | `message` | str |  |
 | `status` | Literal['pending', 'accepted', 'declined', 'lapsed', 'withdrawn'] |  |
+| `supersedes` | str \| None (optional) | The offer this one replaced (now withdrawn) |
 | `decided_at` | datetime \| None (optional) |  |
 
 Indexes:
@@ -446,7 +447,14 @@ Model `app.models.bookings.Booking`; repo `app.repos.bookings.Bookings`. Owner F
 | `answers` | dict[str, Any] |  |
 | `notes` | str |  |
 | `when` | Literal['morning', 'afternoon', 'either'] |  |
+| `days` | Literal['any', 'weekdays', 'weekends'] |  |
+| `est_mins` | int | Estimated minutes for a routine visit |
+| `first_est_mins` | int \| None (optional) | Estimated minutes for the first visit |
+| `pricing_version_id` | str \| None (optional) |  |
+| `first_visit_start` | datetime \| None (optional) | Chosen when the booking is created, so a resumed setup schedules the same slot |
 | `thread_id` | str \| None (optional) |  |
+| `setup_complete` | bool | Series, first visit and thread all exist (services.bookings.finish_setup) |
+| `confirmations_sent_at` | datetime \| None (optional) | Booking messages sent (once) |
 | `status` | Literal['active', 'completed', 'cancelled'] |  |
 | `cancelled_at` | datetime \| None (optional) |  |
 
@@ -900,6 +908,7 @@ Indexes:
 | `booking_id` | str |  |
 | `provider_id` | str |  |
 | `price_pence` | int | Integer pence |
+| `first_price_pence` | int \| None (optional) | First-visit price, if different |
 | `via` | Literal['guide', 'counter'] |  |
 | `offer_id` | str \| None (optional) |  |
 | `at` | datetime |  |

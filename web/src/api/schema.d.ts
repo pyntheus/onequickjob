@@ -3758,7 +3758,11 @@ export interface components {
              */
             note: string;
         };
-        /** Offer */
+        /**
+         * Offer
+         * @description Immutable terms: a provider who changes their price withdraws this offer and makes a
+         *     new one, so a customer always accepts exactly the price they saw.
+         */
         Offer: {
             /**
              * Created At
@@ -3801,6 +3805,11 @@ export interface components {
              * @enum {string}
              */
             status: "pending" | "accepted" | "declined" | "lapsed" | "withdrawn";
+            /**
+             * Supersedes
+             * @description The offer this one replaced (now withdrawn)
+             */
+            supersedes?: string | null;
             /**
              * Updated At
              * Format: date-time

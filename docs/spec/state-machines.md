@@ -24,7 +24,7 @@ stateDiagram-v2
 | open | open | provider opens it | L2 | `JobRequests.record_view` adds a `viewed` event once per provider |
 | open | open | provider counters | F | offer created; `countered` event; `counter_offer` to the customer |
 | open | open | admin raises the guide | L3 | `guide_pence` up (whole pounds), `guide_raised` event, audit log |
-| open | booked | provider accepts the guide | F (`marketplace.accept_at_guide`) | **atomic claim** on `status: "open"`; booking, plan, visits, thread; pending counters lapse; `request_booked`, `booking_confirmed`, `job_taken` to lapsed counterers. Losers get 409 `already_taken` |
+| open | booked | provider accepts the guide | F (`marketplace.accept_at_guide`) | **atomic claim** on `status: "open"` and the guide read (409 `price_changed` if an admin raised it meanwhile), freezing the agreed prices; then resumable setup: booking, plan, visits, thread; pending counters lapse; `request_booked`, `booking_confirmed`, `job_taken` to lapsed counterers. Losers get 409 `already_taken` |
 | open | booked | customer accepts a counter | F (`marketplace.accept_counter`) | same atomic claim (fails with 409 if a guide acceptance won) |
 | open | cancelled | customer cancels | L1 | pending counters `withdrawn`; providers who countered are told (`job_taken`) |
 | open | expired | open for 7 days with no booking | L1 (task) | suggested ruling for L1; the admin's "Waiting for a provider" list shows it until then |
@@ -36,15 +36,19 @@ stateDiagram-v2
 ```mermaid
 stateDiagram-v2
     [*] --> pending: provider suggests a price
-    pending --> pending: provider re-sends (replaces price and reasons)
+    pending --> withdrawn: provider changes their price (a new offer replaces it)
     pending --> accepted: customer accepts (request books)
     pending --> declined: customer keeps waiting
     pending --> lapsed: someone else books the request
     pending --> withdrawn: request cancelled
 ```
 
-At most one pending counter per provider per request (unique partial index). A declined
-provider may still accept the guide price while the request is open.
+At most one pending counter per provider per request (unique partial index). Offers are
+immutable: a changed price withdraws the old offer and creates a new one (`supersedes`), so
+accepting an offer id books exactly that offer's terms. Accepting flips the offer to
+`accepted` first (guarded), then claims the request; if the request was booked meanwhile the
+offer lapses and the customer gets 409. A declined provider may still accept the guide price
+while the request is open.
 
 ## Booking (`bookings.status`)
 

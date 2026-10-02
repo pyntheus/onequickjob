@@ -16,6 +16,9 @@ OfferStatus = Literal["pending", "accepted", "declined", "lapsed", "withdrawn"]
 
 
 class Offer(Timestamped):
+    """Immutable terms: a provider who changes their price withdraws this offer and makes a
+    new one, so a customer always accepts exactly the price they saw."""
+
     COLLECTION: ClassVar[str] = "offers"
 
     request_id: str
@@ -26,4 +29,5 @@ class Offer(Timestamped):
     reasons: list[str] = Field(default_factory=list)
     message: str = ""
     status: OfferStatus = "pending"
+    supersedes: str | None = Field(default=None, description="The offer this one replaced (now withdrawn)")
     decided_at: datetime | None = None

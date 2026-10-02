@@ -136,3 +136,38 @@ async def test_magic_link_signs_in_once(app, client, db):
         assert r.status_code == 200 and r.json()["next"] == "/p/j/R-2301"
         assert (await fresh.get("/api/auth/me")).status_code == 200
         assert (await fresh.post("/api/auth/magic", json={"token": token})).status_code == 400
+
+
+async def test_demo_sessions_end_when_demo_mode_is_turned_off(client, db):
+    """Codex F-3: a Switch-user session must not outlive DEMO_MODE."""
+    import httpx
+
+    from app.main import create_app
+    from tests.factories import make_user
+
+    admin = await make_user(db, "Jo Morgan", "+447700900901", ["admin"])
+    await db["users"].update_one({"_id": admin.id}, {"$set": {"demo_key": "admin_jo"}})
+    assert (await client.post("/api/demo/switch", json={"user_id": admin.id})).status_code == 200
+    demo_cookie = client.cookies["oqj_session"]
+    code_user = await new_client_signed_in(db)
+
+    off = create_app(make_settings(demo_mode=False))
+    async with (
+        off.router.lifespan_context(off),
+        httpx.AsyncClient(transport=httpx.ASGITransport(app=off), base_url="https://test") as c,
+    ):
+        c.cookies.set("oqj_session", demo_cookie)
+        assert (await c.get("/api/auth/me")).status_code == 401
+        assert (await c.get("/api/admin/outbox")).status_code == 401
+        c.cookies.set("oqj_session", code_user)
+        assert (await c.get("/api/auth/me")).status_code == 200, "ordinary sessions are unaffected"
+    assert await db["sessions"].count_documents({"via": "demo"}) == 0
+
+
+async def new_client_signed_in(db) -> str:
+    from app.main import create_app
+
+    app = create_app(make_settings())
+    async with app.router.lifespan_context(app), await new_client(app) as c:
+        await sign_in(c, db, "07700 900777")
+        return c.cookies["oqj_session"]

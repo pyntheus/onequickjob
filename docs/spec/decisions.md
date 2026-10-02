@@ -162,10 +162,12 @@ and integration (I) folds the accepted ones in here.
   (`money.refund_split`). Refunds are provider-funded (prototype: "a partial refund, paid by
   the provider"). L3 must check Stripe's own proportional application-fee refund agrees.
 - **R17. Counter-offers** are whole pounds between 80% and 300% of the guide (the prototype's
-  stepper bounds); one pending counter per provider per request (re-sending replaces it). A
-  counter sets the per-visit price. Unless the provider gives a separate first-visit price,
-  the first visit is the higher of the counter and the request's first-visit guide (open
-  question Q1).
+  stepper bounds); one pending counter per provider per request. **Offers are immutable**: a
+  provider who changes their price withdraws the old offer and makes a new one, so a customer
+  always accepts exactly the terms they saw (Codex review). A counter sets the per-visit
+  price. Unless the provider gives a separate first-visit price, the first visit is the higher
+  of the counter and the request's first-visit guide (open question Q1). Counters aren't
+  allowed on time-off cover requests (cover is at the regular price).
 - **R18. Fees on the price screen** are shown for the routine price and, separately, for the
   first-visit price (`fee` and `first_fee` on a quote).
 
@@ -176,11 +178,14 @@ and integration (I) folds the accepted ones in here.
   counter screen and the DEMO simulator, which must use the real endpoints) and L2 (accept and
   counter) need them from day one, and L1 merges before L2. This is a deviation from "implement
   fully only ..." (see the F report).
-- **R20. Claim first, then book.** Accepting atomically flips the request to booked with a
-  pre-allocated booking id, then creates the booking, plan, first visit and thread. Booking
-  creation is idempotent (unique `request_id` and `invite_id` on bookings), and a periodic task
-  finishes any claimed request whose booking write was interrupted. (Mongo runs standalone, so
-  there are no multi-document transactions.)
+- **R20. Claim first, then book, resumably.** Accepting atomically flips the request to
+  booked with a pre-allocated booking id and the agreed prices frozen in the claim (a guide
+  acceptance also checks the guide hasn't changed since it was read). Booking setup then runs
+  in idempotent steps: the booking (with its first-visit slot fixed), plan, first visit, visit
+  horizon and thread, each checked before it's written, then `setup_complete`; booking
+  messages are sent and then marked (at least once). A periodic task resumes any claim from the
+  last day whose setup isn't complete, after a two-minute grace so it never races the request
+  that won. (Mongo runs standalone, so there are no multi-document transactions.)
 - **R21. Eligibility** (`app.services.eligibility`). Hard rules, checked on every accept and
   counter: provider active (or payouts paused), the category in their skills, identity checked
   and every document the category requires verified and in date. Distance is not a hard rule,
@@ -214,6 +219,10 @@ and integration (I) folds the accepted ones in here.
   for an identifier counts; at most one new code per 30 seconds and six an hour per
   identifier. A new phone number or email becomes a customer account on first sign-in.
   Sessions last 30 days; the cookie holds a random token and Mongo holds its HMAC.
+- **R25a. Demo sessions end with DEMO_MODE.** Switch-user sessions (`via: demo`) are refused
+  and deleted when `DEMO_MODE` is false, so a demo admin cookie can't outlive the demo (Codex
+  review). Outside DEMO_MODE the admin outbox also masks sign-in codes, so staff never see a
+  live code.
 - **R26. Magic links** for job alerts: single-use, 72 hours, minted by
   `services.auth.create_magic_link`, consumed by `POST /api/auth/magic`. Part of auth, so built
   in F.

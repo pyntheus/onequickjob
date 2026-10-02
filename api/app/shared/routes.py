@@ -1,6 +1,7 @@
 """Shared endpoints, implemented in foundations (F): health, config, auth, demo, catalogue,
 quotes, address lookup, outbox, files. Lanes don't edit this file (docs/spec/lanes.md)."""
 
+import re
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, Response, UploadFile, status
@@ -178,14 +179,20 @@ async def demo_switch(body: SwitchRequest, request: Request, response: Response,
     return await build_me(db, user)
 
 
-def _outbox_item(m: OutboxMessage) -> OutboxItem:
+CODE = re.compile(r"\b\d{6}\b")
+
+
+def _outbox_item(m: OutboxMessage, *, redact_codes: bool = False) -> OutboxItem:
+    body = m.body
+    if redact_codes and m.template_id == "login_code":
+        body = CODE.sub("••••••", body)
     return OutboxItem(
         id=m.id,
         channel=m.channel,
         recipient=m.recipient,
         template_id=m.template_id,
         subject=m.subject,
-        body=m.body,
+        body=body,
         related=m.related,
         created_at=m.created_at,
         not_before=m.not_before,
@@ -202,6 +209,7 @@ async def demo_outbox(db: DbDep, limit: Annotated[int, Query(ge=1, le=100)] = 30
 @router.get("/admin/outbox", tags=["shared: outbox"])
 async def admin_outbox(
     db: DbDep,
+    s: SettingsDep,
     _: Annotated[CurrentUser, Depends(require_admin)],
     q: Annotated[str | None, Query(max_length=100)] = None,
     channel: Annotated[str | None, Query(pattern="^(sms|whatsapp|email)$")] = None,
@@ -214,7 +222,9 @@ async def admin_outbox(
     items = await Outbox(db).search(
         q=q, channel=channel, template_id=template_id, user_id=user_id, before_id=before, limit=limit
     )
-    return OutboxPage(items=[_outbox_item(m) for m in items], next_before=items[-1].id if len(items) == limit else None)
+    # Outside DEMO_MODE, staff never see live sign-in codes.
+    items_out = [_outbox_item(m, redact_codes=not s.demo_mode) for m in items]
+    return OutboxPage(items=items_out, next_before=items[-1].id if len(items) == limit else None)
 
 
 # ------------------------------------------------------------------------- catalogue

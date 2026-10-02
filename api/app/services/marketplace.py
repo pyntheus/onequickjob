@@ -10,6 +10,7 @@
 from dataclasses import dataclass
 
 from fastapi import status
+from pymongo.errors import DuplicateKeyError
 
 from app.core import money
 from app.core.config import Settings
@@ -80,26 +81,47 @@ def _check_can_take(provider: Provider, cat: Category, req: JobRequest) -> None:
 
 
 async def claim_request(
-    db: Db, request_id: str, *, provider_id: str, price_pence: int, via: str, offer_id: str | None = None
+    db: Db,
+    request_id: str,
+    *,
+    provider_id: str,
+    price_pence: int,
+    first_price_pence: int | None,
+    via: str,
+    offer_id: str | None = None,
+    expect_guide_pence: int | None = None,
 ) -> JobRequest | None:
-    """Atomically move an open request to booked. Returns None if it wasn't open."""
+    """Atomically move an open request to booked, freezing the agreed prices in `booked`.
+    Returns None if it wasn't open (or, with expect_guide_pence, if the guide has changed)."""
     now = utcnow()
     booked = Booked(
         booking_id=new_id(),
         provider_id=provider_id,
         price_pence=price_pence,
+        first_price_pence=first_price_pence,
         via=via,  # type: ignore[arg-type]
         offer_id=offer_id,
         at=now,
     )
     event = RequestEvent(at=now, kind="accepted", provider_id=provider_id, offer_id=offer_id, price_pence=price_pence)
+    flt: dict = {"_id": request_id, "status": "open"}
+    if expect_guide_pence is not None:
+        flt["guide_pence"] = expect_guide_pence
     return await JobRequests(db).find_one_and_update(
-        {"_id": request_id, "status": "open"},
+        flt,
         {
             "$set": {"status": "booked", "booked": booked.model_dump(mode="python"), "updated_at": now},
             "$push": {"events": event.model_dump(mode="python")},
         },
     )
+
+
+def counter_first_price(req: JobRequest, offer: Offer) -> int | None:
+    """A counter sets the per-visit price. Unless the provider named a first-visit price, the
+    first visit is the higher of the counter and the request's first-visit guide (decisions.md Q1)."""
+    if offer.first_price_pence:
+        return offer.first_price_pence
+    return max(req.first_pence, offer.price_pence) if req.first_pence else None
 
 
 async def complete_claimed(db: Db, s: Settings, req: JobRequest) -> BookingOutcome:
@@ -114,16 +136,6 @@ async def complete_claimed(db: Db, s: Settings, req: JobRequest) -> BookingOutco
     assert customer is not None and provider is not None
     cat = await _category(db, req.category_id)
 
-    if b.via == "guide":
-        first_price = req.first_pence
-    else:
-        offer = await Offers(db).get(b.offer_id) if b.offer_id else None
-        # A counter sets the per-visit price. The first visit is never cheaper than the
-        # counter, and keeps a higher first-visit guide if there was one (decisions.md, open question).
-        first_price = max(req.first_pence, b.price_pence) if req.first_pence else None
-        if offer and offer.first_price_pence:
-            first_price = offer.first_price_pence
-
     booking, first = await create_booking(
         db,
         booking_id=b.booking_id,
@@ -133,7 +145,7 @@ async def complete_claimed(db: Db, s: Settings, req: JobRequest) -> BookingOutco
         provider=provider,
         category_id=cat.id,
         price_pence=b.price_pence,
-        first_price_pence=first_price if first_price != b.price_pence else None,
+        first_price_pence=b.first_price_pence if b.first_price_pence != b.price_pence else None,
         unit=req.unit,
         frequency=req.frequency,
         est_mins=req.mins,
@@ -148,7 +160,6 @@ async def complete_claimed(db: Db, s: Settings, req: JobRequest) -> BookingOutco
     )
 
     lapsed = await Offers(db).lapse_pending(req.id, except_offer_id=b.offer_id)
-    await _notify_booked(db, s, req, cat, customer, provider, booking, first)
     for o in lapsed:
         await _notify_provider(
             db,
@@ -158,6 +169,12 @@ async def complete_claimed(db: Db, s: Settings, req: JobRequest) -> BookingOutco
             {"category": wording.lower_name(cat), "area": req.address.area},
             Related(request_id=req.id, offer_id=o.id),
         )
+    # Booking messages: sent, then marked, so a resumed setup re-sends any that never went
+    # out (at least once). Only the claim's winner and, after a grace period, the repair task
+    # ever get here, so they don't race.
+    if booking.confirmations_sent_at is None:
+        await _notify_booked(db, s, req, cat, customer, provider, booking, first)
+        booking = await Bookings(db).update(booking.id, {"confirmations_sent_at": utcnow()}) or booking
     return BookingOutcome(request=req, booking=booking, first_visit=first, via=b.via)
 
 
@@ -232,9 +249,20 @@ async def accept_at_guide(db: Db, s: Settings, ref: str, provider: Provider) -> 
     await _check_not_own_cover(db, provider, req)
     if req.status != "open":
         _taken(req)
-    claimed = await claim_request(db, req.id, provider_id=provider.id, price_pence=req.guide_pence, via="guide")
+    claimed = await claim_request(
+        db,
+        req.id,
+        provider_id=provider.id,
+        price_pence=req.guide_pence,
+        first_price_pence=req.first_pence,
+        via="guide",
+        expect_guide_pence=req.guide_pence,
+    )
     if claimed is None:
-        _taken(await _request(db, ref))
+        now = await _request(db, ref)
+        if now.status == "open":
+            fail(status.HTTP_409_CONFLICT, "price_changed", "The guide price has just changed. Have another look.")
+        _taken(now)
     return await complete_claimed(db, s, claimed)
 
 
@@ -268,33 +296,30 @@ async def make_counter(
     if price_pence == req.guide_pence:
         fail(status.HTTP_422_UNPROCESSABLE_CONTENT, "same_as_guide", "That's the guide price. Accept it instead.")
 
+    # Offers are immutable: a changed price withdraws the old offer and makes a new one, so a
+    # customer accepting an offer id always gets exactly the price that offer showed.
     offers = Offers(db)
     now = utcnow()
-    existing = await offers.pending_for(req.id, provider.id)
-    if existing:
-        offer = (
-            await offers.update(
-                existing.id,
-                {
-                    "price_pence": price_pence,
-                    "first_price_pence": first_price_pence,
-                    "reasons": reasons,
-                    "message": message,
-                },
-            )
-            or existing
-        )
-    else:
-        offer = Offer(
-            request_id=req.id,
-            provider_id=provider.id,
-            price_pence=price_pence,
-            guide_pence=req.guide_pence,
-            first_price_pence=first_price_pence,
-            reasons=reasons,
-            message=message,
-        )
+    previous = await offers.pending_for(req.id, provider.id)
+    if previous:
+        await offers.update(previous.id, {"status": "withdrawn", "decided_at": now}, extra_filter={"status": "pending"})
+    offer = Offer(
+        request_id=req.id,
+        provider_id=provider.id,
+        price_pence=price_pence,
+        guide_pence=req.guide_pence,
+        first_price_pence=first_price_pence,
+        reasons=reasons,
+        message=message,
+        supersedes=previous.id if previous else None,
+    )
+    try:
         await offers.insert(offer)
+    except DuplicateKeyError:
+        fail(status.HTTP_409_CONFLICT, "counter_in_progress", "You've just sent a price for this job.")
+    if (await JobRequests(db).get(req.id) or req).status != "open":  # booked while we were writing
+        await offers.update(offer.id, {"status": "lapsed", "decided_at": now}, extra_filter={"status": "pending"})
+        _taken(await JobRequests(db).get(req.id) or req)
     await JobRequests(db).add_event(
         req.id,
         RequestEvent(at=now, kind="countered", provider_id=provider.id, offer_id=offer.id, price_pence=price_pence),
@@ -330,6 +355,9 @@ async def _customer_offer(db: Db, offer_id: str, customer: Customer) -> tuple[Of
 
 
 async def accept_counter(db: Db, s: Settings, offer_id: str, customer: Customer) -> BookingOutcome:
+    """Book the request at exactly this offer's (immutable) terms. The offer is taken first
+    (pending -> accepted, atomically) so a withdrawal can't slip in; if the request was booked
+    by someone else meanwhile, the offer lapses and the customer gets 409."""
     offer, req = await _customer_offer(db, offer_id, customer)
     if offer.status != "pending":
         fail(status.HTTP_409_CONFLICT, "offer_not_pending", "That price is no longer on offer.")
@@ -339,13 +367,23 @@ async def accept_counter(db: Db, s: Settings, offer_id: str, customer: Customer)
     cat = await _category(db, req.category_id)
     if provider is None or not can_take(provider, cat).ok:
         fail(status.HTTP_409_CONFLICT, "provider_unavailable", "That provider can't take this job any more.")
+    offers = Offers(db)
+    now = utcnow()
+    taken = await offers.update(offer.id, {"status": "accepted", "decided_at": now}, extra_filter={"status": "pending"})
+    if taken is None:
+        fail(status.HTTP_409_CONFLICT, "offer_not_pending", "That price is no longer on offer.")
     claimed = await claim_request(
-        db, req.id, provider_id=offer.provider_id, price_pence=offer.price_pence, via="counter", offer_id=offer.id
+        db,
+        req.id,
+        provider_id=offer.provider_id,
+        price_pence=offer.price_pence,
+        first_price_pence=counter_first_price(req, offer),
+        via="counter",
+        offer_id=offer.id,
     )
     if claimed is None:
+        await offers.update(offer.id, {"status": "lapsed", "decided_at": utcnow()})
         _taken(await JobRequests(db).get(req.id) or req)
-    now = utcnow()
-    await Offers(db).update(offer.id, {"status": "accepted", "decided_at": now}, extra_filter={"status": "pending"})
     return await complete_claimed(db, s, claimed)
 
 

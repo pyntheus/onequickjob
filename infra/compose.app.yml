@@ -8,7 +8,7 @@ services:
     build:
       context: ..
       dockerfile: infra/api.Dockerfile
-    image: oqj-api:dev
+    image: oqj-api:${INSTANCE}
     container_name: oqj-${INSTANCE}-api
     restart: unless-stopped
     env_file: ../.env
@@ -29,7 +29,7 @@ services:
     build:
       context: ..
       dockerfile: infra/web.Dockerfile
-    image: oqj-web:dev
+    image: oqj-web:${INSTANCE}
     container_name: oqj-${INSTANCE}-web
     restart: unless-stopped
     environment:

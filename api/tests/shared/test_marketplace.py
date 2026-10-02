@@ -4,6 +4,8 @@ atomically; counters wait for the customer."""
 import asyncio
 import itertools
 
+import pytest
+
 from app.repos import Bookings, JobRequests, Offers, Visits
 from app.services import marketplace
 from tests.conftest import make_settings, new_client, sign_in
@@ -196,9 +198,146 @@ async def test_repair_task_finishes_an_interrupted_booking(db, catalogue):
     customer = await make_customer(db)
     dave = await make_provider(db, "Dave Hughes", "+447700900201", ["mowing"])
     req = await make_request(db, customer)
-    claimed = await marketplace.claim_request(db, req.id, provider_id=dave.id, price_pence=req.guide_pence, via="guide")
+    claimed = await marketplace.claim_request(
+        db, req.id, provider_id=dave.id, price_pence=req.guide_pence, first_price_pence=None, via="guide"
+    )
     assert claimed is not None and await Bookings(db).count({}) == 0  # crashed before booking
+    await repair_claimed(db, make_settings())
+    assert await Bookings(db).count({}) == 0, "fresh claims are left to the request that won them"
+    from datetime import timedelta
+
+    from app.core.timeutil import utcnow
+
+    await db["job_requests"].update_one({"_id": req.id}, {"$set": {"booked.at": utcnow() - timedelta(minutes=5)}})
     await repair_claimed(db, make_settings())
     assert await Bookings(db).count({"request_id": req.id}) == 1
     await repair_claimed(db, make_settings())
     assert await Bookings(db).count({"request_id": req.id}) == 1, "idempotent"
+
+
+FAILURE_POINTS = ["series", "first_visit", "horizon", "thread", "messages"]
+
+
+@pytest.mark.parametrize("where", FAILURE_POINTS)
+async def test_interrupted_booking_setup_is_resumed_by_the_repair_task(db, catalogue, monkeypatch, where):
+    """Codex F-1: a crash after any write leaves a claimed request; repair finishes it exactly."""
+    from datetime import timedelta
+
+    from app.core.timeutil import utcnow
+    from app.repos import MessageThreads, SeriesRepo
+    from app.services import bookings as bookings_service
+    from app.services import schedule
+    from app.shared.tasks import repair_claimed
+
+    customer = await make_customer(db)
+    dave = await make_provider(db, "Dave Hughes", "+447700900201", ["mowing"])
+    req = await make_request(db, customer)  # fortnightly: series, horizon and all
+
+    calls = {"n": 0}
+
+    def boom_once(original):
+        async def wrapper(*args, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise RuntimeError(f"crash at {where}")
+            return await original(*args, **kwargs)
+
+        return wrapper
+
+    targets = {
+        "series": (SeriesRepo, "insert"),
+        "first_visit": (Visits, "insert"),
+        "horizon": (schedule, "ensure_horizon"),
+        "thread": (MessageThreads, "insert"),
+        "messages": (marketplace, "_notify_booked"),
+    }
+    obj, name = targets[where]
+    monkeypatch.setattr(obj, name, boom_once(getattr(obj, name)))
+    if where == "horizon":
+        monkeypatch.setattr(bookings_service.schedule, "ensure_horizon", getattr(obj, name))
+
+    with pytest.raises(RuntimeError):
+        await marketplace.accept_at_guide(db, make_settings(), req.ref, dave)
+    assert (await JobRequests(db).get(req.id)).status == "booked", "the claim itself stands"
+
+    # The repair task leaves fresh claims for two minutes; age this one.
+    await db["job_requests"].update_one({"_id": req.id}, {"$set": {"booked.at": utcnow() - timedelta(minutes=5)}})
+    await repair_claimed(db, make_settings())
+    await repair_claimed(db, make_settings())  # and it's a no-op once complete
+
+    booking = await Bookings(db).by_request(req.id)
+    assert booking.setup_complete and booking.confirmations_sent_at and booking.thread_id and booking.series_id
+    assert await Bookings(db).count({}) == 1
+    assert await Visits(db).count({"booking_id": booking.id, "is_first": True}) == 1
+    assert await Visits(db).count({"booking_id": booking.id}) >= 3
+    assert await MessageThreads(db).count({"booking_id": booking.id}) == 1
+    assert await db["outbox"].count_documents({"template_id": "request_booked"}) == 1
+    assert await db["outbox"].count_documents({"template_id": "booking_confirmed"}) == 1
+
+
+async def test_a_revised_counter_cannot_change_what_the_customer_accepts(app, client, db, catalogue):
+    """Codex F-2: offers are immutable; a re-send withdraws the old one."""
+    customer = await make_customer(db)
+    await make_provider(db, "Mike Reynolds", "+447700900202", ["mowing"])
+    req = await make_request(db, customer)
+    async with await new_client(app) as mc:
+        await sign_in(mc, db, "+447700900202")
+        first = (await mc.post(f"/api/p/requests/{req.ref}/counter", json={"price_pence": 3700})).json()
+        second = (await mc.post(f"/api/p/requests/{req.ref}/counter", json={"price_pence": 5000})).json()
+    assert second["id"] != first["id"] and second["supersedes"] == first["id"]
+    assert (await Offers(db).get(first["id"])).status == "withdrawn"
+    assert (await Offers(db).get(first["id"])).price_pence == 3700, "the old terms are untouched"
+
+    await sign_in(client, db, "+447700900123")
+    stale = await client.post(f"/api/c/offers/{first['id']}/accept")
+    assert stale.status_code == 409 and stale.json()["detail"]["code"] == "offer_not_pending"
+    assert (await JobRequests(db).get(req.id)).status == "open"
+    ok = await client.post(f"/api/c/offers/{second['id']}/accept")
+    assert ok.status_code == 200 and ok.json()["price_pence"] == 5000
+
+
+async def test_completion_uses_the_prices_frozen_in_the_claim(db, catalogue):
+    customer = await make_customer(db)
+    dave = await make_provider(db, "Dave Hughes", "+447700900201", ["mowing"])
+    req = await make_request(db, customer, answers={"grassState": "overgrown"})
+    assert req.first_pence and req.first_pence > req.guide_pence
+    claimed = await marketplace.claim_request(
+        db, req.id, provider_id=dave.id, price_pence=req.guide_pence, first_price_pence=req.first_pence, via="guide"
+    )
+    # Anything changing on the request afterwards must not leak into the booking.
+    await db["job_requests"].update_one({"_id": req.id}, {"$set": {"guide_pence": 9900, "first_pence": 9900}})
+    out = await marketplace.complete_claimed(db, make_settings(), claimed)
+    assert (out.booking.price_pence, out.booking.first_price_pence) == (req.guide_pence, req.first_pence)
+    assert out.first_visit.price_pence == req.first_pence
+
+
+async def test_a_counter_with_its_own_first_visit_price(app, client, db, catalogue):
+    customer = await make_customer(db)
+    await make_provider(db, "Mike Reynolds", "+447700900202", ["mowing"])
+    req = await make_request(db, customer)
+    async with await new_client(app) as mc:
+        await sign_in(mc, db, "+447700900202")
+        offer = (
+            await mc.post(f"/api/p/requests/{req.ref}/counter", json={"price_pence": 3500, "first_price_pence": 4500})
+        ).json()
+    await sign_in(client, db, "+447700900123")
+    r = await client.post(f"/api/c/offers/{offer['id']}/accept")
+    booking = await Bookings(db).get(r.json()["booking_id"])
+    assert (booking.price_pence, booking.first_price_pence) == (3500, 4500)
+    assert r.json()["first_visit"]["price_pence"] == 4500
+
+
+async def test_guide_accept_fails_if_the_guide_changed_since_it_was_read(db, catalogue):
+    customer = await make_customer(db)
+    dave = await make_provider(db, "Dave Hughes", "+447700900201", ["mowing"])
+    req = await make_request(db, customer)
+    stale = await marketplace.claim_request(
+        db,
+        req.id,
+        provider_id=dave.id,
+        price_pence=req.guide_pence,
+        first_price_pence=None,
+        via="guide",
+        expect_guide_pence=req.guide_pence - 100,
+    )
+    assert stale is None and (await JobRequests(db).get(req.id)).status == "open"

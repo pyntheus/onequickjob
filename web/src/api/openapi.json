@@ -4434,6 +4434,7 @@
         "type": "object"
       },
       "Offer": {
+        "description": "Immutable terms: a provider who changes their price withdraws this offer and makes a\nnew one, so a customer always accepts exactly the price they saw.",
         "properties": {
           "created_at": {
             "format": "date-time",
@@ -4513,6 +4514,18 @@
             ],
             "title": "Status",
             "type": "string"
+          },
+          "supersedes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The offer this one replaced (now withdrawn)",
+            "title": "Supersedes"
           },
           "updated_at": {
             "format": "date-time",

@@ -186,6 +186,10 @@ async def session_user(db: Db, s: Settings, token: str | None) -> tuple[Session,
     now = utcnow()
     if session is None or session.expires_at <= now:
         return None
+    if session.via == "demo" and not s.demo_mode:
+        # Switch-user sessions exist only while DEMO_MODE is on; turning it off ends them.
+        await sessions.delete(session.id)
+        return None
     user = await Users(db).get(session.user_id)
     if user is None or user.status != "active":
         return None

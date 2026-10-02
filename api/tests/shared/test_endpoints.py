@@ -232,3 +232,19 @@ async def test_file_upload(client, db, tmp_path, app):
         "/api/files", files={"file": ("x.exe", b"MZ", "application/octet-stream")}, data={"kind": "other"}
     )
     assert bad.status_code == 422 and bad.json()["detail"]["code"] == "file_rejected"
+
+
+async def test_admin_outbox_hides_sign_in_codes_outside_demo_mode(client, db):
+    await client.post("/api/auth/code", json={"identifier": "07700 900111"})
+    await sign_in(client, db, "07700 900999")
+    await Users(db).add_role((await Users(db).by_phone("+447700900999")).id, "admin")
+    in_demo = (await client.get("/api/admin/outbox", params={"template_id": "login_code"})).json()["items"]
+    assert any(c.isdigit() for c in in_demo[-1]["body"].split("code is ")[1][:6])
+    off = create_app(make_settings(demo_mode=False))
+    async with (
+        off.router.lifespan_context(off),
+        httpx.AsyncClient(transport=httpx.ASGITransport(app=off), base_url="https://test") as c,
+    ):
+        c.cookies.set("oqj_session", client.cookies["oqj_session"])
+        items = (await c.get("/api/admin/outbox", params={"template_id": "login_code"})).json()["items"]
+        assert items and all("code is ••••••" in m["body"] for m in items)

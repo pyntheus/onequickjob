@@ -71,6 +71,9 @@ def add_booking(
         notes=notes,
         when=when,
         status=status,
+        # Seeded bookings are finished history: the repair task must never "resume" them.
+        setup_complete=True,
+        confirmations_sent_at=created_at,
         **ctx.timestamps(created_at),
     )
     return b
