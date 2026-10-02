@@ -1,6 +1,9 @@
 """Foundation tasks: keep recurring plans materialised and finish interrupted bookings."""
 
+import logging
 from datetime import timedelta
+
+from fastapi import HTTPException
 
 from app.core.config import Settings
 from app.core.db import Db
@@ -8,24 +11,31 @@ from app.core.tasks import periodic
 from app.core.timeutil import utcnow
 from app.repos.bookings import Bookings
 from app.repos.job_requests import JobRequests
+from app.repos.offers import Offers
 from app.repos.providers import Providers
 from app.repos.series import SeriesRepo
 from app.repos.visits import Visits
 from app.services import schedule
-from app.services.marketplace import complete_claimed
+from app.services.marketplace import complete_claimed, finish_counter_acceptance
+
+log = logging.getLogger("oqj.tasks")
 
 
 @periodic("series_horizon", every_seconds=3600)
 async def top_up_series(db: Db, s: Settings) -> None:
-    """Make sure every active plan has visits six weeks ahead."""
+    """Make sure every active plan has visits six weeks ahead. Plans whose booking setup isn't
+    complete are left to the repair task: only finish_setup creates a plan's first visit."""
     providers = Providers(db)
     bookings = Bookings(db)
     for series in await SeriesRepo(db).find({"status": "active"}):
-        provider = await providers.get(series.provider_id)
-        booking = await bookings.get(series.booking_id)
-        if provider is None or booking is None:
-            continue
-        await schedule.ensure_horizon(db, series, provider, source=booking.source)
+        try:
+            provider = await providers.get(series.provider_id)
+            booking = await bookings.get(series.booking_id)
+            if provider is None or booking is None or not booking.setup_complete:
+                continue
+            await schedule.ensure_horizon(db, series, provider, source=booking.source)
+        except Exception:
+            log.exception("horizon top-up failed for series %s", series.id)
 
 
 @periodic("repair_claimed_requests", every_seconds=300)
@@ -45,4 +55,21 @@ async def repair_claimed(db: Db, s: Settings) -> None:
             booking = await bookings.by_request(req.id)
             done = booking is not None and booking.setup_complete and booking.confirmations_sent_at is not None
         if not done:
-            await complete_claimed(db, s, req)
+            try:
+                await complete_claimed(db, s, req)
+            except Exception:
+                log.exception("repairing request %s failed", req.ref)
+
+
+@periodic("repair_counter_acceptances", every_seconds=300)
+async def repair_acceptances(db: Db, s: Settings) -> None:
+    """Finish counter acceptances interrupted between reserving the offer and claiming the
+    request (offers left "accepting" for over two minutes)."""
+    stale = utcnow() - timedelta(minutes=2)
+    for offer in await Offers(db).find({"status": "accepting", "accepting_at": {"$lt": stale}}):
+        try:
+            await finish_counter_acceptance(db, s, offer)
+        except HTTPException:
+            pass  # lapsed: someone else booked the request first
+        except Exception:
+            log.exception("finishing the acceptance of offer %s failed", offer.id)

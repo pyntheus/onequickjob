@@ -2699,7 +2699,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "pending" | "accepted" | "declined" | "lapsed" | "withdrawn";
+            status: "pending" | "accepting" | "accepted" | "declined" | "lapsed" | "withdrawn";
         };
         /** CounterRequest */
         CounterRequest: {
@@ -3765,6 +3765,11 @@ export interface components {
          */
         Offer: {
             /**
+             * Accepting At
+             * @description When the customer accepted; the request claim is finished from here (resumable)
+             */
+            accepting_at?: string | null;
+            /**
              * Created At
              * Format: date-time
              */
@@ -3804,7 +3809,7 @@ export interface components {
              * @default pending
              * @enum {string}
              */
-            status: "pending" | "accepted" | "declined" | "lapsed" | "withdrawn";
+            status: "pending" | "accepting" | "accepted" | "declined" | "lapsed" | "withdrawn";
             /**
              * Supersedes
              * @description The offer this one replaced (now withdrawn)

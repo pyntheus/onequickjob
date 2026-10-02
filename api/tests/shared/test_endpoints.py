@@ -248,3 +248,23 @@ async def test_admin_outbox_hides_sign_in_codes_outside_demo_mode(client, db):
         c.cookies.set("oqj_session", client.cookies["oqj_session"])
         items = (await c.get("/api/admin/outbox", params={"template_id": "login_code"})).json()["items"]
         assert items and all("code is ••••••" in m["body"] for m in items)
+
+
+async def test_outbox_search_cannot_probe_a_masked_code(client, db):
+    """Codex F-recheck-1: outside DEMO_MODE, search results never depend on a code's digits."""
+    await client.post("/api/auth/code", json={"identifier": "07700 900111"})
+    msg = await db["outbox"].find_one({"template_id": "login_code"})
+    real_code = msg["body"].split("code is ")[1][:6]
+    await sign_in(client, db, "07700 900999")
+    await Users(db).add_role((await Users(db).by_phone("+447700900999")).id, "admin")
+    off = create_app(make_settings(demo_mode=False))
+    async with (
+        off.router.lifespan_context(off),
+        httpx.AsyncClient(transport=httpx.ASGITransport(app=off), base_url="https://test") as c,
+    ):
+        c.cookies.set("oqj_session", client.cookies["oqj_session"])
+        for probe in ("code is " + real_code[:1], "code is " + real_code, real_code):
+            hits = (await c.get("/api/admin/outbox", params={"q": probe, "template_id": "login_code"})).json()
+            assert hits["items"] == [], f"probe {probe!r} must not match a login code"
+        by_name = (await c.get("/api/admin/outbox", params={"q": "+447700900111"})).json()["items"]
+        assert by_name and "••••••" in by_name[0]["body"], "still findable by recipient, still masked"

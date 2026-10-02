@@ -37,7 +37,9 @@ stateDiagram-v2
 stateDiagram-v2
     [*] --> pending: provider suggests a price
     pending --> withdrawn: provider changes their price (a new offer replaces it)
-    pending --> accepted: customer accepts (request books)
+    pending --> accepting: customer accepts (offer reserved)
+    accepting --> accepted: request claimed at the offer's terms
+    accepting --> lapsed: someone else booked the request first
     pending --> declined: customer keeps waiting
     pending --> lapsed: someone else books the request
     pending --> withdrawn: request cancelled
@@ -45,9 +47,11 @@ stateDiagram-v2
 
 At most one pending counter per provider per request (unique partial index). Offers are
 immutable: a changed price withdraws the old offer and creates a new one (`supersedes`), so
-accepting an offer id books exactly that offer's terms. Accepting flips the offer to
-`accepted` first (guarded), then claims the request; if the request was booked meanwhile the
-offer lapses and the customer gets 409. A declined provider may still accept the guide price
+accepting an offer id books exactly that offer's terms. Accepting reserves the offer
+(`pending -> accepting`, guarded, so it can't be withdrawn), then claims the request at its
+terms and marks it `accepted`; if the request was booked meanwhile the offer lapses and the
+customer gets 409. An acceptance interrupted between the two steps is finished by a retry or
+by the repair task after two minutes. A declined provider may still accept the guide price
 while the request is open.
 
 ## Booking (`bookings.status`)

@@ -341,3 +341,116 @@ async def test_guide_accept_fails_if_the_guide_changed_since_it_was_read(db, cat
         expect_guide_pence=req.guide_pence - 100,
     )
     assert stale is None and (await JobRequests(db).get(req.id)).status == "open"
+
+
+async def test_crash_after_the_series_then_every_task_still_finishes_the_booking(db, catalogue, monkeypatch):
+    """Codex F-recheck-2: the hourly top-up must not create the plan's first visit."""
+    from datetime import timedelta
+
+    from app.core import tasks
+    from app.core.timeutil import utcnow
+    from app.repos import Visits as VisitsRepo
+
+    customer = await make_customer(db)
+    dave = await make_provider(db, "Dave Hughes", "+447700900201", ["mowing"])
+    req = await make_request(db, customer)
+    original = VisitsRepo.insert
+    calls = {"n": 0}
+
+    async def crash_on_first_visit(self, doc):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("crash after the series was written")
+        return await original(self, doc)
+
+    monkeypatch.setattr(VisitsRepo, "insert", crash_on_first_visit)
+    with pytest.raises(RuntimeError):
+        await marketplace.accept_at_guide(db, make_settings(), req.ref, dave)
+    await db["job_requests"].update_one({"_id": req.id}, {"$set": {"booked.at": utcnow() - timedelta(minutes=5)}})
+    await tasks.run_once(db, make_settings())  # horizon top-up runs before the repairs
+    booking = await Bookings(db).by_request(req.id)
+    assert booking.setup_complete and booking.confirmations_sent_at
+    first = await Visits(db).find_one({"booking_id": booking.id, "is_first": True})
+    assert first is not None and first.price_pence == (booking.first_price_pence or booking.price_pence)
+
+
+async def test_first_visit_setup_adopts_an_anchor_day_visit_made_by_the_horizon(db, catalogue):
+    from app.repos import SeriesRepo
+    from app.services import bookings as bookings_service
+    from app.services import schedule
+
+    customer = await make_customer(db)
+    dave = await make_provider(db, "Dave Hughes", "+447700900201", ["mowing"])
+    req = await make_request(db, customer, answers={"grassState": "overgrown"})
+    out = await marketplace.accept_at_guide(db, make_settings(), req.ref, dave)
+    b = out.booking
+    # Simulate the old failure: the first visit is missing and the horizon created the anchor day.
+    await db["visits"].delete_many({"booking_id": b.id})
+    series = await SeriesRepo(db).get(b.series_id)
+    await db["visits"].insert_one(
+        {**out.first_visit.to_mongo(), "_id": "anchor", "is_first": False, "price_pence": b.price_pence}
+    )
+    await schedule.ensure_horizon(db, series, dave)
+    _, first = await bookings_service.finish_setup(db, b, customer, dave)
+    assert first.id == "anchor" and first.is_first and first.price_pence == b.first_price_pence
+
+
+async def test_an_interrupted_counter_acceptance_is_finished_by_retry_or_repair(
+    app, client, db, catalogue, monkeypatch
+):
+    """Codex F-recheck-3: accepting reserves the offer; the claim can always be finished."""
+    from datetime import timedelta
+
+    from app.core.timeutil import utcnow
+    from app.shared.tasks import repair_acceptances
+
+    customer = await make_customer(db)
+    await make_provider(db, "Mike Reynolds", "+447700900202", ["mowing"])
+    req = await make_request(db, customer)
+    async with await new_client(app) as mc:
+        await sign_in(mc, db, "+447700900202")
+        offer = (await mc.post(f"/api/p/requests/{req.ref}/counter", json={"price_pence": 3700})).json()
+
+    original = marketplace.claim_request
+    calls = {"n": 0}
+
+    async def crash_once(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("crash after the offer was reserved")
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(marketplace, "claim_request", crash_once)
+    with pytest.raises(RuntimeError):
+        await marketplace.accept_counter(db, make_settings(), offer["id"], customer)
+    assert (await Offers(db).get(offer["id"])).status == "accepting"
+    assert (await JobRequests(db).get(req.id)).status == "open"
+
+    # The repair task leaves it for two minutes, then finishes it.
+    await repair_acceptances(db, make_settings())
+    assert (await Offers(db).get(offer["id"])).status == "accepting"
+    await db["offers"].update_one({"_id": offer["id"]}, {"$set": {"accepting_at": utcnow() - timedelta(minutes=5)}})
+    await repair_acceptances(db, make_settings())
+    assert (await Offers(db).get(offer["id"])).status == "accepted"
+    booked = await JobRequests(db).get(req.id)
+    assert booked.status == "booked" and booked.booked.price_pence == 3700
+    # An offer that has been accepted can't be accepted again.
+    await sign_in(client, db, "+447700900123")
+    again = await client.post(f"/api/c/offers/{offer['id']}/accept")
+    assert again.status_code == 409 and again.json()["detail"]["code"] == "offer_not_pending"
+
+
+async def test_a_reserved_counter_loses_to_a_guide_acceptance_that_got_there_first(app, db, catalogue):
+    customer = await make_customer(db)
+    await make_provider(db, "Mike Reynolds", "+447700900202", ["mowing"])
+    dave = await make_provider(db, "Dave Hughes", "+447700900201", ["mowing"])
+    req = await make_request(db, customer)
+    async with await new_client(app) as mc:
+        await sign_in(mc, db, "+447700900202")
+        offer = (await mc.post(f"/api/p/requests/{req.ref}/counter", json={"price_pence": 3700})).json()
+    await db["offers"].update_one({"_id": offer["id"]}, {"$set": {"status": "accepting"}})  # reserved, then...
+    await marketplace.accept_at_guide(db, make_settings(), req.ref, dave)  # ...Dave wins the claim
+    with pytest.raises(Exception) as e:
+        await marketplace.finish_counter_acceptance(db, make_settings(), await Offers(db).get(offer["id"]))
+    assert getattr(e.value, "status_code", None) == 409
+    assert (await Offers(db).get(offer["id"])).status == "lapsed"

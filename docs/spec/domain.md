@@ -409,8 +409,9 @@ Model `app.models.offers.Offer`; repo `app.repos.offers.Offers`. Owner F.
 | `guide_pence` | int | The guide price when the counter was made |
 | `reasons` | list[str] |  |
 | `message` | str |  |
-| `status` | Literal['pending', 'accepted', 'declined', 'lapsed', 'withdrawn'] |  |
+| `status` | Literal['pending', 'accepting', 'accepted', 'declined', 'lapsed', 'withdrawn'] |  |
 | `supersedes` | str \| None (optional) | The offer this one replaced (now withdrawn) |
+| `accepting_at` | datetime \| None (optional) | When the customer accepted; the request claim is finished from here (resumable) |
 | `decided_at` | datetime \| None (optional) |  |
 
 Indexes:

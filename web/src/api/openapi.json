@@ -1793,6 +1793,7 @@
           "status": {
             "enum": [
               "pending",
+              "accepting",
               "accepted",
               "declined",
               "lapsed",
@@ -4436,6 +4437,19 @@
       "Offer": {
         "description": "Immutable terms: a provider who changes their price withdraws this offer and makes a\nnew one, so a customer always accepts exactly the price they saw.",
         "properties": {
+          "accepting_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the customer accepted; the request claim is finished from here (resumable)",
+            "title": "Accepting At"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -4507,6 +4521,7 @@
             "default": "pending",
             "enum": [
               "pending",
+              "accepting",
               "accepted",
               "declined",
               "lapsed",

@@ -355,10 +355,15 @@ async def _customer_offer(db: Db, offer_id: str, customer: Customer) -> tuple[Of
 
 
 async def accept_counter(db: Db, s: Settings, offer_id: str, customer: Customer) -> BookingOutcome:
-    """Book the request at exactly this offer's (immutable) terms. The offer is taken first
-    (pending -> accepted, atomically) so a withdrawal can't slip in; if the request was booked
-    by someone else meanwhile, the offer lapses and the customer gets 409."""
+    """Book the request at exactly this offer's (immutable) terms.
+
+    Two steps, both resumable: the offer is reserved (pending -> accepting, atomically, so a
+    withdrawal can't slip in), then finish_counter_acceptance claims the request at the
+    offer's terms and marks it accepted. Retrying, or the repair task, finishes an interrupted
+    acceptance; if the request was booked by someone else first, the offer lapses (409)."""
     offer, req = await _customer_offer(db, offer_id, customer)
+    if offer.status == "accepting":
+        return await finish_counter_acceptance(db, s, offer)  # a retry of an interrupted acceptance
     if offer.status != "pending":
         fail(status.HTTP_409_CONFLICT, "offer_not_pending", "That price is no longer on offer.")
     if req.status != "open":
@@ -367,24 +372,38 @@ async def accept_counter(db: Db, s: Settings, offer_id: str, customer: Customer)
     cat = await _category(db, req.category_id)
     if provider is None or not can_take(provider, cat).ok:
         fail(status.HTTP_409_CONFLICT, "provider_unavailable", "That provider can't take this job any more.")
-    offers = Offers(db)
-    now = utcnow()
-    taken = await offers.update(offer.id, {"status": "accepted", "decided_at": now}, extra_filter={"status": "pending"})
-    if taken is None:
-        fail(status.HTTP_409_CONFLICT, "offer_not_pending", "That price is no longer on offer.")
-    claimed = await claim_request(
-        db,
-        req.id,
-        provider_id=offer.provider_id,
-        price_pence=offer.price_pence,
-        first_price_pence=counter_first_price(req, offer),
-        via="counter",
-        offer_id=offer.id,
+    reserved = await Offers(db).update(
+        offer.id, {"status": "accepting", "accepting_at": utcnow()}, extra_filter={"status": "pending"}
     )
-    if claimed is None:
-        await offers.update(offer.id, {"status": "lapsed", "decided_at": utcnow()})
-        _taken(await JobRequests(db).get(req.id) or req)
-    return await complete_claimed(db, s, claimed)
+    if reserved is None:
+        fail(status.HTTP_409_CONFLICT, "offer_not_pending", "That price is no longer on offer.")
+    return await finish_counter_acceptance(db, s, reserved)
+
+
+async def finish_counter_acceptance(db: Db, s: Settings, offer: Offer) -> BookingOutcome:
+    """Claim the request at a reserved offer's terms, then mark the offer accepted. Idempotent."""
+    offers = Offers(db)
+    req = await JobRequests(db).get(offer.request_id)
+    assert req is not None
+    if req.status == "open":
+        claimed = await claim_request(
+            db,
+            req.id,
+            provider_id=offer.provider_id,
+            price_pence=offer.price_pence,
+            first_price_pence=counter_first_price(req, offer),
+            via="counter",
+            offer_id=offer.id,
+        )
+        req = claimed or await JobRequests(db).get(offer.request_id) or req
+    if req.status == "booked" and req.booked is not None and req.booked.offer_id == offer.id:
+        await offers.update(
+            offer.id, {"status": "accepted", "decided_at": utcnow()}, extra_filter={"status": "accepting"}
+        )
+        return await complete_claimed(db, s, req)
+    # Someone else booked it first (or it was cancelled): this acceptance can't happen.
+    await offers.update(offer.id, {"status": "lapsed", "decided_at": utcnow()}, extra_filter={"status": "accepting"})
+    _taken(req)
 
 
 async def decline_counter(db: Db, s: Settings, offer_id: str, customer: Customer) -> Offer:

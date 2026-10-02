@@ -164,7 +164,8 @@ and integration (I) folds the accepted ones in here.
 - **R17. Counter-offers** are whole pounds between 80% and 300% of the guide (the prototype's
   stepper bounds); one pending counter per provider per request. **Offers are immutable**: a
   provider who changes their price withdraws the old offer and makes a new one, so a customer
-  always accepts exactly the terms they saw (Codex review). A counter sets the per-visit
+  always accepts exactly the terms they saw. Accepting first reserves the offer
+  (`accepting`), then claims the request; either step can be resumed (Codex review). A counter sets the per-visit
   price. Unless the provider gives a separate first-visit price, the first visit is the higher
   of the counter and the request's first-visit guide (open question Q1). Counters aren't
   allowed on time-off cover requests (cover is at the regular price).
@@ -185,7 +186,9 @@ and integration (I) folds the accepted ones in here.
   horizon and thread, each checked before it's written, then `setup_complete`; booking
   messages are sent and then marked (at least once). A periodic task resumes any claim from the
   last day whose setup isn't complete, after a two-minute grace so it never races the request
-  that won. (Mongo runs standalone, so there are no multi-document transactions.)
+  that won; only setup creates a plan's first visit (the hourly horizon top-up skips plans whose
+  booking isn't complete, and setup adopts an anchor-day visit if one exists). Each task item
+  is isolated, so one failure doesn't stop the rest. (Mongo runs standalone, so there are no multi-document transactions.)
 - **R21. Eligibility** (`app.services.eligibility`). Hard rules, checked on every accept and
   counter: provider active (or payouts paused), the category in their skills, identity checked
   and every document the category requires verified and in date. Distance is not a hard rule,
@@ -221,8 +224,8 @@ and integration (I) folds the accepted ones in here.
   Sessions last 30 days; the cookie holds a random token and Mongo holds its HMAC.
 - **R25a. Demo sessions end with DEMO_MODE.** Switch-user sessions (`via: demo`) are refused
   and deleted when `DEMO_MODE` is false, so a demo admin cookie can't outlive the demo (Codex
-  review). Outside DEMO_MODE the admin outbox also masks sign-in codes, so staff never see a
-  live code.
+  review). Outside DEMO_MODE the admin outbox also masks sign-in codes and its free-text search
+  never matches a code message's body, so staff can neither see nor probe a live code.
 - **R26. Magic links** for job alerts: single-use, 72 hours, minted by
   `services.auth.create_magic_link`, consumed by `POST /api/auth/magic`. Part of auth, so built
   in F.

@@ -12,7 +12,7 @@ from pydantic import Field
 
 from app.models.common import Pence, Timestamped
 
-OfferStatus = Literal["pending", "accepted", "declined", "lapsed", "withdrawn"]
+OfferStatus = Literal["pending", "accepting", "accepted", "declined", "lapsed", "withdrawn"]
 
 
 class Offer(Timestamped):
@@ -30,4 +30,7 @@ class Offer(Timestamped):
     message: str = ""
     status: OfferStatus = "pending"
     supersedes: str | None = Field(default=None, description="The offer this one replaced (now withdrawn)")
+    accepting_at: datetime | None = Field(
+        default=None, description="When the customer accepted; the request claim is finished from here (resumable)"
+    )
     decided_at: datetime | None = None

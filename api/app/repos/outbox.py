@@ -30,12 +30,16 @@ class Outbox(Repo[OutboxMessage]):
         user_id: str | None = None,
         before_id: str | None = None,
         limit: int = 50,
+        search_login_codes: bool = True,
     ) -> list[OutboxMessage]:
+        """search_login_codes=False (outside DEMO_MODE): free text never matches the body of a
+        login_code message, so search results can't be used to probe a masked code."""
         flt: dict = {}
         if q:
             rx = {"$regex": re.escape(q.strip()), "$options": "i"}
+            body = {"body": rx} if search_login_codes else {"body": rx, "template_id": {"$ne": "login_code"}}
             flt["$or"] = [
-                {"body": rx},
+                body,
                 {"recipient.name": rx},
                 {"recipient.phone": rx},
                 {"recipient.email": rx},

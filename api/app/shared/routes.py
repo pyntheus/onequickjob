@@ -220,7 +220,13 @@ async def admin_outbox(
 ) -> OutboxPage:
     """Every message, newest first, searchable. L3 builds the admin view on this."""
     items = await Outbox(db).search(
-        q=q, channel=channel, template_id=template_id, user_id=user_id, before_id=before, limit=limit
+        q=q,
+        channel=channel,
+        template_id=template_id,
+        user_id=user_id,
+        before_id=before,
+        limit=limit,
+        search_login_codes=s.demo_mode,
     )
     # Outside DEMO_MODE, staff never see live sign-in codes.
     items_out = [_outbox_item(m, redact_codes=not s.demo_mode) for m in items]
