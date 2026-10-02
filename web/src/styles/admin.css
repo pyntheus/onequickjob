@@ -1,0 +1,35 @@
+/* Admin surface (/admin). Ported from the prototype; L3 owns this file after F. */
+.a-shell{display:grid;grid-template-columns:236px minmax(0,1fr);min-height:100vh;min-height:100dvh}
+.a-side{background:var(--surface);border-right:1px solid var(--hair);padding:18px 12px;display:flex;flex-direction:column;gap:2px}
+.a-brand{padding:4px 10px 18px}
+.a-nav{display:flex;align-items:center;gap:10px;padding:10px 12px;border:0;border-radius:var(--radius-sm);background:none;color:var(--muted);font-weight:500;font-size:15px;text-align:left;white-space:nowrap;text-decoration:none}
+.pt a.a-nav{color:var(--muted)}
+.pt a.a-nav:hover{background:var(--soft);color:var(--ink)}
+.pt a.a-nav.on{background:var(--primary-soft);color:var(--primary);font-weight:600}
+.a-side-foot{margin-top:auto;padding:12px 10px 0;font-size:13px;color:var(--muted)}
+.a-main{padding:26px 30px 56px;display:flex;flex-direction:column;gap:22px;min-width:0}
+.a-cols{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:18px;align-items:start}
+@media(max-width:1100px){.a-cols{grid-template-columns:1fr}}
+@media(max-width:860px){.a-shell{grid-template-columns:1fr}.a-side{flex-direction:row;overflow-x:auto;border-right:0;border-bottom:1px solid var(--hair);padding:8px}.a-brand,.a-side-foot{display:none}.a-main{padding:18px 14px 44px}}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.kpi{padding:16px 18px}
+.kpi .v{font-family:var(--font-head);font-weight:var(--head-weight);letter-spacing:var(--head-track);font-size:30px;line-height:1.1;margin-top:4px;font-variant-numeric:tabular-nums}
+.table-wrap{overflow-x:auto}
+.table{width:100%;border-collapse:collapse;font-size:14.5px}
+.table th{text-align:left;font-size:13px;font-weight:600;color:var(--muted);padding:10px 12px;border-bottom:1px solid var(--hair);white-space:nowrap}
+.table td{padding:13px 12px;border-bottom:1px solid var(--hair);white-space:nowrap;vertical-align:middle;font-variant-numeric:tabular-nums}
+.table tr:last-child td{border-bottom:0}
+.table th:first-child,.table td:first-child{padding-left:0}
+.req{display:flex;flex-direction:column;gap:10px;padding:16px 0;border-bottom:1px solid var(--hair)}
+.req:last-child{border-bottom:0;padding-bottom:0}
+.req:first-child{padding-top:4px}
+.tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.tile{position:relative;border-radius:var(--radius-sm);overflow:hidden;padding:12px;min-height:86px;border:1px solid var(--hair);background:var(--surface)}
+.tile .fill{position:absolute;inset:0;background:var(--primary)}
+.tile .in{position:relative;display:flex;flex-direction:column;gap:2px}
+.tile.dark{color:var(--on-primary);border-color:transparent}
+.tile.dark .muted{color:var(--on-primary);opacity:.8}
+.insight{border-left:5px solid var(--accent)}
+.stage{display:flex;gap:4px}
+.stage i{flex:1;height:6px;border-radius:99px;background:var(--hair)}
+.stage i.on{background:var(--primary)}

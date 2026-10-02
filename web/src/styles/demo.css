@@ -1,0 +1,32 @@
+/* DEMO_MODE only: prototype banner, Outbox drawer, Switch user. Gone when DEMO_MODE=false. */
+.demo-banner{background:var(--ink);color:var(--bg);font-size:13px;font-weight:600;text-align:center;padding:5px 12px;line-height:1.3;position:relative;z-index:60}
+
+.demo-fabs{position:fixed;left:12px;bottom:calc(84px + env(safe-area-inset-bottom));z-index:70;display:flex;flex-direction:column;gap:8px;align-items:flex-start}
+@media(min-width:900px){.demo-fabs{bottom:16px}}
+.demo-fab{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 16px;border-radius:999px;border:1px solid var(--ink);background:var(--ink);color:var(--bg);font-weight:600;font-size:14px;box-shadow:0 8px 24px -10px rgba(0,0,0,.5)}
+.pt .demo-fab{color:var(--bg)}
+.demo-fab .count{min-width:22px;height:22px;border-radius:999px;background:var(--accent);color:var(--on-accent);font-size:12.5px;display:grid;place-items:center;padding:0 6px}
+
+.demo-menu{position:absolute;left:0;bottom:calc(100% + 8px);width:min(340px,calc(100vw - 24px));max-height:min(70vh,560px);overflow:auto;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:var(--radius-sm);box-shadow:var(--shadow);padding:8px}
+.demo-menu h2{font-family:var(--font-body)!important;font-size:12.5px!important;font-weight:700!important;text-transform:uppercase;letter-spacing:.06em!important;color:var(--muted);padding:10px 10px 4px}
+.demo-menu button{display:flex;align-items:flex-start;flex-direction:column;gap:0;width:100%;min-height:44px;padding:8px 10px;border:0;border-radius:10px;background:none;text-align:left}
+.demo-menu button:hover,.demo-menu button:focus-visible{background:var(--soft)}
+.demo-menu button[aria-current="true"]{background:var(--primary-soft)}
+.demo-menu .who{font-weight:600}
+.demo-menu .what{font-size:13px;color:var(--muted)}
+
+.outbox-panel{position:fixed;top:0;right:0;bottom:0;width:min(420px,100vw);z-index:90;background:var(--bg);border-left:1px solid var(--line);box-shadow:-20px 0 40px -20px rgba(0,0,0,.35);display:flex;flex-direction:column}
+.outbox-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 16px;background:var(--surface);border-bottom:1px solid var(--hair)}
+.outbox-list{flex:1;overflow-y:auto;padding:12px 14px 40px;display:flex;flex-direction:column;gap:14px}
+.outbox-item{display:flex;flex-direction:column;gap:6px}
+.outbox-meta{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;font-size:13px;color:var(--muted)}
+.outbox-meta b{color:var(--ink)}
+.sms-bubble{align-self:flex-start;max-width:94%;background:#e9e9eb;color:#111;padding:10px 14px;border-radius:20px;font-size:15px;line-height:1.38;font-family:-apple-system,system-ui,"Segoe UI",sans-serif;white-space:pre-wrap;overflow-wrap:anywhere}
+.sms-bubble a{color:#0a58ca;text-decoration:underline;cursor:pointer}
+.sms-bubble.whatsapp{background:#dcf8c6}
+.email-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-sm);padding:12px 14px;font-size:14.5px;white-space:pre-wrap;overflow-wrap:anywhere}
+.email-card .subject{font-weight:700;margin-bottom:6px;white-space:normal}
+.code-box{display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--accent-soft);border:1px solid var(--accent);border-radius:var(--radius-sm);padding:8px 10px 8px 14px}
+.code-box .code-digits{font-family:var(--font-head);font-size:26px;letter-spacing:.12em;font-variant-numeric:tabular-nums}
+/* Keep the admin sidebar's footer copy clear of the floating demo controls. */
+body:has(.demo-fabs) .a-side{padding-bottom:170px}

@@ -1,0 +1,25 @@
+# Secrets and local state
+.env
+.env.*
+!.env.example
+var/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+web/dist/
+*.tsbuildinfo
+.vite/
+vite.config.ts.timestamp-*
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/
+*.swp

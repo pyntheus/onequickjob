@@ -1,0 +1,59 @@
+# Shared by every worktree on the droplet: one Mongo, one Caddy. Project name is fixed.
+#
+# SECURITY: Docker publishes ports around the ufw firewall, so ONLY Caddy publishes
+# ports (80 and 443). Mongo publishes none: it is reachable only on the private "oqj"
+# Docker network. `make check` fails if anything else is exposed.
+name: oqj-shared
+
+services:
+  mongo:
+    image: mongo:8.0
+    container_name: oqj-mongo
+    restart: unless-stopped
+    command: ["--bind_ip_all", "--quiet"]
+    volumes:
+      - mongo-data:/data/db
+    networks: [oqj]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  caddy:
+    image: caddy:2
+    container_name: oqj-caddy
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/etc/caddy/entrypoint.sh"]
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      SITE_HOST: ${SITE_HOST:?set SITE_HOST in .env}
+      BASIC_AUTH_USER: ${BASIC_AUTH_USER:?set BASIC_AUTH_USER in .env}
+      BASIC_AUTH_PASSWORD: ${BASIC_AUTH_PASSWORD:?set BASIC_AUTH_PASSWORD in .env}
+      CADDY_WEB_UPSTREAM: ${CADDY_WEB_UPSTREAM:-oqj-main-web:5173}
+      CADDY_API_UPSTREAM: ${CADDY_API_UPSTREAM:-oqj-main-api:8000}
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy/entrypoint.sh:/etc/caddy/entrypoint.sh:ro
+      - caddy-data:/data
+      - caddy-config:/config
+      - files:/srv/files:ro
+    networks: [oqj]
+
+networks:
+  oqj:
+    name: oqj
+    external: true
+
+volumes:
+  mongo-data:
+    name: oqj-mongo-data
+  caddy-data:
+    name: oqj-caddy-data
+  caddy-config:
+    name: oqj-caddy-config
+  files:
+    name: ${CADDY_FILES_VOLUME:-oqj-files-main}
+    external: true

@@ -1,0 +1,596 @@
+{
+  "_source": "Demo scenario ported from PROVIDER_OFFERS, UNFILLED, DISPUTES, OWN_CUSTOMERS, UPCOMING and the account screens in docs/design/prototype.jsx. Times are relative to when the seed runs. Guide prices come from the pricing engine, so R-2284 is £28 rather than the prototype's mock £34.",
+  "open_requests": [
+    {
+      "ref": "R-2292",
+      "customer": "sarah",
+      "category": "mowing",
+      "lawn": {
+        "band": "large",
+        "adjust": "right"
+      },
+      "answers": {},
+      "when": {
+        "days": "weekdays",
+        "time": "morning"
+      },
+      "minutes_ago": 4,
+      "notes": "The side gate sticks, so please close it behind you. The dog's out.",
+      "viewed_by": [
+        [
+          "mike",
+          2
+        ]
+      ],
+      "route_hint": {
+        "dave": " It's 0.4 miles from your Tuesday 9:00."
+      }
+    },
+    {
+      "ref": "R-2293",
+      "customer": "robert",
+      "category": "hedges",
+      "answers": {},
+      "when": {
+        "days": "any",
+        "time": "either"
+      },
+      "minutes_ago": 60,
+      "notes": "",
+      "viewed_by": [
+        [
+          "sue",
+          20
+        ]
+      ],
+      "route_hint": {
+        "dave": " Same road as your Thursday job."
+      }
+    },
+    {
+      "ref": "R-2294",
+      "customer": "anita",
+      "category": "jetwash",
+      "answers": {},
+      "when": {
+        "days": "any",
+        "time": "either"
+      },
+      "minutes_ago": 180,
+      "notes": "There's an outside tap by the back door.",
+      "viewed_by": [
+        [
+          "mike",
+          45
+        ]
+      ],
+      "route_hint": {}
+    }
+  ],
+  "unfilled_requests": [
+    {
+      "ref": "R-2291",
+      "customer": "graham",
+      "category": "hedges",
+      "answers": {
+        "length": 12,
+        "height": "above",
+        "sides": "one",
+        "waste": "takeaway"
+      },
+      "when": {
+        "days": "any",
+        "time": "either"
+      },
+      "minutes_ago": 300,
+      "notes": "",
+      "admin_note": "Two providers looked, nobody took it. Guide may be low for ladder work.",
+      "viewed_by": [
+        [
+          "dave",
+          60
+        ],
+        [
+          "sue",
+          150
+        ]
+      ]
+    },
+    {
+      "ref": "R-2288",
+      "customer": "denise",
+      "category": "clearance",
+      "answers": {},
+      "when": {
+        "days": "any",
+        "time": "either"
+      },
+      "minutes_ago": 540,
+      "notes": "Mostly green waste from the back border. Photos to follow.",
+      "admin_note": "Gary suggested £150. Waiting on the customer.",
+      "viewed_by": [
+        [
+          "gary",
+          20
+        ]
+      ],
+      "counter": {
+        "provider": "gary",
+        "price_pence": 15000,
+        "reasons": [
+          "More waste than described"
+        ],
+        "message": "From the description it's more like a small van load. This covers the extra trip to the tip.",
+        "minutes_after": 40
+      }
+    },
+    {
+      "ref": "R-2284",
+      "customer": "martin",
+      "category": "mowing",
+      "lawn": {
+        "band": "large",
+        "adjust": "right"
+      },
+      "answers": {
+        "grassState": "kept",
+        "waste": "bin",
+        "frequency": "fortnightly"
+      },
+      "when": {
+        "days": "weekdays",
+        "time": "either"
+      },
+      "minutes_ago": 1560,
+      "notes": "",
+      "admin_note": "No providers within 4 miles. Nobody has seen it.",
+      "viewed_by": []
+    }
+  ],
+  "regulars": [
+    {
+      "key": "margaret",
+      "customer": "margaret",
+      "provider": "dave",
+      "category": "mowing",
+      "source": "platform",
+      "price_pence": 3200,
+      "frequency": "fortnightly",
+      "weekday": "tue",
+      "time": "09:00",
+      "window": "morning",
+      "est_mins": 40,
+      "answers": {
+        "grassState": "kept",
+        "waste": "takeaway",
+        "access": "gate",
+        "frequency": "fortnightly"
+      }
+    },
+    {
+      "key": "pat",
+      "customer": "pat",
+      "provider": "dave",
+      "category": "mowing",
+      "source": "own_customer",
+      "price_pence": 2800,
+      "frequency": "fortnightly",
+      "weekday": "tue",
+      "time": "13:30",
+      "window": "afternoon",
+      "est_mins": 30,
+      "answers": {
+        "grassState": "kept",
+        "waste": "bin",
+        "access": "gate",
+        "frequency": "fortnightly"
+      }
+    },
+    {
+      "key": "john",
+      "customer": "john",
+      "provider": "dave",
+      "category": "hedges",
+      "source": "own_customer",
+      "price_pence": 5500,
+      "frequency": "threemonthly",
+      "weekday": "thu",
+      "time": "13:00",
+      "window": "afternoon",
+      "est_mins": 75,
+      "answers": {
+        "length": 20,
+        "height": "head",
+        "sides": "one",
+        "waste": "takeaway"
+      }
+    }
+  ],
+  "own_customer_invites": [
+    {
+      "key": "pat",
+      "provider": "dave",
+      "name": "Pat Green",
+      "customer": "pat",
+      "category": "mowing",
+      "price_pence": 2800,
+      "frequency": "fortnightly",
+      "status": "accepted",
+      "days_ago": 140
+    },
+    {
+      "key": "john",
+      "provider": "dave",
+      "name": "John Ellis",
+      "customer": "john",
+      "category": "hedges",
+      "price_pence": 5500,
+      "frequency": "threemonthly",
+      "status": "accepted",
+      "days_ago": 135
+    },
+    {
+      "key": "mary",
+      "provider": "dave",
+      "name": "Mary Bishop",
+      "phone": "+447700900140",
+      "category": "mowing",
+      "price_pence": 2500,
+      "frequency": "fortnightly",
+      "status": "invited",
+      "days_ago": 2
+    },
+    {
+      "key": "blocked_sarah",
+      "provider": "dave",
+      "name": "Sarah Whitfield",
+      "phone": "+447700900123",
+      "category": "hedges",
+      "price_pence": 5000,
+      "frequency": "oneoff",
+      "status": "blocked",
+      "days_ago": 20
+    },
+    {
+      "key": "blocked_robert",
+      "provider": "mike",
+      "name": "Rob Brown",
+      "phone": "+447700900131",
+      "category": "mowing",
+      "price_pence": 3000,
+      "frequency": "fortnightly",
+      "status": "blocked",
+      "days_ago": 9
+    }
+  ],
+  "blocked_reason": "That number already belongs to a OneQuickJob customer, so they stay on the standard fee. Any regular work you already do for them is still yours.",
+  "past_jobs": [
+    {
+      "key": "sarah_mow_1",
+      "customer": "sarah",
+      "provider": "dave",
+      "category": "mowing",
+      "price_pence": 3000,
+      "est_mins": 38,
+      "actual_mins": 36,
+      "days_ago": 31,
+      "time": "10:30",
+      "rating": {
+        "stars": 5,
+        "tags": [
+          "On time",
+          "Left it tidy"
+        ]
+      },
+      "after_photo": true
+    },
+    {
+      "key": "sarah_mow_2",
+      "customer": "sarah",
+      "provider": "dave",
+      "category": "mowing",
+      "price_pence": 3000,
+      "est_mins": 38,
+      "actual_mins": 41,
+      "days_ago": 17,
+      "time": "10:30",
+      "after_photo": true,
+      "thread": "sarah_dave"
+    },
+    {
+      "key": "sarah_jetwash",
+      "customer": "sarah",
+      "provider": "mike",
+      "category": "jetwash",
+      "price_pence": 8800,
+      "est_mins": 70,
+      "actual_mins": 76,
+      "days_ago": 62,
+      "time": "09:00",
+      "rating": {
+        "stars": 4,
+        "tags": [
+          "Thorough"
+        ]
+      }
+    },
+    {
+      "key": "anita_windows_1",
+      "customer": "anita",
+      "provider": "sue",
+      "category": "windows",
+      "price_pence": 3300,
+      "est_mins": 45,
+      "actual_mins": 44,
+      "days_ago": 104,
+      "time": "11:00"
+    },
+    {
+      "key": "anita_windows_2",
+      "customer": "anita",
+      "provider": "sue",
+      "category": "windows",
+      "price_pence": 2200,
+      "est_mins": 30,
+      "actual_mins": 32,
+      "days_ago": 76,
+      "time": "11:00",
+      "rating": {
+        "stars": 5,
+        "tags": [
+          "Friendly"
+        ]
+      }
+    },
+    {
+      "key": "anita_gutters",
+      "customer": "anita",
+      "provider": "dave",
+      "category": "gutters",
+      "price_pence": 8500,
+      "est_mins": 75,
+      "actual_mins": 80,
+      "days_ago": 55,
+      "time": "14:00",
+      "rating": {
+        "stars": 5,
+        "tags": [
+          "Thorough",
+          "Left it tidy"
+        ]
+      }
+    },
+    {
+      "key": "anita_windows_3",
+      "customer": "anita",
+      "provider": "sue",
+      "category": "windows",
+      "price_pence": 2200,
+      "est_mins": 30,
+      "actual_mins": 29,
+      "days_ago": 48,
+      "time": "11:00"
+    },
+    {
+      "key": "anita_jetwash",
+      "customer": "anita",
+      "provider": "mike",
+      "category": "jetwash",
+      "price_pence": 6000,
+      "est_mins": 50,
+      "actual_mins": 47,
+      "days_ago": 21,
+      "time": "09:30",
+      "rating": {
+        "stars": 5,
+        "tags": [
+          "On time"
+        ]
+      }
+    }
+  ],
+  "threads": {
+    "sarah_dave": [
+      {
+        "from": "provider",
+        "text": "Hi, it's Dave. I'll be with you Tuesday about 10:30. Is the side gate the best way in?",
+        "minutes_before_visit": 2880
+      },
+      {
+        "from": "customer",
+        "text": "Yes, it's unlocked. It sticks a bit, so give it a shove!",
+        "minutes_before_visit": 2820
+      },
+      {
+        "from": "provider",
+        "text": "No problem. See you then.",
+        "minutes_before_visit": 2810
+      }
+    ]
+  },
+  "disputes": [
+    {
+      "ref": "D-014",
+      "title": "Clippings left on the patio",
+      "category": "mowing",
+      "customer": "helen",
+      "provider": "alan",
+      "price_pence": 3400,
+      "visit_days_ago": 3,
+      "opened_days_ago": 2,
+      "stage": 1,
+      "status_text": "Waiting for Alan's reply",
+      "est_mins": 45,
+      "actual_mins": 39,
+      "description": "The lawn looks fine but there were clippings all over the patio and they'd blown into the pond.",
+      "events": [
+        [
+          "opened",
+          2,
+          "customer",
+          "Reported by the customer"
+        ]
+      ]
+    },
+    {
+      "ref": "D-013",
+      "title": "Hedge cut lower than agreed",
+      "category": "hedges",
+      "customer": "richard",
+      "provider": "sue",
+      "price_pence": 6800,
+      "visit_days_ago": 6,
+      "opened_days_ago": 5,
+      "stage": 2,
+      "status_text": "Fix proposed: Sue reshapes it free",
+      "est_mins": 85,
+      "actual_mins": 92,
+      "description": "We asked for the front hedge to stay at shoulder height for privacy. It's been cut to waist height along one side.",
+      "proposed": {
+        "kind": "return_visit",
+        "note": "Sue will come back and reshape the rest to match, free of charge."
+      },
+      "events": [
+        [
+          "opened",
+          5,
+          "customer",
+          "Reported by the customer"
+        ],
+        [
+          "provider_replied",
+          4,
+          "provider",
+          "Sue says the hedge had died back at the bottom and she cut back to healthy growth."
+        ],
+        [
+          "proposed",
+          3,
+          "admin",
+          "Proposed: Sue returns to reshape it, free."
+        ]
+      ]
+    },
+    {
+      "ref": "D-011",
+      "title": "Provider didn't arrive",
+      "category": "mowing",
+      "customer": "priya",
+      "provider": "jan",
+      "covered_by": "dave",
+      "price_pence": 3000,
+      "visit_days_ago": 13,
+      "opened_days_ago": 12,
+      "stage": 3,
+      "status_text": "Closed: covered by Dave next morning",
+      "est_mins": 40,
+      "actual_mins": 38,
+      "description": "Nobody came on Tuesday morning and I didn't hear anything.",
+      "resolution": {
+        "kind": "none",
+        "note": "Dave covered the visit the next morning at the same price."
+      },
+      "events": [
+        [
+          "opened",
+          12,
+          "customer",
+          "Reported by the customer"
+        ],
+        [
+          "provider_replied",
+          12,
+          "provider",
+          "Jan's van broke down; he's sorry he didn't message."
+        ],
+        [
+          "closed",
+          11,
+          "admin",
+          "Closed: covered by Dave next morning."
+        ]
+      ]
+    }
+  ],
+  "dave_weekly_net_pence": [
+    9600,
+    14800,
+    17200,
+    21000,
+    18800,
+    23600,
+    20400,
+    21250
+  ],
+  "dave_earlier_weekly_net_pence": [
+    13500,
+    15000,
+    14200,
+    16000,
+    13800,
+    15500,
+    14500,
+    16200,
+    14800
+  ],
+  "dave_one_off_menu": [
+    {
+      "category": "mowing",
+      "area_m2": 85,
+      "answers": {
+        "frequency": "oneoff",
+        "waste": "bin"
+      }
+    },
+    {
+      "category": "mowing",
+      "area_m2": 190,
+      "answers": {
+        "frequency": "oneoff"
+      }
+    },
+    {
+      "category": "hedges",
+      "answers": {
+        "length": 8
+      }
+    },
+    {
+      "category": "hedges",
+      "answers": {}
+    },
+    {
+      "category": "gutters",
+      "answers": {}
+    },
+    {
+      "category": "jetwash",
+      "answers": {}
+    }
+  ],
+  "expenses": [
+    {
+      "key": "mower_service",
+      "description": "Mower service",
+      "category": "kit",
+      "amount_pence": 6500,
+      "days_ago": 75
+    },
+    {
+      "key": "strimmer_line",
+      "description": "Strimmer line",
+      "category": "supplies",
+      "amount_pence": 1800,
+      "days_ago": 40
+    },
+    {
+      "key": "petrol",
+      "description": "Petrol for tools",
+      "category": "fuel",
+      "amount_pence": 5900,
+      "days_ago": 12
+    }
+  ],
+  "_menu_note": "Dave's one-off jobs are priced by the engine from these answers at seed time.",
+  "_viewed_note": "viewed_by: [provider, minutes after the request was posted]."
+}

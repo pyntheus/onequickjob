@@ -1,0 +1,55 @@
+# One per worktree: this worktree's API and web dev servers. INSTANCE comes from the
+# Makefile (the worktree's directory name: main, lane-customer, ...), so lanes never
+# collide. Ports bind to 127.0.0.1 only; view lanes through an SSH tunnel.
+name: oqj-${INSTANCE:?run through make}
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: infra/api.Dockerfile
+    image: oqj-api:dev
+    container_name: oqj-${INSTANCE}-api
+    restart: unless-stopped
+    env_file: ../.env
+    environment:
+      MONGO_URL: mongodb://oqj-mongo:27017
+      FILES_DIR: /data/files
+      SEED_DIR: /app/seed
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/api/app"]
+    ports:
+      - "127.0.0.1:${API_PORT:?set API_PORT in .env}:8000"
+    volumes:
+      - ../api:/app/api
+      - ../seed:/app/seed:ro
+      - files:/data/files
+    networks: [oqj]
+
+  web:
+    build:
+      context: ..
+      dockerfile: infra/web.Dockerfile
+    image: oqj-web:dev
+    container_name: oqj-${INSTANCE}-web
+    restart: unless-stopped
+    environment:
+      API_UPSTREAM: http://oqj-${INSTANCE}-api:8000
+      SITE_HOST: ${SITE_HOST:-dev.onequickjob.co.uk}
+    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173", "--strictPort"]
+    ports:
+      - "127.0.0.1:${WEB_PORT:?set WEB_PORT in .env}:5173"
+    volumes:
+      - ../web:/app/web
+      - /app/web/node_modules
+    depends_on: [api]
+    networks: [oqj]
+
+networks:
+  oqj:
+    name: oqj
+    external: true
+
+volumes:
+  files:
+    name: oqj-files-${INSTANCE}
+    external: true
