@@ -18,28 +18,14 @@ Each prompt is a self-contained cold start. `/clear` before pasting. Each sessio
 
 ## 0. Before Session F (you)
 
-**Browser (DigitalOcean):** create a droplet in **London (LON1)**, Ubuntu 24.04, **4 vCPU / 8 GB** (three parallel lanes plus Mongo and Vite builds need the headroom). Add your SSH key. Note the IP.
+**Done during setup (2 Oct 2026):** droplet `one-quick-job-dev` (LON1, 139.59.189.19) with DNS for `dev.onequickjob.co.uk`; firewall allowing SSH, 80 and 443 only; 4 GB swap; working user `hasan` with passwordless sudo (Claude Code runs as `hasan`, never root); Docker, Node 22, uv with Python 3.14, git and `gh` logged in as `pyntheus`; repo cloned at `/srv/oqj/main` with an initial commit on `main`. From the Mac, the droplet is `ssh oqj-dev`.
 
-**Browser (domain registrar DNS):** add an A record `dev.onequickjob.co.uk` → droplet IP.
+**Also done:** Claude Code and OpenAI's official Codex plugin for Claude Code are installed and signed in; Codex effort is `high`; the Ubuntu 24.04 sandbox fix is applied. Every session runs its Codex reviews through `scripts/codex-review.sh`, following `docs/prompts/CODEX-review.md`. The design files below are already in the repo.
 
-**Browser (GitHub):** create a private repo `onequickjob` (empty, no README).
-
-**Dev droplet** (SSH in as root):
+**Mac:**
 ```bash
-apt-get update && apt-get install -y git curl ca-certificates build-essential
-curl -fsSL https://get.docker.com | sh
-curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y nodejs
-curl -LsSf https://astral.sh/uv/install.sh | sh
-mkdir -p /srv/oqj && cd /srv/oqj
-git clone git@github.com:YOUR_GITHUB_USER/onequickjob.git main
-mkdir -p /srv/oqj/main/docs/design
-```
-Then install Claude Code and connect the Codex MCP exactly as on your other droplets.
-
-**Mac** (copy the two files from this chat into the repo):
-```bash
-scp ~/Downloads/onequickjob-prototype.jsx root@DROPLET_IP:/srv/oqj/main/docs/design/prototype.jsx
-scp ~/Downloads/onequickjob-build-pack.md  root@DROPLET_IP:/srv/oqj/main/docs/design/build-pack.md
+scp ~/Downloads/onequickjob-prototype.jsx oqj-dev:/srv/oqj/main/docs/design/prototype.jsx
+scp ~/Downloads/onequickjob-build-pack.md oqj-dev:/srv/oqj/main/docs/design/build-pack.md
 ```
 
 **Browser (optional now, needed by L3):** Stripe account in test mode with Connect enabled; copy the `sk_test_` key. Ideal Postcodes account (£9 for 200 lookups); copy the API key. Everything runs on fake adapters until these keys are added to `.env`.
@@ -62,7 +48,7 @@ STACK (settled, do not reopen)
 - api: Python 3.14 (installed and pinned by uv via .python-version; never the system Python), uv, FastAPI, Pydantic v2, PyMongo's native async client (AsyncMongoClient; NOT Motor, which is deprecated), ruff, pytest + pytest-asyncio + httpx. No ODM: Pydantic models plus a thin repository module per collection.
 - web: Vite + React + TypeScript (strict), React Router, TanStack Query, API types generated from the FastAPI OpenAPI schema with openapi-typescript. No Tailwind: port the prototype's CSS (village tokens only) into web/src/styles/ as plain CSS with the same class names, so screens can be lifted from the prototype with minimal change.
 - One web app with three route groups: / (customer), /p (provider, installable PWA with a manifest), /admin.
-- infra: docker-compose with mongo, api, web, caddy. Caddy serves dev.onequickjob.co.uk with automatic HTTPS and BASIC AUTH on everything (this is a private prototype). Credentials from .env.
+- infra: docker-compose with mongo, api, web, caddy. SECURITY: Docker bypasses the ufw firewall for any port it publishes, so ONLY Caddy publishes ports (80 and 443). Mongo publishes no port at all, and every API and web dev-server port binds to 127.0.0.1 only. Add a make check that fails if anything else listens on a public interface. Caddy serves dev.onequickjob.co.uk with automatic HTTPS and BASIC AUTH on everything (this is a private prototype). Credentials from .env.
 - Everything configurable by .env, including ports and database name, because three lanes will run side by side: lane N uses API port 800N, web port 517N, database oqj_lN, all against the one Mongo container. Provide .env.example and a Makefile (make dev, make test, make seed, make lint, make types).
 
 DOMAIN RULES (settled)
@@ -94,6 +80,7 @@ WHAT TO BUILD IN THIS SESSION
 4. Seed: categories, live pricing version, the providers, customers and own-customer data from the prototype, a few historic visits with recorded times (so admin calibration has points), and the unfilled requests and disputes shown in the prototype. make seed is idempotent.
 5. Web shell: tokens and base CSS ported; shared components (Button, Chip, Choice, Stepper including compact, Toggle, CheckRow, Card, Badge, Avatar, Stars, Tabs, FlowTop, LinkRow, BarChart, Toast) in web/src/shared/; the three route groups with a layout each (customer header, provider phone-width layout with bottom nav, admin sidebar); a placeholder page for every screen listed in the prototype's SCREENS so lanes fill them in; generated API client; Outbox drawer, Switch user and prototype banner. Provider area: font-size base 17px, tap targets 44px or more. Aim for WCAG 2.2 AA.
 6. Tests: pricing golden tests, fee tests, auth flow tests, an atomic first-acceptance test (two concurrent accepts, exactly one wins). make test runs everything.
+7. CLAUDE.md at the repo root: the standing rules every later session reads first (stack, domain rules, the security rule, lane ownership, how to run and test, the review procedure in docs/prompts/CODEX-review.md, never merge). Keep it short and point to docs/spec/ for detail.
 
 RULINGS YOU MAY MAKE YOURSELF
 Library versions within the stack, file names and structure inside the agreed layout, test design, internal helper APIs, small copy fixes, filling gaps in the prototype with the obvious behaviour. Record each one in docs/spec/decisions.md under "Rulings made during F".
@@ -102,7 +89,7 @@ STOP AND ASK (in your report, do not guess)
 Anything that changes money, fees or pricing semantics; the auth or security model; adding any external service; dropping a prototype feature; anything the golden tests can't pass without changing a model.
 
 REVIEW AND HAND-OFF
-- Run Codex via MCP: ONE high-effort review of the final tree; fix what you accept; ONE medium re-check. A third round only if a blocker remains. Codex findings are inputs, not vetoes.
+- Codex review: follow docs/prompts/CODEX-review.md exactly (run make lint and make test yourself first, then scripts/codex-review.sh with the F focus line; one review, one re-check, a third only for an open BLOCKER). Codex findings are inputs, not vetoes.
 - make lint and make test must pass. make dev must bring the stack up and the site must load behind basic auth at dev.onequickjob.co.uk.
 - Push f/foundations and open a PR. DO NOT MERGE.
 - Finish with a report in this shape: (1) what was built; (2) how to run it; (3) rulings you made; (4) Codex findings, each accepted or rejected with a one-line reason; (5) anything you need decided; (6) deviations from this prompt, if any, and why.
@@ -123,6 +110,8 @@ grep -H -E '^(API_PORT|WEB_PORT|MONGO_DB)=' ../lane-*/.env
 ```
 (If F named those `.env` keys differently, adjust the `sed` to match its `.env.example`.)
 
+**Viewing a lane's work:** lane dev servers listen only on the droplet itself, so view them through an SSH tunnel. **Mac:** `ssh -N -L 5171:127.0.0.1:5171 -L 5172:127.0.0.1:5172 -L 5173:127.0.0.1:5173 oqj-dev`, then open `http://localhost:5171` (customer lane), `:5172` (provider lane) or `:5173` (admin lane) in your browser. Leave that terminal open while you look.
+
 ---
 
 ## Session L1: Customer
@@ -133,7 +122,7 @@ grep -H -E '^(API_PORT|WEB_PORT|MONGO_DB)=' ../lane-*/.env
 You are lane L1 (Customer) for OneQuickJob, a local marketplace for non-certified home and garden jobs in High Wycombe. Foundations are merged. Work in /srv/oqj/lane-customer on branch l1/customer, using the ports and database in this worktree's .env (API 8001, web 5171, database oqj_l1). Two other lanes run in parallel: L2 Provider and L3 Admin and payments. You must not edit files they own.
 
 READ FIRST
-docs/spec/decisions.md, domain.md, state-machines.md, api.md, notifications.md, lanes.md (your ownership boundaries), then the customer screens in docs/design/prototype.jsx (CustomerApp and everything it renders). The prototype is the UX and copy spec; build it for real against the API.
+CLAUDE.md, docs/prompts/CODEX-review.md, docs/spec/decisions.md, domain.md, state-machines.md, api.md, notifications.md, lanes.md (your ownership boundaries), then the customer screens in docs/design/prototype.jsx (CustomerApp and everything it renders). The prototype is the UX and copy spec; build it for real against the API.
 
 YOUR SCOPE
 Web (web/src/customer/**) and API routes marked L1 in api.md:
@@ -159,7 +148,7 @@ ACCEPTANCE (walk it yourself before reporting)
 As a logged-out visitor: pick Lawn mowing, choose an address, pick a size band, answer the questions, see £31 a visit for the default answers with the Large band (190 m2; the £30 golden test is for 186 m2), request it, log in with the code from the Outbox drawer, add the fake card, simulate responses, accept the counter or wait for the guide acceptance, see the booking, message the provider, rate a past visit, report a problem. Repeat the request flow for Regular cleaning and Flat-pack assembly. Accept an own-customer invite as Mary.
 
 REVIEW AND HAND-OFF
-Tests for every new endpoint and the main screens (vitest + Testing Library). One high-effort Codex review via MCP on the final tree, fix what you accept, one medium re-check; a third only for a blocker; findings are inputs, not vetoes. Rebase on main before the final review. Push and open a PR. DO NOT MERGE. Report: (1) built; (2) how to demo; (3) rulings; (4) Codex findings accepted/rejected with reasons; (5) contract-change requests; (6) open questions.
+Tests for every new endpoint and the main screens (vitest + Testing Library). Codex review per docs/prompts/CODEX-review.md: run the tests yourself first, then scripts/codex-review.sh with your lane's focus line; one review, one re-check, a third only for an open BLOCKER; findings are inputs, not vetoes. Rebase on main before the final review. Push and open a PR. DO NOT MERGE. Report: (1) built; (2) how to demo; (3) rulings; (4) Codex findings accepted/rejected with reasons; (5) contract-change requests; (6) open questions.
 ```
 
 ---
@@ -172,7 +161,7 @@ Tests for every new endpoint and the main screens (vitest + Testing Library). On
 You are lane L2 (Provider) for OneQuickJob, a local marketplace for non-certified home and garden jobs in High Wycombe. Providers are mostly retired and semi-retired people, so clarity, large type and big tap targets matter more than density. Foundations are merged. Work in /srv/oqj/lane-provider on branch l2/provider, using this worktree's .env (API 8002, web 5172, database oqj_l2). L1 Customer and L3 Admin and payments run in parallel; do not edit files they own.
 
 READ FIRST
-docs/spec/decisions.md, domain.md, state-machines.md, api.md, notifications.md, lanes.md, then the provider screens in docs/design/prototype.jsx (ProviderApp and everything it renders, plus SmsScreen). Build them for real against the API under /p as an installable PWA.
+CLAUDE.md, docs/prompts/CODEX-review.md, docs/spec/decisions.md, domain.md, state-machines.md, api.md, notifications.md, lanes.md, then the provider screens in docs/design/prototype.jsx (ProviderApp and everything it renders, plus SmsScreen). Build them for real against the API under /p as an installable PWA.
 
 YOUR SCOPE
 Web (web/src/provider/**) and API routes marked L2 in api.md:
@@ -202,7 +191,7 @@ ACCEPTANCE (walk it yourself before reporting)
 As Dave: open a job alert from the Outbox drawer, accept a mowing job, see it on Today, start the timer, add photos, finish with an overrun flag, see the ledger entry, see the tax pack update, set a weekly limit of £250 and see a job marked over it, book a week off with one visit covered and one sent to Tom, invite a new own customer and fail to invite 07700 900123. As a new provider: complete sign-up up to the payment-account link.
 
 REVIEW AND HAND-OFF
-Tests for endpoints, the mileage and tax calculations, and the limit filter. One high-effort Codex review via MCP on the final tree, fix what you accept, one medium re-check; a third only for a blocker; findings are inputs, not vetoes. Rebase on main before the final review. Push and open a PR. DO NOT MERGE. Report: (1) built; (2) how to demo; (3) rulings; (4) Codex findings accepted/rejected with reasons; (5) contract-change requests; (6) open questions.
+Tests for endpoints, the mileage and tax calculations, and the limit filter. Codex review per docs/prompts/CODEX-review.md: run the tests yourself first, then scripts/codex-review.sh with your lane's focus line; one review, one re-check, a third only for an open BLOCKER; findings are inputs, not vetoes. Rebase on main before the final review. Push and open a PR. DO NOT MERGE. Report: (1) built; (2) how to demo; (3) rulings; (4) Codex findings accepted/rejected with reasons; (5) contract-change requests; (6) open questions.
 ```
 
 ---
@@ -215,7 +204,7 @@ Tests for endpoints, the mileage and tax calculations, and the limit filter. One
 You are lane L3 (Admin and payments) for OneQuickJob, a local marketplace for non-certified home and garden jobs in High Wycombe. Foundations are merged. Work in /srv/oqj/lane-admin on branch l3/admin-payments, using this worktree's .env (API 8003, web 5173, database oqj_l3). L1 Customer and L2 Provider run in parallel; do not edit files they own.
 
 READ FIRST
-docs/spec/decisions.md, domain.md, state-machines.md, api.md, notifications.md, lanes.md, then the admin screens in docs/design/prototype.jsx (AdminApp and everything it renders).
+CLAUDE.md, docs/prompts/CODEX-review.md, docs/spec/decisions.md, domain.md, state-machines.md, api.md, notifications.md, lanes.md, then the admin screens in docs/design/prototype.jsx (AdminApp and everything it renders).
 
 PART A: STRIPE PAYMENT GATEWAY (do this first; the other lanes call its interface)
 Implement the PaymentGateway interface defined in foundations with Stripe, selected when STRIPE_SECRET_KEY is set (test keys only; refuse to start if a live key is supplied while DEMO_MODE is true):
@@ -248,7 +237,7 @@ ACCEPTANCE (walk it yourself before reporting)
 With a Stripe test key: onboard a test provider through the Express link using Stripe's test values; save a test card for a customer; charge a visit and confirm in the Stripe dashboard that the provider is the settlement merchant, the transfer is £25.50 and our fee is £4.50 on a £30 visit, and £1 on a £15 own-customer visit; refund half of a visit; receive the webhooks. Without a key: the fake gateway still passes the same tests. In admin: copy a WhatsApp message, raise a guide, verify a document, draft and approve a pricing change as two different admins, resolve a dispute with a partial refund, export the HMRC CSV.
 
 REVIEW AND HAND-OFF
-Tests for the gateway (fake, and Stripe with recorded or mocked responses), fee and refund maths, approval rules and the export. One high-effort Codex review via MCP on the final tree, fix what you accept, one medium re-check; a third only for a blocker; findings are inputs, not vetoes. Rebase on main before the final review. Push and open a PR. DO NOT MERGE. Report: (1) built; (2) how to demo; (3) rulings; (4) Codex findings accepted/rejected with reasons; (5) contract-change requests; (6) open questions.
+Tests for the gateway (fake, and Stripe with recorded or mocked responses), fee and refund maths, approval rules and the export. Codex review per docs/prompts/CODEX-review.md: run the tests yourself first, then scripts/codex-review.sh with your lane's focus line; one review, one re-check, a third only for an open BLOCKER; findings are inputs, not vetoes. Rebase on main before the final review. Push and open a PR. DO NOT MERGE. Report: (1) built; (2) how to demo; (3) rulings; (4) Codex findings accepted/rejected with reasons; (5) contract-change requests; (6) open questions.
 ```
 
 **Merge order:** L3 first (other lanes depend on its gateway), then L1, then L2. Each lane rebases on `main` before its final review, so later merges stay clean.
@@ -263,7 +252,7 @@ Tests for the gateway (fake, and Stripe with recorded or mocked responses), fee 
 You are the integration session for OneQuickJob, a local marketplace for non-certified home and garden jobs in High Wycombe. Lanes L1 (Customer), L2 (Provider) and L3 (Admin and payments) are merged into main. Work on branch i/integration in /srv/oqj/main.
 
 READ FIRST
-docs/spec/*.md (including any contract-changes files), docs/design/build-pack.md, and the three lane PR descriptions.
+CLAUDE.md, docs/prompts/CODEX-review.md, docs/spec/*.md (including any contract-changes files), docs/design/build-pack.md, and the three lane PR descriptions.
 
 TASKS
 1. Resolve any open contract-change requests and loose ends between lanes; list each in your report.
@@ -274,7 +263,7 @@ TASKS
 6. A one-page docs/demo-script.md: the clicks to demo the product to a business partner in ten minutes.
 
 RULINGS, STOP-AND-ASK, REVIEW
-As in the lane prompts. One high-effort Codex review on the final tree, one medium re-check, a third only for a blocker; findings are inputs, not vetoes. Push and open a PR. DO NOT MERGE. Report: (1) what changed; (2) the demo URL and how to log in; (3) rulings; (4) Codex findings accepted/rejected with reasons; (5) known gaps before a real pilot.
+As in the lane prompts. Codex review per docs/prompts/CODEX-review.md with the I focus line: one review, one re-check, a third only for an open BLOCKER; findings are inputs, not vetoes. Push and open a PR. DO NOT MERGE. Report: (1) what changed; (2) the demo URL and how to log in; (3) rulings; (4) Codex findings accepted/rejected with reasons; (5) known gaps before a real pilot.
 ```
 
 ---
