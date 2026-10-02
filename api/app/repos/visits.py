@@ -25,6 +25,7 @@ class Visits(Repo[Visit]):
             partialFilterExpression={"series_id": _STR},
             name="one_visit_per_series_day",
         ),
+        idx("booking_id", unique=True, partialFilterExpression={"is_first": True}, name="one_first_visit_per_booking"),
     ]
 
     async def for_provider_day(self, provider_id: str, day: date) -> list[Visit]:

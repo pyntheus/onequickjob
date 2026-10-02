@@ -454,3 +454,76 @@ async def test_a_reserved_counter_loses_to_a_guide_acceptance_that_got_there_fir
         await marketplace.finish_counter_acceptance(db, make_settings(), await Offers(db).get(offer["id"]))
     assert getattr(e.value, "status_code", None) == 409
     assert (await Offers(db).get(offer["id"])).status == "lapsed"
+
+
+async def _reserved_counter(app, db):
+    customer = await make_customer(db)
+    mike = await make_provider(db, "Mike Reynolds", "+447700900202", ["mowing", "jetwash"])
+    req = await make_request(db, customer, "jetwash")  # one-off: no series index to lean on
+    async with await new_client(app) as mc:
+        await sign_in(mc, db, "+447700900202")
+        offer = (await mc.post(f"/api/p/requests/{req.ref}/counter", json={"price_pence": 9500})).json()
+    await db["offers"].update_one({"_id": offer["id"]}, {"$set": {"status": "accepting"}})
+    return customer, mike, req, await Offers(db).get(offer["id"])
+
+
+async def test_concurrent_finishes_of_one_acceptance_book_once_and_message_once(app, db, catalogue):
+    """Codex F-third-1: retries and repair racing each other converge on one of everything."""
+    _, _, req, offer = await _reserved_counter(app, db)
+    s = make_settings()
+    results = await asyncio.gather(
+        *(marketplace.finish_counter_acceptance(db, s, offer) for _ in range(4)), return_exceptions=True
+    )
+    assert all(isinstance(r, marketplace.BookingOutcome) for r in results), results
+    booking = await Bookings(db).by_request(req.id)
+    assert await Bookings(db).count({}) == 1
+    assert await Visits(db).count({"booking_id": booking.id}) == 1, "one-off: exactly one visit"
+    assert await Visits(db).count({"booking_id": booking.id, "is_first": True}) == 1
+    assert await db["outbox"].count_documents({"template_id": "request_booked"}) == 1
+    assert await db["outbox"].count_documents({"template_id": "booking_confirmed"}) == 1
+    assert (await Offers(db).get(offer.id)).status == "accepted"
+
+
+async def test_concurrent_completions_of_a_guide_claim_converge(db, catalogue):
+    customer = await make_customer(db)
+    dave = await make_provider(db, "Dave Hughes", "+447700900201", ["jetwash"])
+    req = await make_request(db, customer, "jetwash")
+    claimed = await marketplace.claim_request(
+        db, req.id, provider_id=dave.id, price_pence=req.guide_pence, first_price_pence=None, via="guide"
+    )
+    await asyncio.gather(*(marketplace.complete_claimed(db, make_settings(), claimed) for _ in range(4)))
+    booking = await Bookings(db).by_request(req.id)
+    assert await Visits(db).count({"booking_id": booking.id}) == 1
+    assert await db["outbox"].count_documents({"template_id": {"$in": ["request_booked", "booking_confirmed"]}}) == 2
+
+
+@pytest.mark.parametrize("change", ["suspended", "insurance_expired"])
+async def test_a_resumed_reservation_rechecks_eligibility(app, client, db, catalogue, change):
+    """Codex F-third-2: suspension or an expired document between reservation and claim stops it."""
+    from datetime import timedelta
+
+    from app.core.timeutil import london_today, utcnow
+    from app.repos import Providers
+    from app.shared.tasks import repair_acceptances
+
+    _, mike, req, offer = await _reserved_counter(app, db)
+    if change == "suspended":
+        await Providers(db).set_status(mike.id, "suspended", "test")
+    else:
+        await db["providers"].update_one(
+            {"_id": mike.id, "documents.type": "insurance"},
+            {"$set": {"documents.$.expires_on": (london_today() - timedelta(days=1)).isoformat()}},
+        )
+    # Customer retry:
+    await sign_in(client, db, "+447700900123")
+    r = await client.post(f"/api/c/offers/{offer.id}/accept")
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "provider_unavailable"
+    assert (await Offers(db).get(offer.id)).status == "lapsed"
+    assert (await JobRequests(db).get(req.id)).status == "open", "still bookable by someone eligible"
+    # Repair path, on a fresh reservation:
+    await db["offers"].update_one(
+        {"_id": offer.id}, {"$set": {"status": "accepting", "accepting_at": utcnow() - timedelta(minutes=5)}}
+    )
+    await repair_acceptances(db, make_settings())
+    assert (await Offers(db).get(offer.id)).status == "lapsed"
+    assert await Bookings(db).count({}) == 0

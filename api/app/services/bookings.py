@@ -221,20 +221,22 @@ async def finish_setup(db: Db, booking: Booking, customer: Customer, provider: P
         try:
             await visits.insert(first)
         except DuplicateKeyError:
-            # The plan already has a visit on the anchor day (a concurrent resume, or one made
-            # by an older horizon top-up): adopt it as the first visit with first-visit terms.
-            first = await visits.find_one_and_update(
-                {"booking_id": booking.id, "local_date": first_day.isoformat(), "status": "scheduled"},
-                {
-                    "$set": {
-                        "is_first": True,
-                        "price_pence": first.price_pence,
-                        "est_mins": first.est_mins,
-                        "scheduled_start": start,
-                        "pricing_version_id": booking.pricing_version_id,
-                    }
-                },
-            )
+            # Another setup got there first (one first visit per booking is a unique index), or
+            # the plan already has a visit on the anchor day: use that one as the first visit.
+            first = await visits.find_one({"booking_id": booking.id, "is_first": True})
+            if first is None:
+                first = await visits.find_one_and_update(
+                    {"booking_id": booking.id, "local_date": first_day.isoformat(), "status": "scheduled"},
+                    {
+                        "$set": {
+                            "is_first": True,
+                            "price_pence": booking.first_price_pence or booking.price_pence,
+                            "est_mins": booking.first_est_mins or booking.est_mins,
+                            "scheduled_start": start,
+                            "pricing_version_id": booking.pricing_version_id,
+                        }
+                    },
+                )
             if first is None:
                 raise
     if series:

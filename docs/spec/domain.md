@@ -550,6 +550,7 @@ Indexes:
 - `status, local_date`
 - `category_id, status`
 - `series_id, local_date` (unique; partial {'series_id': {'$type': 'string'}})
+- `booking_id` (unique; partial {'is_first': True})
 
 ## `ratings`
 
@@ -673,6 +674,7 @@ Model `app.models.system.OutboxMessage`; repo `app.repos.outbox.Outbox`. Owner F
 | `related` | Related |  |
 | `status` | Literal['logged'] |  |
 | `not_before` | datetime \| None (optional) | Held for quiet hours: would send at |
+| `idempotency_key` | str \| None (optional) | Unique when set: the same message is never written twice (e.g. booking:<id>:request_booked) |
 | `created_at` | datetime |  |
 
 Indexes:
@@ -680,6 +682,7 @@ Indexes:
 - `recipient.user_id, created_at desc`
 - `template_id, created_at desc`
 - `related.request_id`
+- `idempotency_key` (unique; partial {'idempotency_key': {'$type': 'string'}})
 
 ## `ledger_entries`
 

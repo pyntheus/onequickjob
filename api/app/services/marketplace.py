@@ -168,10 +168,10 @@ async def complete_claimed(db: Db, s: Settings, req: JobRequest) -> BookingOutco
             "job_taken",
             {"category": wording.lower_name(cat), "area": req.address.area},
             Related(request_id=req.id, offer_id=o.id),
+            idempotency_key=f"offer:{o.id}:job_taken",
         )
-    # Booking messages: sent, then marked, so a resumed setup re-sends any that never went
-    # out (at least once). Only the claim's winner and, after a grace period, the repair task
-    # ever get here, so they don't race.
+    # Booking messages carry idempotency keys, so however many completions run (a retry, the
+    # repair task, concurrently), each is written exactly once; then the booking is marked.
     if booking.confirmations_sent_at is None:
         await _notify_booked(db, s, req, cat, customer, provider, booking, first)
         booking = await Bookings(db).update(booking.id, {"confirmations_sent_at": utcnow()}) or booking
@@ -220,6 +220,7 @@ async def _complete_cover(db: Db, s: Settings, req: JobRequest) -> BookingOutcom
                 to=recipient_for(cu),
                 settings=s,
                 related=related,
+                idempotency_key=f"cover:{req.id}:cover_coming",
                 data={
                     "provider": regular.short,
                     "date": wording.day_text(visit.local_date),
@@ -386,6 +387,14 @@ async def finish_counter_acceptance(db: Db, s: Settings, offer: Offer) -> Bookin
     req = await JobRequests(db).get(offer.request_id)
     assert req is not None
     if req.status == "open":
+        # A resumed reservation still has to meet the hard rules at the moment of the claim.
+        provider = await Providers(db).get(offer.provider_id)
+        cat = await _category(db, req.category_id)
+        if provider is None or not can_take(provider, cat).ok:
+            await offers.update(
+                offer.id, {"status": "lapsed", "decided_at": utcnow()}, extra_filter={"status": "accepting"}
+            )
+            fail(status.HTTP_409_CONFLICT, "provider_unavailable", "That provider can't take this job any more.")
         claimed = await claim_request(
             db,
             req.id,
@@ -438,7 +447,13 @@ async def decline_counter(db: Db, s: Settings, offer_id: str, customer: Customer
 
 
 async def _notify_provider(
-    db: Db, s: Settings, provider_id: str, template_id: str, data: dict, related: Related
+    db: Db,
+    s: Settings,
+    provider_id: str,
+    template_id: str,
+    data: dict,
+    related: Related,
+    idempotency_key: str | None = None,
 ) -> None:
     provider = await Providers(db).get(provider_id)
     user = await Users(db).get(provider.user_id) if provider else None
@@ -450,6 +465,7 @@ async def _notify_provider(
             data=data,
             related=related.model_copy(update={"provider_id": provider_id}),
             settings=s,
+            idempotency_key=idempotency_key,
         )
 
 
@@ -475,6 +491,7 @@ async def _notify_booked(
             to=recipient_for(cu),
             settings=s,
             related=related,
+            idempotency_key=f"booking:{booking.id}:request_booked",
             data={
                 "provider": provider.short,
                 "provider_first": wording.first_name(provider.name),
@@ -502,4 +519,5 @@ async def _notify_booked(
             "link": link("/p/today", s),
         },
         related,
+        idempotency_key=f"booking:{booking.id}:booking_confirmed",
     )

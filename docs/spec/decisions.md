@@ -165,7 +165,8 @@ and integration (I) folds the accepted ones in here.
   stepper bounds); one pending counter per provider per request. **Offers are immutable**: a
   provider who changes their price withdraws the old offer and makes a new one, so a customer
   always accepts exactly the terms they saw. Accepting first reserves the offer
-  (`accepting`), then claims the request; either step can be resumed (Codex review). A counter sets the per-visit
+  (`accepting`), then claims the request; either step can be resumed, and a resumed claim
+  re-checks the provider's eligibility first (Codex review). A counter sets the per-visit
   price. Unless the provider gives a separate first-visit price, the first visit is the higher
   of the counter and the request's first-visit guide (open question Q1). Counters aren't
   allowed on time-off cover requests (cover is at the regular price).
@@ -183,8 +184,9 @@ and integration (I) folds the accepted ones in here.
   booked with a pre-allocated booking id and the agreed prices frozen in the claim (a guide
   acceptance also checks the guide hasn't changed since it was read). Booking setup then runs
   in idempotent steps: the booking (with its first-visit slot fixed), plan, first visit, visit
-  horizon and thread, each checked before it's written, then `setup_complete`; booking
-  messages are sent and then marked (at least once). A periodic task resumes any claim from the
+  horizon and thread, each checked before it's written (one first visit per booking is a
+  unique index), then `setup_complete`. Booking messages carry outbox idempotency keys, so
+  however many completions run, concurrently or after a crash, each is written exactly once. A periodic task resumes any claim from the
   last day whose setup isn't complete, after a two-minute grace so it never races the request
   that won; only setup creates a plan's first visit (the hourly horizon top-up skips plans whose
   booking isn't complete, and setup adopts an anchor-day visit if one exists). Each task item

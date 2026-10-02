@@ -16,6 +16,7 @@ class Outbox(Repo[OutboxMessage]):
         idx("recipient.user_id", ("created_at", DESCENDING)),
         idx("template_id", ("created_at", DESCENDING)),
         idx("related.request_id"),
+        idx("idempotency_key", unique=True, partialFilterExpression={"idempotency_key": {"$type": "string"}}),
     ]
 
     async def latest(self, limit: int = 30) -> list[OutboxMessage]:

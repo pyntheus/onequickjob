@@ -30,6 +30,10 @@ class OutboxMessage(Doc):
     related: Related = Field(default_factory=Related)
     status: Literal["logged"] = "logged"
     not_before: datetime | None = Field(default=None, description="Held for quiet hours: would send at")
+    idempotency_key: str | None = Field(
+        default=None,
+        description="Unique when set: the same message is never written twice (e.g. booking:<id>:request_booked)",
+    )
     created_at: datetime
 
 
