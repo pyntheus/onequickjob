@@ -1,25 +1,35 @@
 # Codex review
 
 Codex reviews run through the official Codex plugin for Claude Code, via
-`scripts/codex-review.sh`. It runs an adversarial review of your branch against `main`,
-read-only, in the foreground. The plugin's slash command can't be invoked by the model,
+`scripts/codex-review.sh`: an adversarial, read-only review of your branch against
+`main`, in the foreground. The plugin's slash command can't be invoked by the model,
 so always use the script.
+
+## Two rules
+
+- The review only sees COMMITTED work: it compares your branch's last commit with
+  `main`. The script refuses to run while anything is uncommitted, so commit first,
+  every time, including before a re-check.
+- Codex reviews read-only and doesn't run tests. Run them yourself and put the results
+  in the focus text.
 
 ## When and how
 
-1. Finish the work, then run `make lint` and `make test` yourself. Codex reviews
-   read-only and doesn't run them.
-2. Run the review from your worktree with the focus text below, filled in:
+1. Finish the work. Run `make lint` and `make test`. Commit everything.
+2. Run the review from your worktree:
 
        scripts/codex-review.sh "<focus text>"
 
    Reviews can take several minutes. If one might exceed the Bash tool's timeout, run it
    in the background, writing to `/tmp/codex-review-<session>.out`, and check back.
-3. Triage the findings: fix every BLOCKER; use judgement on SHOULD and NICE.
-4. Run one re-check, with focus text listing exactly what you changed. A third review
-   only if a BLOCKER is still open.
-5. Report: the verdict, what you fixed, and which findings you declined and why.
-   Findings are inputs, not vetoes. Never merge: Hasan merges.
+3. Triage using the plugin's own severities:
+   - critical or high: must fix;
+   - medium: fix unless you have a clear reason not to, and give the reason;
+   - low: your judgement.
+4. Commit the fixes, then run one re-check, with focus text listing exactly what you
+   changed. A third review only if a critical or high finding is still open.
+5. Report: the verdict (approve or needs-attention), what you fixed, and which findings
+   you declined and why. Findings are inputs, not vetoes. Never merge: Hasan merges.
 
 ## Focus text
 
@@ -36,8 +46,7 @@ Start with this, filled in:
     features disappear when it is off; (5) only Caddy publishes ports, everything else
     binds to 127.0.0.1, and no secrets or live keys are in the repo; (6) no edits to
     files another lane owns (docs/spec/lanes.md); (7) bugs, missing error handling,
-    weak tests. Classify findings as BLOCKER, SHOULD or NICE with file and line, and
-    end with a one-line verdict: MERGE or FIX FIRST.
+    weak tests.
 
 Then add the session's extra line:
 

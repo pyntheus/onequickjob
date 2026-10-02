@@ -89,7 +89,7 @@ STOP AND ASK (in your report, do not guess)
 Anything that changes money, fees or pricing semantics; the auth or security model; adding any external service; dropping a prototype feature; anything the golden tests can't pass without changing a model.
 
 REVIEW AND HAND-OFF
-- Codex review: follow docs/prompts/CODEX-review.md exactly (run make lint and make test yourself first, then scripts/codex-review.sh with the F focus line; one review, one re-check, a third only for an open BLOCKER). Codex findings are inputs, not vetoes.
+- Codex review: follow docs/prompts/CODEX-review.md exactly (run make lint and make test yourself and commit everything first, then scripts/codex-review.sh with the F focus line; one review, one re-check, a third only if a critical or high finding is still open). Codex findings are inputs, not vetoes.
 - make lint and make test must pass. make dev must bring the stack up and the site must load behind basic auth at dev.onequickjob.co.uk.
 - Push f/foundations and open a PR. DO NOT MERGE.
 - Finish with a report in this shape: (1) what was built; (2) how to run it; (3) rulings you made; (4) Codex findings, each accepted or rejected with a one-line reason; (5) anything you need decided; (6) deviations from this prompt, if any, and why.
@@ -148,7 +148,7 @@ ACCEPTANCE (walk it yourself before reporting)
 As a logged-out visitor: pick Lawn mowing, choose an address, pick a size band, answer the questions, see £31 a visit for the default answers with the Large band (190 m2; the £30 golden test is for 186 m2), request it, log in with the code from the Outbox drawer, add the fake card, simulate responses, accept the counter or wait for the guide acceptance, see the booking, message the provider, rate a past visit, report a problem. Repeat the request flow for Regular cleaning and Flat-pack assembly. Accept an own-customer invite as Mary.
 
 REVIEW AND HAND-OFF
-Tests for every new endpoint and the main screens (vitest + Testing Library). Codex review per docs/prompts/CODEX-review.md: run the tests yourself first, then scripts/codex-review.sh with your lane's focus line; one review, one re-check, a third only for an open BLOCKER; findings are inputs, not vetoes. Rebase on main before the final review. Push and open a PR. DO NOT MERGE. Report: (1) built; (2) how to demo; (3) rulings; (4) Codex findings accepted/rejected with reasons; (5) contract-change requests; (6) open questions.
+Tests for every new endpoint and the main screens (vitest + Testing Library). Codex review per docs/prompts/CODEX-review.md: run the tests yourself and commit everything first, then scripts/codex-review.sh with your lane's focus line; one review, one re-check, a third only if a critical or high finding is still open; findings are inputs, not vetoes. Rebase on main before the final review. Push and open a PR. DO NOT MERGE. Report: (1) built; (2) how to demo; (3) rulings; (4) Codex findings accepted/rejected with reasons; (5) contract-change requests; (6) open questions.
 ```
 
 ---
@@ -191,7 +191,7 @@ ACCEPTANCE (walk it yourself before reporting)
 As Dave: open a job alert from the Outbox drawer, accept a mowing job, see it on Today, start the timer, add photos, finish with an overrun flag, see the ledger entry, see the tax pack update, set a weekly limit of £250 and see a job marked over it, book a week off with one visit covered and one sent to Tom, invite a new own customer and fail to invite 07700 900123. As a new provider: complete sign-up up to the payment-account link.
 
 REVIEW AND HAND-OFF
-Tests for endpoints, the mileage and tax calculations, and the limit filter. Codex review per docs/prompts/CODEX-review.md: run the tests yourself first, then scripts/codex-review.sh with your lane's focus line; one review, one re-check, a third only for an open BLOCKER; findings are inputs, not vetoes. Rebase on main before the final review. Push and open a PR. DO NOT MERGE. Report: (1) built; (2) how to demo; (3) rulings; (4) Codex findings accepted/rejected with reasons; (5) contract-change requests; (6) open questions.
+Tests for endpoints, the mileage and tax calculations, and the limit filter. Codex review per docs/prompts/CODEX-review.md: run the tests yourself and commit everything first, then scripts/codex-review.sh with your lane's focus line; one review, one re-check, a third only if a critical or high finding is still open; findings are inputs, not vetoes. Rebase on main before the final review. Push and open a PR. DO NOT MERGE. Report: (1) built; (2) how to demo; (3) rulings; (4) Codex findings accepted/rejected with reasons; (5) contract-change requests; (6) open questions.
 ```
 
 ---
@@ -237,7 +237,7 @@ ACCEPTANCE (walk it yourself before reporting)
 With a Stripe test key: onboard a test provider through the Express link using Stripe's test values; save a test card for a customer; charge a visit and confirm in the Stripe dashboard that the provider is the settlement merchant, the transfer is £25.50 and our fee is £4.50 on a £30 visit, and £1 on a £15 own-customer visit; refund half of a visit; receive the webhooks. Without a key: the fake gateway still passes the same tests. In admin: copy a WhatsApp message, raise a guide, verify a document, draft and approve a pricing change as two different admins, resolve a dispute with a partial refund, export the HMRC CSV.
 
 REVIEW AND HAND-OFF
-Tests for the gateway (fake, and Stripe with recorded or mocked responses), fee and refund maths, approval rules and the export. Codex review per docs/prompts/CODEX-review.md: run the tests yourself first, then scripts/codex-review.sh with your lane's focus line; one review, one re-check, a third only for an open BLOCKER; findings are inputs, not vetoes. Rebase on main before the final review. Push and open a PR. DO NOT MERGE. Report: (1) built; (2) how to demo; (3) rulings; (4) Codex findings accepted/rejected with reasons; (5) contract-change requests; (6) open questions.
+Tests for the gateway (fake, and Stripe with recorded or mocked responses), fee and refund maths, approval rules and the export. Codex review per docs/prompts/CODEX-review.md: run the tests yourself and commit everything first, then scripts/codex-review.sh with your lane's focus line; one review, one re-check, a third only if a critical or high finding is still open; findings are inputs, not vetoes. Rebase on main before the final review. Push and open a PR. DO NOT MERGE. Report: (1) built; (2) how to demo; (3) rulings; (4) Codex findings accepted/rejected with reasons; (5) contract-change requests; (6) open questions.
 ```
 
 **Merge order:** L3 first (other lanes depend on its gateway), then L1, then L2. Each lane rebases on `main` before its final review, so later merges stay clean.
@@ -263,7 +263,7 @@ TASKS
 6. A one-page docs/demo-script.md: the clicks to demo the product to a business partner in ten minutes.
 
 RULINGS, STOP-AND-ASK, REVIEW
-As in the lane prompts. Codex review per docs/prompts/CODEX-review.md with the I focus line: one review, one re-check, a third only for an open BLOCKER; findings are inputs, not vetoes. Push and open a PR. DO NOT MERGE. Report: (1) what changed; (2) the demo URL and how to log in; (3) rulings; (4) Codex findings accepted/rejected with reasons; (5) known gaps before a real pilot.
+As in the lane prompts. Codex review per docs/prompts/CODEX-review.md with the I focus line: one review, one re-check, a third only if a critical or high finding is still open; findings are inputs, not vetoes. Push and open a PR. DO NOT MERGE. Report: (1) what changed; (2) the demo URL and how to log in; (3) rulings; (4) Codex findings accepted/rejected with reasons; (5) known gaps before a real pilot.
 ```
 
 ---
