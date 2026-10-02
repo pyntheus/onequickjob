@@ -24,10 +24,13 @@ ADJUSTMENTS = [
 
 class ManualBandsV0:
     id = "manual_bands_v0"
+    # The customer picked a size band, so the price is "Fairly close", not "Usually close".
+    confidence = "medium"
 
     async def options(self, address: Address | None) -> AreaOptions:
         return AreaOptions(
             estimator=self.id,
+            confidence=self.confidence,
             bands=BANDS,
             adjustments=ADJUSTMENTS,
             tolerance_note="Your provider sees the same figure and can suggest a different price if it's off.",
@@ -39,4 +42,4 @@ class ManualBandsV0:
             raise AreaEstimateError("Choose the size that's closest to your lawn")
         factor = next(a.factor for a in ADJUSTMENTS if a.id == given.adjust)
         area = round_half_up(D(band.area_m2) * D(factor))
-        return Measure(estimator=self.id, area_m2=area, band=band.id, adjust=given.adjust)
+        return Measure(estimator=self.id, area_m2=area, band=band.id, adjust=given.adjust, confidence=self.confidence)

@@ -370,7 +370,11 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Verify Document */
+        /**
+         * Verify Document
+         * @description Set the expiry with services.documents.expiry_for (a basic DBS check: 12 months from its
+         *     issue date); F's task reminds the provider 30 days before it lapses.
+         */
         post: operations["verify_document_api_admin_providers__provider_id__documents__doc_type__verify_post"];
         delete?: never;
         options?: never;
@@ -1252,6 +1256,7 @@ export interface paths {
         /**
          * Upload Document
          * @description Attach an uploaded file (POST /api/files) as a document, status pending, for admin checks.
+         *     Work out its expiry with services.documents.expiry_for (a basic DBS check: 12 months from issue).
          */
         post: operations["upload_document_api_p_documents_post"];
         delete?: never;
@@ -1814,7 +1819,8 @@ export interface paths {
         /**
          * Finish Visit
          * @description Record minutes and flags (calibration data), charge through PaymentGateway.charge_visit
-         *     with the fee from money.py, write the ledger entry (services.ledger), send the messages.
+         *     with the fee from money.split_for_visit(price, source, performer kind) (a cover provider
+         *     pays 15% even on an own customer), write the ledger entry (services.ledger), send messages.
          */
         post: operations["finish_visit_api_p_visits__visit_id__finish_post"];
         delete?: never;
@@ -2025,6 +2031,8 @@ export interface components {
             expires_on: string | null;
             /** File Url */
             file_url: string | null;
+            /** Issued On */
+            issued_on: string | null;
             /** Label */
             label: string;
             /** Note */
@@ -2139,6 +2147,12 @@ export interface components {
             adjustments: components["schemas"]["AreaAdjustment"][];
             /** Bands */
             bands?: components["schemas"]["AreaBand"][];
+            /**
+             * Confidence
+             * @description The confidence quotes from this estimator get
+             * @enum {string}
+             */
+            confidence: "high" | "medium" | "low";
             /** Estimator */
             estimator: string;
             /** Tolerance Note */
@@ -2704,18 +2718,13 @@ export interface components {
         /** CounterRequest */
         CounterRequest: {
             /**
-             * First Price Pence
-             * @description Optional different first-visit price
-             */
-            first_price_pence?: number | null;
-            /**
              * Message
              * @default
              */
             message: string;
             /**
              * Price Pence
-             * @description Whole pounds, 80% to 300% of the guide
+             * @description Per-visit price, whole pounds, 80% to 300% of the guide. A job with a dearer first visit gets its first-visit price scaled by the same ratio (returned on the offer)
              */
             price_pence: number;
             /** Reasons */
@@ -2910,10 +2919,18 @@ export interface components {
         };
         /** DocumentIn */
         DocumentIn: {
-            /** Expires On */
+            /**
+             * Expires On
+             * @description For documents with a stated expiry, e.g. insurance
+             */
             expires_on?: string | null;
             /** File Id */
             file_id: string;
+            /**
+             * Issued On
+             * @description Needed for a basic DBS check (valid 12 months from it)
+             */
+            issued_on?: string | null;
             /**
              * Type
              * @enum {string}
@@ -2926,6 +2943,8 @@ export interface components {
             expires_on: string | null;
             /** File Url */
             file_url: string | null;
+            /** Issued On */
+            issued_on: string | null;
             /** Label */
             label: string;
             /** Note */
@@ -2959,6 +2978,11 @@ export interface components {
              * @default 0
              */
             sort: number;
+            /**
+             * Valid Months
+             * @description Valid this many months from the issue date (basic DBS: 12); else the stated expiry
+             */
+            valid_months?: number | null;
         };
         /** DraftIn */
         DraftIn: {
@@ -3671,6 +3695,11 @@ export interface components {
             /** Band */
             band?: string | null;
             /**
+             * Confidence
+             * @description How sure the estimator is; becomes the quote's confidence
+             */
+            confidence?: ("high" | "medium" | "low") | null;
+            /**
              * Detail
              * @description Estimator-specific, e.g. LIDAR polygons
              */
@@ -3777,8 +3806,13 @@ export interface components {
             /** Decided At */
             decided_at?: string | null;
             /**
+             * First Guide Pence
+             * @description The first-visit guide when the counter was made
+             */
+            first_guide_pence?: number | null;
+            /**
              * First Price Pence
-             * @description Optional different first-visit price
+             * @description First-visit price: the first-visit guide x price / guide, half-up to whole pounds. None when the job has no separate first-visit price
              */
             first_price_pence?: number | null;
             /**
@@ -5200,8 +5234,16 @@ export interface components {
         };
         /** VerifyDocIn */
         VerifyDocIn: {
-            /** Expires On */
+            /**
+             * Expires On
+             * @description For documents with a stated expiry, e.g. insurance
+             */
             expires_on?: string | null;
+            /**
+             * Issued On
+             * @description For a basic DBS check: the issue date (valid 12 months)
+             */
+            issued_on?: string | null;
         };
         /** VerifyRequest */
         VerifyRequest: {

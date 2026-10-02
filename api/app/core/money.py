@@ -2,7 +2,8 @@
 
 Standard fee (customers we found): round half-up of price x FEE_STANDARD_RATE (15%).
 Own-customer fee (customers a provider brings): max(FEE_OWN_MIN_PENCE, round half-up of
-price x FEE_OWN_RATE), i.e. 5% with a 100p minimum. Tips carry no fee.
+price x FEE_OWN_RATE), i.e. 5% with a 100p minimum, only when that provider or their
+registered helper does the visit; a cover provider pays the standard fee. Tips carry no fee.
 The provider always receives price minus fee.
 
 Rates come from config so they can change without code changes; the rounding rule
@@ -18,6 +19,7 @@ from app.core.rounding import round_half_up
 
 type FeeMode = Literal["standard", "own_customer", "tip"]
 type BookingSource = Literal["platform", "own_customer"]
+type PerformerKind = Literal["provider", "helper", "cover"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,6 +77,22 @@ def mode_for_source(source: BookingSource) -> FeeMode:
 
 def split_for_source(price_pence: int, source: BookingSource, settings: Settings | None = None) -> Split:
     return split(price_pence, mode_for_source(source), settings)
+
+
+def mode_for_visit(source: BookingSource, performer: PerformerKind) -> FeeMode:
+    """The fee for one visit. The own-customer rate applies only when the visit is done by the
+    provider who brought the customer, or by that provider's registered helper. A cover
+    provider didn't bring the customer, so a covered visit pays the standard rate."""
+    if source == "own_customer" and performer in ("provider", "helper"):
+        return "own_customer"
+    return "standard"
+
+
+def split_for_visit(
+    price_pence: int, source: BookingSource, performer: PerformerKind, settings: Settings | None = None
+) -> Split:
+    """Use this to charge a visit (L2) and to show its split: fee mode from mode_for_visit."""
+    return split(price_pence, mode_for_visit(source, performer), settings)
 
 
 def refund_split(original: Split, refund_pence: int) -> Split:

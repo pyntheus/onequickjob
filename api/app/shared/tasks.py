@@ -16,6 +16,7 @@ from app.repos.providers import Providers
 from app.repos.series import SeriesRepo
 from app.repos.visits import Visits
 from app.services import schedule
+from app.services.documents import send_expiry_reminders
 from app.services.marketplace import complete_claimed, finish_counter_acceptance
 
 log = logging.getLogger("oqj.tasks")
@@ -73,3 +74,12 @@ async def repair_acceptances(db: Db, s: Settings) -> None:
             pass  # lapsed: someone else booked the request first
         except Exception:
             log.exception("finishing the acceptance of offer %s failed", offer.id)
+
+
+@periodic("document_expiry_reminders", every_seconds=3600)
+async def document_expiry(db: Db, s: Settings) -> None:
+    """30 days before any verified document expires (insurance, basic DBS...), remind once."""
+    try:
+        await send_expiry_reminders(db)
+    except Exception:
+        log.exception("document expiry reminders failed")

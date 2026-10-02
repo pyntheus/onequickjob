@@ -135,7 +135,7 @@ def add_visit(
     started = start + timedelta(minutes=4)
     finished = started + timedelta(minutes=actual_mins)
     charged = finished + timedelta(minutes=2)
-    split = money.split_for_source(booking.price_pence, booking.source, ctx.s)
+    split = money.split_for_visit(v.price_pence, v.source, v.performer.kind, ctx.s)
     charge_id = "ch_fake_" + sid("charge", key)[-12:]
     over, over25 = overran(est_mins, actual_mins)
     v.status = "finished"

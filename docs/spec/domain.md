@@ -272,6 +272,7 @@ Model `app.models.categories.DocumentType`; repo `app.repos.categories.DocumentT
 | `_id` | str |  |
 | `label` | str |  |
 | `expires` | bool |  |
+| `valid_months` | int \| None (optional) | Valid this many months from the issue date (basic DBS: 12); else the stated expiry |
 | `note` | str \| None (optional) |  |
 | `sort` | int |  |
 
@@ -405,8 +406,9 @@ Model `app.models.offers.Offer`; repo `app.repos.offers.Offers`. Owner F.
 | `request_id` | str |  |
 | `provider_id` | str |  |
 | `price_pence` | int | Suggested price per visit |
-| `first_price_pence` | int \| None (optional) | Optional different first-visit price |
+| `first_price_pence` | int \| None (optional) | First-visit price: the first-visit guide x price / guide, half-up to whole pounds. None when the job has no separate first-visit price |
 | `guide_pence` | int | The guide price when the counter was made |
+| `first_guide_pence` | int \| None (optional) | The first-visit guide when the counter was made |
 | `reasons` | list[str] |  |
 | `message` | str |  |
 | `status` | Literal['pending', 'accepting', 'accepted', 'declined', 'lapsed', 'withdrawn'] |  |
@@ -1037,6 +1039,7 @@ Indexes:
 |---|---|---|
 | `estimator` | str | AreaEstimator id, e.g. manual_bands_v0 |
 | `area_m2` | int |  |
+| `confidence` | Literal['high', 'medium', 'low'] \| None (optional) | How sure the estimator is; becomes the quote's confidence |
 | `band` | str \| None (optional) |  |
 | `adjust` | Literal['smaller', 'right', 'bigger'] \| None (optional) |  |
 | `detail` | dict[str, Any] \| None (optional) | Estimator-specific, e.g. LIDAR polygons |
@@ -1107,7 +1110,8 @@ Indexes:
 |---|---|---|
 | `type` | Literal['identity', 'insurance', 'waste_carrier', 'ladder_cover', 'dbs_basic', 'pet_cover'] |  |
 | `status` | Literal['missing', 'pending', 'verified', 'rejected', 'expired'] |  |
-| `expires_on` | date \| None (optional) |  |
+| `issued_on` | date \| None (optional) | Issue date (a basic DBS check runs 12 months from it) |
+| `expires_on` | date \| None (optional) | Last valid day; use services.documents.expiry_for to work it out |
 | `file_id` | str \| None (optional) |  |
 | `verified_by` | str \| None (optional) |  |
 | `verified_at` | datetime \| None (optional) |  |

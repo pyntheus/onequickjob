@@ -52,9 +52,10 @@
     {
       "_id": "dbs_basic",
       "label": "Basic DBS check",
-      "expires": false,
-      "note": "A point-in-time check; how often to renew is an open question",
-      "sort": 4
+      "expires": true,
+      "note": "Valid for 12 months from the issue date",
+      "sort": 4,
+      "valid_months": 12
     },
     {
       "_id": "pet_cover",

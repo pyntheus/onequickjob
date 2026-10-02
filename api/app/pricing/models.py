@@ -30,7 +30,8 @@ class Estimate:
     price_pence: int
     mins: int
     spread: tuple[Decimal, Decimal]
-    confidence: Confidence
+    # None for measured categories (lawns): the area estimator decides, and engine.price applies it.
+    confidence: Confidence | None
     unit: Unit
     first_pence: int | None = None
     first_mins: int | None = None
@@ -75,7 +76,9 @@ def lawn_area_v1(a: Answers, p: Params) -> Estimate:
 
     common: dict[str, Any] = {
         "spread": _spread(p["spread"]),
-        "confidence": p["confidence"],
+        # How sure we are depends on how the area was found, not on this model: the
+        # AreaEstimator's confidence is applied by engine.price (decisions.md, after F review).
+        "confidence": None,
         "conf_note": p.get("conf_note"),
     }
     if recurring and growth > 1:

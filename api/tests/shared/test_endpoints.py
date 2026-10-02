@@ -32,7 +32,7 @@ async def test_categories(client, catalogue):
 
 async def test_area_options_are_the_manual_bands(client):
     opts = (await client.get("/api/area/options")).json()
-    assert opts["estimator"] == "manual_bands_v0"
+    assert opts["estimator"] == "manual_bands_v0" and opts["confidence"] == "medium"
     assert [(b["id"], b["area_m2"]) for b in opts["bands"]] == [
         ("small", 40),
         ("medium", 85),
@@ -54,6 +54,7 @@ async def test_quote_mowing_large_band(client, db, catalogue):
         "band": "large",
         "adjust": "right",
         "detail": None,
+        "confidence": "medium",
     }
     assert q["fee"] == {
         "mode": "standard",
@@ -62,7 +63,14 @@ async def test_quote_mowing_large_band(client, db, catalogue):
         "fee_pence": 465,
         "provider_pence": 2635,
     }
-    assert q["confidence"]["label"] == "Usually close" and q["confidence"]["bars"] == 3
+    # Confidence follows the area estimator: manual size bands are "Fairly close".
+    assert q["confidence"] == {
+        "level": "medium",
+        "bars": 2,
+        "label": "Fairly close",
+        "note": "Based on the lawn size you chose, so most providers accept it as it is.",
+    }
+    assert q["measure"]["confidence"] == "medium"
     assert q["pricing_version"] == 1
     assert q["duration_text"] == "39 minutes"
     stored = await Quotes(db).get(q["id"])

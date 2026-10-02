@@ -103,7 +103,8 @@ async def add_photo(visit_id: str, body: PhotoIn, provider: Prov) -> ProviderVis
 @router.post("/visits/{visit_id}/finish")
 async def finish_visit(visit_id: str, body: FinishIn, provider: Prov) -> FinishOut:
     """Record minutes and flags (calibration data), charge through PaymentGateway.charge_visit
-    with the fee from money.py, write the ledger entry (services.ledger), send the messages."""
+    with the fee from money.split_for_visit(price, source, performer kind) (a cover provider
+    pays 15% even on an own customer), write the ledger entry (services.ledger), send messages."""
     not_implemented(LANE)
 
 
@@ -186,7 +187,8 @@ async def list_documents(provider: Prov) -> list[DocumentOut]:
 
 @router.post("/documents", status_code=status.HTTP_201_CREATED)
 async def upload_document(body: DocumentIn, provider: Prov) -> DocumentOut:
-    """Attach an uploaded file (POST /api/files) as a document, status pending, for admin checks."""
+    """Attach an uploaded file (POST /api/files) as a document, status pending, for admin checks.
+    Work out its expiry with services.documents.expiry_for (a basic DBS check: 12 months from issue)."""
     not_implemented(LANE)
 
 

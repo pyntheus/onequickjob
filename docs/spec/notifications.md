@@ -25,6 +25,7 @@ fold them into the catalogue at integration.
 | `booking_confirmed` | Text | provider | A provider's guide acceptance, or a counter the customer accepted, books the job. |
 | `counter_declined` | Text | provider | The customer chooses to keep waiting instead of accepting a counter. |
 | `job_taken` | Text | provider | A request books while the provider's counter was still waiting. |
+| `document_expiring` | Text | provider | 30 days before a verified document expires (insurance, a basic DBS check 12 months after issue, waste carrier, ladder and pet cover). Sent once per expiry date by the document_expiry task. |
 
 **`login_code`** (subject: Your {brand} sign-in code)
 
@@ -34,9 +35,9 @@ Placeholders: `brand`, `code`, `minutes`
 
 **`counter_offer`**
 
-> {brand}: {provider} suggested {price} for your {category}, instead of {guide}. {reason}Accept it or keep waiting: {link}
+> {brand}: {provider} suggested {price}{first_text} for your {category}, instead of {guide}. {reason}Accept it or keep waiting: {link}
 
-Placeholders: `brand`, `provider`, `price`, `category`, `guide`, `reason`, `link`
+Placeholders: `brand`, `provider`, `price`, `first_text`, `category`, `guide`, `reason`, `link`
 
 **`request_booked`**
 
@@ -67,6 +68,12 @@ Placeholders: `brand`, `customer`, `guide`, `category`, `area`, `link`
 > {brand}: the {category} job in {area} has gone to someone else. Thanks for looking.
 
 Placeholders: `brand`, `category`, `area`
+
+**`document_expiring`**
+
+> {brand}: your {document} runs out on {date}. Upload the new one so you can keep taking {jobs}: {link}
+
+Placeholders: `brand`, `document`, `date`, `jobs`, `link`
 
 ## L1 Customer
 
@@ -156,7 +163,6 @@ Placeholders: `brand`, `customer`, `date`
 | `cover_alert` | Text, WhatsApp | provider | A provider asks for cover; the visit is offered to other eligible providers. |
 | `visit_reminder_provider` | Text | provider | The day before a provider's first visit of the day, 6pm. |
 | `payment_on_its_way` | Text | provider | A visit is charged successfully. |
-| `document_expiring` | Text | provider | A month before a document expires, and again a week before. |
 | `limit_reached` | Text | provider | A provider's earnings for the period reach their limit. |
 | `time_off_arranged` | Text | provider | A provider books time off and the affected visits are arranged. |
 | `helper_invite` | Text | helper | A provider adds a helper. |
@@ -222,12 +228,6 @@ Placeholders: `brand`, `doing`, `area`, `day`, `time`
 > {brand}: {customer} has paid {price} for {category}. {net} is on its way with Friday's payout.
 
 Placeholders: `brand`, `customer`, `price`, `category`, `net`
-
-**`document_expiring`**
-
-> {brand}: your {document} runs out on {date}. Upload the new one so you can keep taking {jobs}: {link}
-
-Placeholders: `brand`, `document`, `date`, `jobs`, `link`
 
 **`limit_reached`**
 

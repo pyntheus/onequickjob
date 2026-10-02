@@ -32,6 +32,7 @@ class AreaOptions(BaseModel):
     """What the quote flow's lawn step shows. LIDAR would add measured lawns here."""
 
     estimator: str
+    confidence: Literal["high", "medium", "low"] = Field(description="The confidence quotes from this estimator get")
     bands: list[AreaBand] = Field(default_factory=list)
     adjustments: list[AreaAdjustment]
     tolerance_note: str
@@ -49,6 +50,9 @@ class AreaEstimateError(ValueError):
 
 
 class AreaEstimator(Protocol):
+    """Estimators own the confidence of lawn quotes: estimate() returns a Measure whose
+    confidence becomes the quote's (manual bands: medium; a measured estimator may say high)."""
+
     id: str
 
     async def options(self, address: Address | None) -> AreaOptions: ...

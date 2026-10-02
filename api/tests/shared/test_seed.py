@@ -1,10 +1,11 @@
 """make seed: idempotent, and the demo data the lanes rely on is there and consistent."""
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
 from app.core import money
+from app.models.categories import DocumentType
 from app.repos import Categories, PricingVersions, Providers, Users
 from app.seed.__main__ import main_async
 from app.seed.context import sid
@@ -14,6 +15,7 @@ from tests.conftest import make_settings
 
 # A fixed "now" (a Friday) so both runs in the idempotency test see the same clock.
 NOW = datetime(2026, 10, 2, 9, 30, tzinfo=UTC)
+DBS_TYPE = DocumentType(id="dbs_basic", label="Basic DBS check", expires=True, valid_months=12)
 SAMPLE = {
     "users": [sid("user", "dave"), sid("user", "sarah")],
     "customers": [sid("customer", "sarah")],
@@ -140,9 +142,9 @@ async def test_ledger_is_consistent_with_money_py(seeded):
     async for e in db["ledger_entries"].find({}):
         n += 1
         assert e["gross_pence"] == e["fee_pence"] + e["net_pence"]
-        split = money.split_for_source(e["gross_pence"], e["source"])
-        assert (e["fee_pence"], e["net_pence"]) == (split.fee_pence, split.provider_pence)
         visit = await db["visits"].find_one({"_id": e["visit_id"]})
+        split = money.split_for_visit(e["gross_pence"], e["source"], visit["performer"]["kind"])
+        assert (e["fee_pence"], e["net_pence"]) == (split.fee_pence, split.provider_pence)
         assert visit["charge"]["status"] == "succeeded" and visit["charge"]["fee_pence"] == e["fee_pence"]
     assert n >= 100
 
@@ -189,3 +191,43 @@ async def test_seeded_bookings_are_never_resumed_by_the_repair_task(db):
     await repair_claimed(db, make_settings())
     after = {c: await db[c].count_documents({}) for c in ("bookings", "visits", "outbox", "message_threads")}
     assert before == after
+
+
+async def test_seed_dates_are_relative_to_the_moment_of_seeding(app):
+    """Ruling after F review (e): the demo never goes stale."""
+    from app.core.timeutil import to_london
+    from app.services.documents import expiry_for
+
+    db = app.state.db
+    for now in (NOW, NOW + timedelta(days=150)):
+        await _wipe(db)
+        await seed(db, make_settings(), now=now)
+        today = to_london(now).date()
+
+        async def expiry(key: str, doc_type: str) -> date:
+            p = await db["providers"].find_one({"_id": sid("provider", key)})
+            d = next(d for d in p["documents"] if d["type"] == doc_type)
+            return date.fromisoformat(d["expires_on"])
+
+        assert (await expiry("alan", "insurance") - today).days == 9
+        assert (await expiry("gary", "insurance") - today).days == 48
+        lorna = await db["providers"].find_one({"_id": sid("provider", "lorna")})
+        dbs = next(d for d in lorna["documents"] if d["type"] == "dbs_basic")
+        assert dbs["issued_on"] and dbs["expires_on"]
+        assert date.fromisoformat(dbs["expires_on"]) == expiry_for(DBS_TYPE, date.fromisoformat(dbs["issued_on"]), None)
+        assert 0 < (date.fromisoformat(dbs["expires_on"]) - today).days <= 30, "inside the reminder window"
+    await _wipe(db)  # put back the module fixture's seed for the tests that follow
+    await seed(db, make_settings(), now=NOW)
+
+
+async def test_every_seeded_dbs_check_runs_twelve_months(seeded):
+    from app.services.documents import expiry_for
+
+    db, _ = seeded
+    n = 0
+    async for p in db["providers"].find({"documents.type": "dbs_basic"}):
+        for d in p["documents"]:
+            if d["type"] == "dbs_basic":
+                n += 1
+                assert d["expires_on"] == expiry_for(DBS_TYPE, date.fromisoformat(d["issued_on"]), None).isoformat()
+    assert n >= 7

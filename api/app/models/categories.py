@@ -77,6 +77,9 @@ class DocumentType(Doc):
 
     label: str
     expires: bool = True
+    valid_months: int | None = Field(
+        default=None, description="Valid this many months from the issue date (basic DBS: 12); else the stated expiry"
+    )
     note: str | None = None
     sort: int = 0
 

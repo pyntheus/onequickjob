@@ -311,20 +311,35 @@ async def test_completion_uses_the_prices_frozen_in_the_claim(db, catalogue):
     assert out.first_visit.price_pence == req.first_pence
 
 
-async def test_a_counter_with_its_own_first_visit_price(app, client, db, catalogue):
+def test_counter_first_visit_price_scales_by_the_same_ratio():
+    """Ruling after F review (a): first = first-visit guide x counter / guide, half-up to whole pounds."""
+    assert marketplace.scaled_first_price(2200, 3300, 2600) == 3900  # windows: £22/£33, counter £26
+    assert marketplace.scaled_first_price(2000, 3000, 2100) == 3200  # £31.50 rounds half-up to £32
+    assert marketplace.scaled_first_price(3100, 4200, 3700) == 5000  # £50.13 -> £50
+    assert marketplace.scaled_first_price(3100, None, 3700) is None  # no dearer first visit
+
+
+async def test_a_counter_on_a_job_with_a_dearer_first_visit(app, client, db, catalogue):
     customer = await make_customer(db)
-    await make_provider(db, "Mike Reynolds", "+447700900202", ["mowing"])
-    req = await make_request(db, customer)
+    await make_provider(db, "Mike Reynolds", "+447700900202", ["windows"])
+    req = await make_request(db, customer, "windows")  # £22 a clean, first £33
+    assert (req.guide_pence, req.first_pence) == (2200, 3300)
     async with await new_client(app) as mc:
         await sign_in(mc, db, "+447700900202")
-        offer = (
-            await mc.post(f"/api/p/requests/{req.ref}/counter", json={"price_pence": 3500, "first_price_pence": 4500})
-        ).json()
+        offer = (await mc.post(f"/api/p/requests/{req.ref}/counter", json={"price_pence": 2600})).json()
+        assert (offer["price_pence"], offer["first_price_pence"]) == (2600, 3900), "both prices on the offer"
+        assert (offer["guide_pence"], offer["first_guide_pence"]) == (2200, 3300)
+        ignored = await mc.post(
+            f"/api/p/requests/{req.ref}/counter", json={"price_pence": 2600, "first_price_pence": 9900}
+        )
+        assert ignored.status_code == 422, "the first-visit price isn't the provider's to set"
+    text = (await db["outbox"].find_one({"template_id": "counter_offer"}))["body"]
+    assert "suggested £26 (first visit £39) for your window cleaning, instead of £22" in text
     await sign_in(client, db, "+447700900123")
     r = await client.post(f"/api/c/offers/{offer['id']}/accept")
     booking = await Bookings(db).get(r.json()["booking_id"])
-    assert (booking.price_pence, booking.first_price_pence) == (3500, 4500)
-    assert r.json()["first_visit"]["price_pence"] == 4500
+    assert (booking.price_pence, booking.first_price_pence) == (2600, 3900)
+    assert r.json()["first_visit"]["price_pence"] == 3900
 
 
 async def test_guide_accept_fails_if_the_guide_changed_since_it_was_read(db, catalogue):

@@ -256,6 +256,7 @@ class DocumentOut(BaseModel):
     type: DocType
     label: str
     status: DocStatus
+    issued_on: date | None
     expires_on: date | None
     note: str | None
     file_url: str | None
@@ -264,7 +265,8 @@ class DocumentOut(BaseModel):
 class DocumentIn(In):
     type: DocType
     file_id: str
-    expires_on: date | None = None
+    issued_on: date | None = Field(default=None, description="Needed for a basic DBS check (valid 12 months from it)")
+    expires_on: date | None = Field(default=None, description="For documents with a stated expiry, e.g. insurance")
 
 
 class HelperOut(BaseModel):

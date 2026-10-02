@@ -17,6 +17,7 @@ from app.core.config import Settings
 from app.core.db import Db
 from app.core.errors import fail
 from app.core.ids import new_id
+from app.core.rounding import D, round_to_pound
 from app.core.timeutil import utcnow
 from app.models.bookings import Booking
 from app.models.categories import Category
@@ -116,12 +117,18 @@ async def claim_request(
     )
 
 
+def scaled_first_price(guide_pence: int, first_guide_pence: int | None, counter_pence: int) -> int | None:
+    """A counter sets the per-visit price; the first-visit price scales by the same ratio:
+    first = first-visit guide x counter / guide, rounded half-up to whole pounds. None when the
+    job has no separate first-visit price."""
+    if not first_guide_pence:
+        return None
+    return round_to_pound(D(first_guide_pence) * counter_pence / guide_pence)
+
+
 def counter_first_price(req: JobRequest, offer: Offer) -> int | None:
-    """A counter sets the per-visit price. Unless the provider named a first-visit price, the
-    first visit is the higher of the counter and the request's first-visit guide (decisions.md Q1)."""
-    if offer.first_price_pence:
-        return offer.first_price_pence
-    return max(req.first_pence, offer.price_pence) if req.first_pence else None
+    """The first-visit price frozen on the offer when it was made (scaled_first_price)."""
+    return offer.first_price_pence
 
 
 async def complete_claimed(db: Db, s: Settings, req: JobRequest) -> BookingOutcome:
@@ -180,8 +187,9 @@ async def complete_claimed(db: Db, s: Settings, req: JobRequest) -> BookingOutco
 
 async def _complete_cover(db: Db, s: Settings, req: JobRequest) -> BookingOutcome:
     """A cover request was taken: the covering provider performs and is paid for that one
-    visit, at the same price; the customer stays the regular provider's. The visit keeps its
-    booking's source (so its fee mode) - see decisions.md Q5."""
+    visit, at the same price; the customer stays the regular provider's. The visit becomes
+    performer kind "cover", so money.split_for_visit charges the standard fee even on an
+    own customer's visit (decisions.md, rulings after F review)."""
     assert req.booked is not None and req.cover_for_visit_id
     visits = Visits(db)
     visit = await visits.get(req.cover_for_visit_id)
@@ -276,7 +284,6 @@ async def make_counter(
     price_pence: int,
     reasons: list[str],
     message: str = "",
-    first_price_pence: int | None = None,
 ) -> Offer:
     req = await _request(db, ref)
     cat = await _category(db, req.category_id)
@@ -297,6 +304,7 @@ async def make_counter(
     if price_pence == req.guide_pence:
         fail(status.HTTP_422_UNPROCESSABLE_CONTENT, "same_as_guide", "That's the guide price. Accept it instead.")
 
+    first_price = scaled_first_price(req.guide_pence, req.first_pence, price_pence)
     # Offers are immutable: a changed price withdraws the old offer and makes a new one, so a
     # customer accepting an offer id always gets exactly the price that offer showed.
     offers = Offers(db)
@@ -309,7 +317,8 @@ async def make_counter(
         provider_id=provider.id,
         price_pence=price_pence,
         guide_pence=req.guide_pence,
-        first_price_pence=first_price_pence,
+        first_price_pence=first_price,
+        first_guide_pence=req.first_pence,
         reasons=reasons,
         message=message,
         supersedes=previous.id if previous else None,
@@ -337,6 +346,7 @@ async def make_counter(
             data={
                 "provider": provider.short,
                 "price": wording.money(price_pence),
+                "first_text": f" (first visit {wording.money(first_price)})" if first_price else "",
                 "guide": wording.money(req.guide_pence),
                 "category": wording.lower_name(cat),
                 "reason": f'"{reason_text}" ' if reason_text else "",

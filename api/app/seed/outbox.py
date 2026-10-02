@@ -108,6 +108,11 @@ async def seed_messages(ctx: Ctx, requests: list[SeededRequest]) -> None:
                 {
                     "provider": gary.short,
                     "price": money.format_pounds(sr.counter.price_pence),
+                    "first_text": (
+                        f" (first visit {money.format_pounds(sr.counter.first_price_pence)})"
+                        if sr.counter.first_price_pence
+                        else ""
+                    ),
                     "guide": money.format_pounds(req.guide_pence),
                     "category": lower_name(cat),
                     "reason": f'"{sr.counter.message}" ',

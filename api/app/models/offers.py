@@ -24,8 +24,13 @@ class Offer(Timestamped):
     request_id: str
     provider_id: str
     price_pence: Pence = Field(description="Suggested price per visit")
-    first_price_pence: Pence | None = Field(default=None, description="Optional different first-visit price")
+    first_price_pence: Pence | None = Field(
+        default=None,
+        description="First-visit price: the first-visit guide x price / guide, half-up to whole pounds. "
+        "None when the job has no separate first-visit price",
+    )
     guide_pence: Pence = Field(description="The guide price when the counter was made")
+    first_guide_pence: Pence | None = Field(default=None, description="The first-visit guide when the counter was made")
     reasons: list[str] = Field(default_factory=list)
     message: str = ""
     status: OfferStatus = "pending"

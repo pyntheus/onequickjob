@@ -83,7 +83,15 @@ async def create_quote(
         full = validate_answers(cat, answers)
         if has_empty_counts(cat, full):
             fail(status.HTTP_422_UNPROCESSABLE_CONTENT, "nothing_to_price", "Add at least one item to see a price.")
-        est = price(cat, full, params_for(version.params, cat.id), measure.area_m2 if measure else None)
+        est = price(
+            cat,
+            full,
+            params_for(version.params, cat.id),
+            measure.area_m2 if measure else None,
+            measure.confidence if measure else None,
+        )
+        if est.confidence is None:
+            raise PricingError("the area estimator gave no confidence")
     except AnswerError as e:
         fail(status.HTTP_422_UNPROCESSABLE_CONTENT, "invalid_answer", e.message, key=e.key)
     except PricingError as e:

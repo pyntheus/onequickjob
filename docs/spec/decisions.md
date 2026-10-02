@@ -98,8 +98,10 @@ and integration (I) folds the accepted ones in here.
   uvicorn 0.54, pytest 9 with pytest-asyncio 1.4, ruff 0.16; React 19, Vite 8, TypeScript
   **5.9** (TypeScript 7 is out, but openapi-typescript and typescript-eslint need 5.x), ESLint
   **9** (eslint-plugin-jsx-a11y doesn't support 10 yet), Mongo 8.0, Caddy 2, Node 22.
-- **R2. Docker without the docker group.** The working user isn't in the `docker` group, so the
-  Makefile prefixes Docker with `sudo` when needed rather than changing the host's groups.
+- **R2. Docker and sudo.** `hasan` is in the `docker` group, but a login session started before
+  that change doesn't have the group yet, so the Makefile uses `sudo` only when the Docker
+  socket isn't reachable (`docker info` fails) and plain `docker` otherwise. After a fresh login
+  nothing runs under sudo. (Removing the fallback outright is pending: see the post-review report.)
 - **R3. Two Compose projects.** `infra/compose.shared.yml` (project `oqj-shared`: Mongo and
   Caddy, network `oqj`) is shared by every worktree; `infra/compose.app.yml` (project
   `oqj-<INSTANCE>`: api and web) is one per worktree. `INSTANCE` is the worktree's directory
@@ -139,7 +141,7 @@ and integration (I) folds the accepted ones in here.
   goes down. The port rounds the exact value up, as rule 17 requires; the generator flags these
   cases and the test allows exactly one unit (£1 or 1 minute) up there and nowhere else. The
   golden values are unaffected.
-- **R11. Mowing confidence note.** The prototype says "Measured from survey data, so most
+- **R11. Mowing confidence note** (the level is now set by the area estimator: see A2). The prototype says "Measured from survey data, so most
   providers accept it as it is." With manual size bands that's untrue, so the note is "Based on
   the lawn size you chose, so most providers accept it as it is." The confidence level stays
   high (open question Q2).
@@ -167,8 +169,8 @@ and integration (I) folds the accepted ones in here.
   always accepts exactly the terms they saw. Accepting first reserves the offer
   (`accepting`), then claims the request; either step can be resumed, and a resumed claim
   re-checks the provider's eligibility first (Codex review). A counter sets the per-visit
-  price. Unless the provider gives a separate first-visit price, the first visit is the higher
-  of the counter and the request's first-visit guide (open question Q1). Counters aren't
+  price; the first-visit price scales by the same ratio (A1, replacing the earlier
+  max(counter, first-visit guide) rule). Counters aren't
   allowed on time-off cover requests (cover is at the regular price).
 - **R18. Fees on the price screen** are shown for the routine price and, separately, for the
   first-visit price (`fee` and `first_fee` on a quote).
@@ -206,7 +208,7 @@ and integration (I) folds the accepted ones in here.
   materialised six weeks ahead (at least the next two). Monthly frequencies use calendar
   months; "a few days a week" defaults to Monday, Wednesday and Friday. The winter pause skips
   November to February.
-- **R23a. Time-off cover goes through the normal offer flow.** L2 creates a job request with
+- **R23a. Time-off cover goes through the normal offer flow** (fees on covered visits: A4). L2 creates a job request with
   `cover_for_visit_id` for one visit (same price); accepting it (the shared accept endpoint)
   reassigns that visit to the covering provider (performer kind `cover`, paid for that visit)
   instead of creating a booking, and tells the customer (`cover_coming`). A provider can't take
@@ -281,21 +283,56 @@ and integration (I) folds the accepted ones in here.
 - **R39. Notifications docs are generated** from the template catalogue (`make docs`), and
   `docs/spec/api.md`'s endpoint table from the routes, so neither can drift from the code.
 
+## 2a. Rulings after F review
+
+Decided by Hasan after reviewing the F report; each has tests.
+
+- **A1. Counter-offers on jobs with a dearer first visit.** The counter sets the per-visit
+  price and the first-visit price scales by the same ratio: first = first-visit guide x counter
+  / guide, rounded half-up to whole pounds (`marketplace.scaled_first_price`). The offer
+  stores both prices (`price_pence`, `first_price_pence`) and the guides they were based on;
+  every endpoint that returns an offer or counter carries both, and the customer's text shows
+  the first-visit price. Providers no longer set a first-visit price themselves.
+  (`test_marketplace.py`: `test_counter_first_visit_price_scales_by_the_same_ratio`,
+  `test_a_counter_on_a_job_with_a_dearer_first_visit`.)
+- **A2. Confidence follows the area estimator.** For lawns the pricing model no longer decides
+  confidence; the `AreaEstimator` does (`Measure.confidence`, `AreaOptions.confidence`).
+  `manual_bands_v0` gives "medium" ("Fairly close"); a measured estimator may return "high".
+  Mowing's params no longer carry a confidence. The reworded note (R11) stays. The prototype
+  comparison passes "high", as the prototype measured lawns. (`test_pricing_golden.py`:
+  `test_lawn_confidence_comes_from_the_area_estimator`; `test_endpoints.py`.)
+- **A3. Basic DBS checks are valid for 12 months from the issue date.** `document_types`
+  carries `valid_months` (12 for `dbs_basic`); documents carry `issued_on`; the expiry comes
+  from `services.documents.expiry_for`, which L2 (upload) and L3 (verification) must use. A
+  foundation task sends `document_expiring` 30 days before any verified document expires,
+  exactly as for insurance, once per expiry date (outbox idempotency key). An expired check is
+  not held, so the provider isn't eligible for categories that require it. (`test_documents.py`.)
+- **A4. Fees on covered visits.** The own-customer rate (5%, 100p minimum) applies only when the
+  visit is done by the provider who brought the customer or by that provider's registered
+  helper; a cover provider is charged the standard 15%. `money.mode_for_visit` and
+  `money.split_for_visit(price, source, performer kind)` are the only fee logic for a visit;
+  L2 charges with `split_for_visit`. (`test_money.py`.)
+- **A5. Seed dates are relative to the moment `make seed` runs**, so the demo never goes stale:
+  for example Alan's insurance expires 9 days after seeding, Gary's 48 days after, and Lorna's
+  basic DBS check falls inside the 30-day reminder window. Birth dates are the only absolute
+  dates. `make seed` stays idempotent. (`test_seed.py`:
+  `test_seed_dates_are_relative_to_the_moment_of_seeding`.)
+
 ## 3. Open questions (for Hasan)
 
-- **Q1. Counter-offers on jobs with a dearer first visit.** Today a counter sets the per-visit
+- **Q1 (resolved: A1). Counter-offers on jobs with a dearer first visit.** Today a counter sets the per-visit
   price, and the first visit is the higher of the counter and the first-visit guide unless the
   provider names a first-visit price too. Is that right, or should a counter scale both?
-- **Q2. Mowing confidence with manual bands.** The prototype shows "Usually close" (high)
+- **Q2 (resolved: A2). Mowing confidence with manual bands.** The prototype shows "Usually close" (high)
   because the area was measured. With the customer choosing a band, should it drop to "Fairly
   close" (medium) until LIDAR? It changes copy, not price.
 - **Q3. Lawn copy that assumes LIDAR.** "We measure your garden from public survey data", the
   measure screen's "We've measured it from public survey data" and the Open Government Licence
   line only make sense with LIDAR. L1 should reword them for size bands unless you'd rather keep
   them for the pitch.
-- **Q4. DBS renewals.** Basic DBS checks don't expire. How often should a provider renew one?
+- **Q4 (resolved: A3). DBS renewals.** Basic DBS checks don't expire. How often should a provider renew one?
   For now `dbs_basic` has no expiry.
-- **Q5. Fees on covered own-customer visits.** A covered visit keeps its booking's source, so a
+- **Q5 (resolved: A4). Fees on covered own-customer visits.** A covered visit keeps its booking's source, so a
   regular's own customer covered by another provider is charged the 5% own-customer fee, which
   the cover provider didn't earn by bringing them. Should cover visits always take the
   standard 15%? (Changes money semantics, so not decided here.)

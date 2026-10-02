@@ -4,19 +4,30 @@ Pure: no database, no clock. app.services.quotes loads the live pricing version 
 the area estimate, calls price(), and records the version on the quote.
 """
 
+from dataclasses import replace
 from typing import Any
 
 from app.models.categories import Category
 from app.pricing.answers import validate_answers
-from app.pricing.models import PRICING_MODELS, Estimate
+from app.pricing.models import PRICING_MODELS, Confidence, Estimate
 
 
 class PricingError(ValueError):
     pass
 
 
-def price(category: Category, answers: dict[str, Any], params: dict[str, Any], area_m2: int | None = None) -> Estimate:
-    """Price validated or raw answers. Raises AnswerError for bad answers, PricingError otherwise."""
+def price(
+    category: Category,
+    answers: dict[str, Any],
+    params: dict[str, Any],
+    area_m2: int | None = None,
+    area_confidence: Confidence | None = None,
+) -> Estimate:
+    """Price validated or raw answers. Raises AnswerError for bad answers, PricingError otherwise.
+
+    For measured categories (lawns) the confidence comes from the AreaEstimator that produced
+    area_m2 (manual size bands: medium; a measured estimator may say high). Without one, the
+    estimate's confidence is None and callers that show it must supply area_confidence."""
     if category.status != "live":
         raise PricingError(f"{category.name} isn't something we book")
     model = PRICING_MODELS.get(category.pricing_model)
@@ -27,6 +38,8 @@ def price(category: Category, answers: dict[str, Any], params: dict[str, Any], a
         if area_m2 is None or area_m2 <= 0:
             raise PricingError("a lawn area is needed to price mowing")
         full = {**full, "area": area_m2}
+        est = model(full, params)
+        return replace(est, confidence=area_confidence) if area_confidence else est
     return model(full, params)
 
 

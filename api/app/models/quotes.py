@@ -15,6 +15,9 @@ class Measure(Model):
 
     estimator: str = Field(description="AreaEstimator id, e.g. manual_bands_v0")
     area_m2: int
+    confidence: Literal["high", "medium", "low"] | None = Field(
+        default=None, description="How sure the estimator is; becomes the quote's confidence"
+    )
     band: str | None = None
     adjust: Literal["smaller", "right", "bigger"] | None = None
     detail: dict[str, Any] | None = Field(default=None, description="Estimator-specific, e.g. LIDAR polygons")

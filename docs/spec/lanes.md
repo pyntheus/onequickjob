@@ -97,3 +97,5 @@ Rules that make parallel work possible:
 | L2 writes ledger entries; L3 refunds and exports | `services/ledger.py`, `money.refund_split` | gross = fee + net in every entry |
 | L1 captures cards; L3 owns Stripe | `web/src/payments/CardCapture.tsx` (L3) | no edits to L1's screens |
 | Everyone sends messages | `services/notify.py` + the catalogue | one outbox shape |
+| L2 uploads documents; L3 verifies them | `services/documents.expiry_for` (DBS: 12 months from issue) and F's 30-day reminder task | one expiry rule, one reminder |
+| L2 charges visits; covers change who's paid | `money.split_for_visit(price, source, performer kind)` | own-customer rate only for the provider who brought the customer or their helper |

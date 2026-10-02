@@ -8,6 +8,7 @@ have a booked request, its quote and the offers; the rest were taken at the guid
 import math
 from datetime import timedelta
 
+from app.adapters.area.manual_bands import ManualBandsV0
 from app.core.geo import approximate
 from app.core.rounding import D, round_half_up, round_to_pound
 from app.core.timeutil import weekday_key
@@ -149,7 +150,9 @@ async def _countered_request(
     measure = None
     if cat.measure == "lawn":
         answers = {**answers, "grassState": "long" if seg == "first" else "kept", "frequency": "oneoff"}
-        measure = Measure(estimator="manual_bands_v0", area_m2=190, band="large", adjust="right")
+        measure = Measure(
+            estimator=ManualBandsV0.id, area_m2=190, band="large", adjust="right", confidence=ManualBandsV0.confidence
+        )
     request_id, booking_id = sid("request", key), sid("booking", key)
     spread = (float(params["spread"][0]), float(params["spread"][1]))
     quote = Quote(
@@ -166,7 +169,8 @@ async def _countered_request(
             low_pence=round_to_pound(D(guide) * D(str(spread[0]))),
             high_pence=round_to_pound(D(guide) * D(str(spread[1]))),
             spread=spread,
-            confidence=params["confidence"],
+            # Lawn confidence follows the area estimator (ruling after F review), others the model.
+            confidence=measure.confidence if measure else params["confidence"],
             unit=unit_for(cat_id, False),
         ),
         fee=fee_split(guide, settings=ctx.s),

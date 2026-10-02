@@ -170,8 +170,11 @@ class FileOut(BaseModel):
 
 # ---------------------------------------------------------------- marketplace
 class CounterRequest(In):
-    price_pence: int = Field(gt=0, description="Whole pounds, 80% to 300% of the guide")
-    first_price_pence: int | None = Field(default=None, gt=0, description="Optional different first-visit price")
+    price_pence: int = Field(
+        gt=0,
+        description="Per-visit price, whole pounds, 80% to 300% of the guide. A job with a dearer first visit "
+        "gets its first-visit price scaled by the same ratio (returned on the offer)",
+    )
     reasons: list[str] = Field(default_factory=list, max_length=6)
     message: str = Field(default="", max_length=300)
 

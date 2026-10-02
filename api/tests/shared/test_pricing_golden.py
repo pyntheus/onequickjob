@@ -48,3 +48,12 @@ def test_mowing_large_band_is_31_pounds():
     """L1's acceptance figure: default answers with the Large band (190 m²)."""
     cat = categories()["mowing"]
     assert price(cat, {}, pricing_v1_params()["mowing"], 190).price_pence == 3100
+
+
+def test_lawn_confidence_comes_from_the_area_estimator():
+    """Ruling after F review (b): no hard-coded mowing confidence; the estimator decides."""
+    cat, params = categories()["mowing"], pricing_v1_params()["mowing"]
+    assert price(cat, {}, params, 190, "medium").confidence == "medium"  # manual size bands
+    assert price(cat, {}, params, 190, "high").confidence == "high"  # a measured estimator, later
+    assert price(cat, {}, params, 190).confidence is None  # the model alone doesn't decide
+    assert "confidence" not in params

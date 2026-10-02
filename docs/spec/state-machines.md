@@ -110,7 +110,7 @@ Charge, on finish (L2 calls the gateway; L3 owns the gateway and webhooks):
 
 | From | To | Trigger | Side effects |
 |---|---|---|---|
-| none | succeeded | `charge_visit(visit, price, fee, account)` succeeds (fee from `money.split_for_source`) | ledger `charge` entry (`services.ledger.record_charge`); `visit_done_customer`, `receipt`, `payment_on_its_way` |
+| none | succeeded | `charge_visit(visit, price, fee, account)` succeeds (fee from `money.split_for_visit(price, source, performer kind)`: own-customer rate only for the provider who brought the customer or their helper) | ledger `charge` entry (`services.ledger.record_charge`); `visit_done_customer`, `receipt`, `payment_on_its_way` |
 | none | requires_action / failed | the bank wants confirmation, or the card is declined | `charge_failed_customer`, `charge_failed_provider`; no ledger entry until it succeeds (admin retry, L3) |
 | pending | succeeded / failed | webhook (Stripe, L3) | as above; webhooks are the source of truth |
 | succeeded | partially_refunded / refunded | admin refund (L3) | ledger `refund` entry (negative, `money.refund_split`); `refund_issued` |
@@ -175,7 +175,7 @@ Each affected visit gets one arrangement:
 
 | Action | What happens | State |
 |---|---|---|
-| cover (only if the plan allows cover) | A cover request for that one visit (`direct_provider_id` unset, same price, `cover_alert` to eligible providers through the normal offer flow). Whoever accepts becomes the visit's `performer` (kind `cover`) and is paid for it; the customer stays the regular provider's (`cover_coming`). After the date, the series carries on with the original provider. | planned → arranged (someone took it) or failed (nobody did by the day before: the visit is skipped and the customer told) |
+| cover (only if the plan allows cover) | A cover request for that one visit (`direct_provider_id` unset, same price, `cover_alert` to eligible providers through the normal offer flow). Whoever accepts becomes the visit's `performer` (kind `cover`) and is paid for it, at the standard 15% fee even on an own customer's visit; the customer stays the regular provider's (`cover_coming`). After the date, the series carries on with the original provider. | planned → arranged (someone took it) or failed (nobody did by the day before: the visit is skipped and the customer told) |
 | helper | `performer` = the helper; `helper_coming` to the customer; the provider is paid | arranged |
 | skip | visit `skipped`; `visit_skipped` to the customer | arranged |
 

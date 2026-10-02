@@ -73,7 +73,6 @@ async def provider_counter(
         ref,
         provider,
         price_pence=body.price_pence,
-        first_price_pence=body.first_price_pence,
         reasons=body.reasons,
         message=body.message,
     )

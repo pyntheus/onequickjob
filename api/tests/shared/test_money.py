@@ -97,3 +97,23 @@ def test_round_half_up_matches_javascript_math_round():
     assert round_half_up_to(Decimal("8.25"), "0.5") == Decimal("8.5")
     assert round_to_pound(8750) == 8800  # £87.50 -> £88 (jet wash default)
     assert round_to_pound(6050) == 6100  # £60.50 -> £61 (hedge default)
+
+
+def test_own_customer_rate_only_for_the_provider_who_brought_them_or_their_helper():
+    """Ruling after F review (d): a cover provider pays the standard 15%."""
+    assert money.mode_for_visit("own_customer", "provider") == "own_customer"
+    assert money.mode_for_visit("own_customer", "helper") == "own_customer"
+    assert money.mode_for_visit("own_customer", "cover") == "standard"
+    for performer in ("provider", "helper", "cover"):
+        assert money.mode_for_visit("platform", performer) == "standard"
+
+
+def test_covered_own_customer_visit_is_charged_the_standard_fee():
+    own = money.split_for_visit(2800, "own_customer", "provider")
+    helper = money.split_for_visit(2800, "own_customer", "helper")
+    cover = money.split_for_visit(2800, "own_customer", "cover")
+    assert (own.fee_pence, own.provider_pence) == (140, 2660)  # Pat Green: 5% of £28
+    assert helper.fee_pence == 140
+    assert (cover.fee_pence, cover.provider_pence, cover.mode) == (420, 2380, "standard")
+    assert money.split_for_visit(1500, "own_customer", "provider").fee_pence == 100  # the 100p minimum
+    assert money.split_for_visit(1500, "own_customer", "cover").fee_pence == 225

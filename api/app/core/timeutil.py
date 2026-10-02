@@ -51,3 +51,15 @@ WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
 def weekday_key(day: date) -> str:
     return WEEKDAYS[day.weekday()]
+
+
+def add_months(d: date, n: int) -> date:
+    """Same day n calendar months later, clamped to the month's end (31 Jan + 1 = 28/29 Feb)."""
+    m = d.month - 1 + n
+    y, m = d.year + m // 12, m % 12 + 1
+    for day in (d.day, 30, 29, 28):
+        try:
+            return date(y, m, day)
+        except ValueError:
+            continue
+    raise ValueError(d)  # pragma: no cover

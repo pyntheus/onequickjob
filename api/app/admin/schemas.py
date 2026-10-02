@@ -109,6 +109,7 @@ class AdminDocument(BaseModel):
     type: DocType
     label: str
     status: DocStatus
+    issued_on: date | None
     expires_on: date | None
     file_url: str | None
     verified_by: str | None
@@ -137,7 +138,8 @@ class ProviderDetail(ProviderRow):
 
 
 class VerifyDocIn(In):
-    expires_on: date | None = None
+    issued_on: date | None = Field(default=None, description="For a basic DBS check: the issue date (valid 12 months)")
+    expires_on: date | None = Field(default=None, description="For documents with a stated expiry, e.g. insurance")
 
 
 class RejectDocIn(In):

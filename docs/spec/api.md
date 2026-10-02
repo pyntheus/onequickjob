@@ -93,7 +93,7 @@ in `web/src/api/schema.d.ts` come from it (`make types`).
 | `GET` | `/api/p/visits/{visit_id}` |  | ProviderVisit |  |
 | `POST` | `/api/p/visits/{visit_id}/start` |  | ProviderVisit |  |
 | `POST` | `/api/p/visits/{visit_id}/photos` | PhotoIn | ProviderVisit |  |
-| `POST` | `/api/p/visits/{visit_id}/finish` | FinishIn | FinishOut | Record minutes and flags (calibration data), charge through PaymentGateway.charge_visit with the fee from money.py, write the ledger entry (services.ledger), send the messages. |
+| `POST` | `/api/p/visits/{visit_id}/finish` | FinishIn | FinishOut | Record minutes and flags (calibration data), charge through PaymentGateway.charge_visit with the fee from money.split_for_visit(price, source, performer kind) (a cover provider pays 15% even on an own customer), write the ledger entry (services.ledger), send messages. |
 | `POST` | `/api/p/visits/{visit_id}/send-helper` | SendHelperIn | ProviderVisit |  |
 | `POST` | `/api/p/visits/{visit_id}/cover` |  | ProviderVisit |  |
 | `GET` | `/api/p/earnings` |  | EarningsOut |  |
@@ -109,7 +109,7 @@ in `web/src/api/schema.d.ts` come from it (`make types`).
 | `GET` | `/api/p/profile` |  | ProviderProfile |  |
 | `PATCH` | `/api/p/profile` | ProfilePatch | ProviderProfile |  |
 | `GET` | `/api/p/documents` |  | list[DocumentOut] |  |
-| `POST` | `/api/p/documents` | DocumentIn | DocumentOut | Attach an uploaded file (POST /api/files) as a document, status pending, for admin checks. |
+| `POST` | `/api/p/documents` | DocumentIn | DocumentOut | Attach an uploaded file (POST /api/files) as a document, status pending, for admin checks. Work out its expiry with services.documents.expiry_for (a basic DBS check: 12 months from issue). |
 | `POST` | `/api/p/time-off/preview` | TimeOffRange | list[AffectedVisit] |  |
 | `GET` | `/api/p/time-off` |  | list[TimeOffOut] |  |
 | `POST` | `/api/p/time-off` | TimeOffIn | TimeOffOut |  |
@@ -136,7 +136,7 @@ in `web/src/api/schema.d.ts` come from it (`make types`).
 | `POST` | `/api/admin/requests/{ref}/raise-guide` | RaiseGuideIn | UnfilledRequest | Raise an open request's guide price (rounded to whole pounds) and audit-log it. |
 | `GET` | `/api/admin/providers` |  | list[ProviderRow] |  |
 | `GET` | `/api/admin/providers/{provider_id}` |  | ProviderDetail |  |
-| `POST` | `/api/admin/providers/{provider_id}/documents/{doc_type}/verify` | VerifyDocIn | ProviderDetail |  |
+| `POST` | `/api/admin/providers/{provider_id}/documents/{doc_type}/verify` | VerifyDocIn | ProviderDetail | Set the expiry with services.documents.expiry_for (a basic DBS check: 12 months from its issue date); F's task reminds the provider 30 days before it lapses. |
 | `POST` | `/api/admin/providers/{provider_id}/documents/{doc_type}/reject` | RejectDocIn | ProviderDetail |  |
 | `POST` | `/api/admin/providers/{provider_id}/suspend` | SuspendIn | ProviderDetail |  |
 | `POST` | `/api/admin/providers/{provider_id}/reinstate` |  | ProviderDetail |  |

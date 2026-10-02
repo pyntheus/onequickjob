@@ -109,7 +109,7 @@ _t(
     audience="customer",
     channels=("sms",),
     trigger="A provider suggests a different price on an open request.",
-    body="{brand}: {provider} suggested {price} for your {category}, instead of {guide}. {reason}"
+    body="{brand}: {provider} suggested {price}{first_text} for your {category}, instead of {guide}. {reason}"
     "Accept it or keep waiting: {link}",
 )
 _t(
@@ -337,10 +337,13 @@ _t(
 )
 _t(
     id="document_expiring",
-    lane="L2",
+    lane="F",
     audience="provider",
     channels=("sms",),
-    trigger="A month before a document expires, and again a week before.",
+    trigger=(
+        "30 days before a verified document expires (insurance, a basic DBS check 12 months after issue, "
+        "waste carrier, ladder and pet cover). Sent once per expiry date by the document_expiry task."
+    ),
     body="{brand}: your {document} runs out on {date}. Upload the new one so you can keep taking {jobs}: {link}",
 )
 _t(

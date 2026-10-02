@@ -1,9 +1,10 @@
 """Users, customers, providers (with documents, tax and payout accounts) and helpers."""
 
-from datetime import date, timedelta
+from datetime import timedelta
 
 from app.core.crypto import mask_dob, mask_ni, seal, unseal
 from app.core.geo import district_of
+from app.models.categories import DocumentType
 from app.models.common import GeoPoint
 from app.models.customers import Customer, CustomerPayment, SavedCard
 from app.models.providers import (
@@ -20,11 +21,17 @@ from app.models.providers import (
 )
 from app.models.users import User
 from app.repos.providers import TaxIdentities
+from app.seed.catalogue import read_json
 from app.seed.cleanup import clear_clashing_people
 from app.seed.context import Ctx, sid
+from app.services.documents import expiry_for
 
 CARD = SavedCard(brand="visa", last4="4242", exp_month=12, exp_year=2028)
-LATER_EXPIRY = {"waste_carrier": date(2029, 3, 1)}
+# Days after seeding (waste carrier registrations last years; this one runs to about March 2029).
+LATER_EXPIRY_DAYS = {"waste_carrier": 880}
+DBS_TYPE = DocumentType.model_validate(
+    next(t for t in read_json("catalogue.json")["document_types"] if t["_id"] == "dbs_basic")
+)
 
 
 def gateway_customer_id(key: str) -> str:
@@ -93,7 +100,7 @@ async def seed_people(ctx: Ctx) -> None:
         w.add_raw("fake_gateway", {"_id": gateway_customer_id(c["key"]), "kind": "customer", "name": c["name"]})
 
     for p in ctx.people["providers"]:
-        joined_on = date.fromisoformat(p["joined_on"]) if "joined_on" in p else ctx.day(p["joined_days_ago"])
+        joined_on = ctx.day(p["joined_days_ago"])  # every seed date is relative to seeding
         joined = ctx.at(joined_on, "10:00")
         u = User(
             id=sid("user", p["key"]),
@@ -118,17 +125,26 @@ async def seed_people(ctx: Ctx) -> None:
             )
         )
         insurance_expiry = (
-            ctx.today + timedelta(days=p["insurance_expires_in_days"])
-            if "insurance_expires_in_days" in p
-            else date.fromisoformat(p["insurance_expires"])
-            if p.get("insurance_expires")
-            else None
+            ctx.today + timedelta(days=p["insurance_expires_in_days"]) if "insurance_expires_in_days" in p else None
         )
         for t in p["docs"]:
-            expires = None if t == "dbs_basic" else LATER_EXPIRY.get(t, insurance_expiry)
+            issued = None
+            if t == "dbs_basic":
+                # Valid 12 months from the issue date (ruling after F review), via the shared rule.
+                issued = ctx.day(p["dbs_issued_days_ago"])
+                expires = expiry_for(DBS_TYPE, issued, None)
+            elif t in LATER_EXPIRY_DAYS:
+                expires = ctx.today + timedelta(days=LATER_EXPIRY_DAYS[t])
+            else:
+                expires = insurance_expiry
             docs.append(
                 ProviderDocument(
-                    type=t, status="verified", expires_on=expires, verified_by=verifier, verified_at=verified_at
+                    type=t,
+                    status="verified",
+                    issued_on=issued,
+                    expires_on=expires,
+                    verified_by=verifier,
+                    verified_at=verified_at,
                 )
             )
         active = p["status"] in ("active", "payouts_paused")

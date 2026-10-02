@@ -20,7 +20,7 @@ from typing import Literal
 from pymongo.errors import DuplicateKeyError
 
 from app.core.db import Db
-from app.core.timeutil import london_datetime, london_today, to_london, weekday_key
+from app.core.timeutil import add_months, london_datetime, london_today, to_london, weekday_key
 from app.models.bookings import Frequency, Series
 from app.models.common import DaysPref, TimePref, Weekday
 from app.models.providers import Provider
@@ -114,17 +114,6 @@ async def first_slot(
     return london_datetime(fallback, WINDOWS[window][0])
 
 
-def _add_months(d: date, n: int) -> date:
-    m = d.month - 1 + n
-    y, m = d.year + m // 12, m % 12 + 1
-    for day in (d.day, 30, 29, 28):
-        try:
-            return date(y, m, day)
-        except ValueError:
-            continue
-    raise ValueError(d)  # pragma: no cover
-
-
 def occurrences(series: Series, after: date, until: date) -> list[date]:
     """Visit dates strictly after `after` and up to `until`, honouring pauses."""
     out: list[date] = []
@@ -143,7 +132,7 @@ def occurrences(series: Series, after: date, until: date) -> list[date]:
             if d > after:
                 out.append(d)
             k += 1
-            d = _add_months(series.anchor_date, MONTHS[f] * k)
+            d = add_months(series.anchor_date, MONTHS[f] * k)
     elif f in ("weekdays", "someweekdays"):
         days = set(series.days or (["mon", "tue", "wed", "thu", "fri"] if f == "weekdays" else DEFAULT_SOME_DAYS))
         d = max(after + timedelta(days=1), series.anchor_date)

@@ -15,7 +15,10 @@ ProviderStatus = Literal["signing_up", "active", "payouts_paused", "suspended"]
 class ProviderDocument(Model):
     type: DocType
     status: DocStatus
-    expires_on: IsoDate | None = None
+    issued_on: IsoDate | None = Field(default=None, description="Issue date (a basic DBS check runs 12 months from it)")
+    expires_on: IsoDate | None = Field(
+        default=None, description="Last valid day; use services.documents.expiry_for to work it out"
+    )
     file_id: str | None = None
     verified_by: str | None = None
     verified_at: datetime | None = None

@@ -13,7 +13,6 @@
       "disposal_pence": { "takeaway": 400 },
       "discount": { "weekly": 0.12, "fortnightly": 0.08, "threeweekly": 0.05, "oneoff": 0 },
       "spread": [0.9, 1.15],
-      "confidence": "high",
       "conf_note": "Based on the lawn size you chose, so most providers accept it as it is.",
       "first_reason": "The grass needs extra time to get back under control."
     },

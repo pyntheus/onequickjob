@@ -38,7 +38,11 @@ def test_fixture_covers_every_category():
 @pytest.mark.parametrize("case", CASES, ids=[f"{c['category']}-{i}" for i, c in enumerate(CASES)])
 def test_matches_prototype(case):
     cat = categories()[case["category"]]
-    est = price(cat, case["answers"], pricing_v1_params()[cat.id], case["area_m2"])
+    # The prototype measured lawns (LIDAR), so its mowing quotes are "high": pass that as the
+    # area estimator's confidence. With manual bands the estimator says "medium" instead.
+    est = price(
+        cat, case["answers"], pricing_v1_params()[cat.id], case["area_m2"], "high" if cat.measure == "lawn" else None
+    )
     exp = case["expected"]
     got = {
         "price_pence": est.price_pence,

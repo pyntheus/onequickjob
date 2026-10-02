@@ -77,6 +77,8 @@ async def provider_detail(provider_id: str, admin: Admin) -> ProviderDetail:
 
 @router.post("/providers/{provider_id}/documents/{doc_type}/verify")
 async def verify_document(provider_id: str, doc_type: DocType, body: VerifyDocIn, admin: Admin) -> ProviderDetail:
+    """Set the expiry with services.documents.expiry_for (a basic DBS check: 12 months from its
+    issue date); F's task reminds the provider 30 days before it lapses."""
     not_implemented(LANE)
 
 
