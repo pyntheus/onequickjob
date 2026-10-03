@@ -230,3 +230,34 @@ async def test_cover_for_a_visit_that_isnt_happening_is_closed(dave_client, db, 
     assert await cover_mod.close_dead_covers(db) == 1
     assert (await JobRequests(db).get(req.id)).status == "expired"
     assert mike
+
+
+async def test_housekeeping_never_overwrites_a_newer_arrangement(dave_client, db, dave):
+    """Codex re-check (medium): housekeeping's write is guarded on updated_at."""
+    from datetime import time
+
+    from app.core.timeutil import london_datetime
+    from app.provider import time_off as time_off_mod
+
+    await make_provider(db, "Mike Reynolds", MIKE_PHONE, ["mowing"])
+    visits, dates = await _week(db, dave)
+    first = [{"visit_id": v.id, "action": "cover" if v is visits[0] else "skip"} for v in visits]
+    off = (await dave_client.post("/api/p/time-off", json={**dates, "arrangements": first})).json()
+    stale = await TimeOffRepo(db).get(off["id"])  # housekeeping reads this...
+    await Visits(db).update(visits[0].id, {"cover.state": "covered", "performer.kind": "cover"})  # ...state to sync
+    late_customer = await make_customer(db, "Denise Walsh", "+447700900141")
+    _, late = await book(db, late_customer, dave, frequency="oneoff")
+    day = visits[0].local_date + timedelta(days=2)
+    await Visits(db).update(late.id, {"local_date": day.isoformat(), "scheduled_start": london_datetime(day, time(15))})
+    r = await dave_client.post(
+        f"/api/p/time-off/{off['id']}/arrange", json={"arrangements": [{"visit_id": late.id, "action": "skip"}]}
+    )
+    assert r.status_code == 200, r.text
+    assert await time_off_mod.refresh_one(db, stale) is False, "stale: it doesn't write"
+    now = await TimeOffRepo(db).get(off["id"])
+    assert late.id in {a.visit_id for a in now.arrangements}
+    assert await time_off_mod.refresh_one(db, now) is True  # the next run syncs the cover state
+    assert (
+        next(a for a in (await TimeOffRepo(db).get(off["id"])).arrangements if a.visit_id == visits[0].id).state
+        == "arranged"
+    )

@@ -2,7 +2,7 @@
  * against actual costs, mileage logged for you, receipts, key dates and the tax pack. Owned by L2.
  * Lifted from the prototype's TaxScreen. Every figure comes from the API (ledger, mileage, expenses). */
 import { useMutation } from "@tanstack/react-query";
-import { Camera, Car, Download, Printer, Trash } from "lucide-react";
+import { Camera, Car, Download, Printer, Receipt, Trash } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { api, call } from "../../api/client";
 import { Loading } from "../../app/Status";
@@ -207,18 +207,13 @@ export default function Tax() {
             </div>
             {t.expenses.map((x) => (
               <div key={x.id} className="row between small" style={css(8)}>
-                <span className="grow">
-                  {x.description}
-                  {x.receipt_url && (
-                    <>
-                      {" "}
-                      <a href={x.receipt_url} target="_blank" rel="noreferrer">
-                        (receipt)
-                      </a>
-                    </>
-                  )}
-                </span>
+                <span className="grow">{x.description}</span>
                 <span>{fmt(x.amount_pence)}</span>
+                {x.receipt_url && (
+                  <a className="icon-btn" href={x.receipt_url} target="_blank" rel="noreferrer" aria-label={`Receipt for ${x.description}`}>
+                    <Receipt size={17} aria-hidden="true" />
+                  </a>
+                )}
                 <button
                   type="button"
                   className="icon-btn"

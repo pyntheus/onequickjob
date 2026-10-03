@@ -56,6 +56,26 @@ async def visit_for(db: Db, a: Acting, visit_id: str) -> Visit:
     return v
 
 
+def acting_filter(a: Acting) -> dict[str, Any]:
+    """Who may change a visit, as a guard on its update: the provider it's booked to, or the
+    helper it's been sent to (an owner reassigning it meanwhile makes the guard fail)."""
+    if a.helper:
+        return {"provider_id": a.provider.id, "performer.kind": "helper", "performer.user_id": a.user_id}
+    return {"provider_id": a.provider.id}
+
+
+async def still_acting(db: Db, s: Settings, a: Acting, category_id: str, *, session: DbSession) -> None:
+    """Inside a transaction: the person can still act on a visit of this category. It writes the
+    provider first, so a concurrent change to their helpers or documents conflicts with this
+    transaction and its re-run sees it; a helper must still be on the list, ready and documented."""
+    provider = await Providers(db).update(a.provider.id, {}, session=session)
+    if provider is None:
+        not_found("That visit")
+    if a.helper:
+        cat = (await categories(db, session=session))[category_id]
+        ready_helper(provider, a.user_id, cat, demo=s.demo_mode)
+
+
 def _performs(a: Acting, v: Visit) -> bool:
     """Does the person using the app do this visit themself?"""
     return v.performer.user_id == a.user_id if a.helper else v.performer.kind != "helper"
@@ -222,28 +242,32 @@ async def _urls(db: Db, ids: list[str]) -> list[str]:
 
 async def start_visit(db: Db, s: Settings, a: Acting, visit_id: str) -> Visit:
     """Start the timer. A visit starts on its day (or later, if it was missed); DEMO_MODE lets
-    a future visit start now so the round can be demonstrated on any day."""
+    a future visit start now so the round can be demonstrated on any day. Re-checked inside the
+    transaction: the visit is still this person's to do, and a helper is still ready for it."""
     v = await visit_for(db, a, visit_id)
-    if v.status == "in_progress":
-        return v
-    can, why, _ = _start_check(v, s, london_today())
-    if can and a.as_helper is not None:  # a helper starting a visit they were sent to
-        ready_helper(a.provider, a.user_id, (await categories(db))[v.category_id])
-    if not can:
-        if v.status != "scheduled":
-            fail(status.HTTP_409_CONFLICT, "not_scheduled", "That visit can't be started.")
-        fail(status.HTTP_409_CONFLICT, "not_yet", why or "That visit can't be started yet.")
-    started = await Visits(db).update(
-        v.id,
-        {"status": "in_progress", "started_at": utcnow()},
-        extra_filter={"status": "scheduled", "cover.state": {"$ne": "offered"}},
-    )
-    if started is None:
-        now = await Visits(db).get(v.id)
+    if v.status != "in_progress":
+        can, why, _ = _start_check(v, s, london_today())
+        if not can:
+            if v.status != "scheduled":
+                fail(status.HTTP_409_CONFLICT, "not_scheduled", "That visit can't be started.")
+            fail(status.HTTP_409_CONFLICT, "not_yet", why or "That visit can't be started yet.")
+
+    async def start(session: DbSession) -> Visit:
+        await still_acting(db, s, a, v.category_id, session=session)
+        started = await Visits(db).update(
+            v.id,
+            {"status": "in_progress", "started_at": utcnow()},
+            extra_filter={"status": "scheduled", "cover.state": {"$ne": "offered"}, **acting_filter(a)},
+            session=session,
+        )
+        if started is not None:
+            return started
+        now = await Visits(db).find_one({"_id": v.id, **acting_filter(a)}, session=session)
         if now is not None and now.status == "in_progress":
-            return now
-        fail(status.HTTP_409_CONFLICT, "not_scheduled", "That visit has just changed. Have another look.")
-    return started
+            return now  # started already (a double tap)
+        fail(status.HTTP_409_CONFLICT, "visit_changed", "That visit has just changed. Have another look.")
+
+    return await transaction(db, start)
 
 
 async def add_photo(db: Db, a: Acting, visit_id: str, body: PhotoIn) -> Visit:
@@ -253,10 +277,18 @@ async def add_photo(db: Db, a: Acting, visit_id: str, body: PhotoIn) -> Visit:
     await own_file(db, body.file_id, a.user_id, (f"visit_{body.kind}",))
     field = f"photos.{body.kind}"
     updated = await Visits(db).find_one_and_update(
-        {"_id": v.id, f"{field}.{MAX_PHOTOS - 1}": {"$exists": False}},
+        {
+            "_id": v.id,
+            "status": {"$in": ["scheduled", "in_progress", "finished"]},
+            f"{field}.{MAX_PHOTOS - 1}": {"$exists": False},
+            **acting_filter(a),
+        },
         {"$addToSet": {field: body.file_id}, "$set": {"updated_at": utcnow()}},
     )
     if updated is None:
+        now = await Visits(db).find_one({"_id": v.id, **acting_filter(a)})
+        if now is None:
+            fail(status.HTTP_409_CONFLICT, "visit_changed", "That visit has just changed. Have another look.")
         fail(status.HTTP_409_CONFLICT, "too_many_photos", f"That's the most photos for one visit ({MAX_PHOTOS}).")
     return updated
 
@@ -269,7 +301,7 @@ async def send_helper(db: Db, s: Settings, a: Acting, visit_id: str, helper_user
     if v.performer.kind == "cover" or v.cover.state != "none":
         fail(status.HTTP_409_CONFLICT, "already_offered", "That visit has gone out for cover.")
     cat = (await categories(db))[v.category_id]
-    helper = ready_helper(a.provider, helper_user_id, cat)
+    helper = ready_helper(a.provider, helper_user_id, cat, demo=s.demo_mode)
     if v.performer.user_id == helper.user_id:
         return v
     performer = Performer(
@@ -283,7 +315,7 @@ async def send_helper(db: Db, s: Settings, a: Acting, visit_id: str, helper_user
         # change to their documents or status conflict with it, and the re-run sees it).
         now = await Providers(db).update(a.provider.id, {}, session=session)
         assert now is not None
-        ready_helper(now, helper_user_id, cat)
+        ready_helper(now, helper_user_id, cat, demo=s.demo_mode)
         updated = await Visits(db).update(
             v.id,
             {"performer": performer.model_dump()},

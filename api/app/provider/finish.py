@@ -35,7 +35,7 @@ from app.models.users import User
 from app.models.visits import Charge, Visit
 from app.provider.acting import Acting
 from app.provider.records import record_mileage_day
-from app.provider.round import visit_for
+from app.provider.round import acting_filter, still_acting, visit_for
 from app.provider.schemas import FinishIn, FinishOut
 from app.repos.bookings import Bookings
 from app.repos.categories import Categories
@@ -89,6 +89,7 @@ async def finish_visit(
     )
 
     async def finish(session: DbSession) -> Visit | None:
+        await still_acting(db, s, a, v.category_id, session=session)
         done = await Visits(db).update(
             v.id,
             {
@@ -103,7 +104,7 @@ async def finish_visit(
                 "finish_note": body.note.strip(),
                 "charge": charge.model_dump(mode="python"),
             },
-            extra_filter={"status": "in_progress"},
+            extra_filter={"status": "in_progress", **acting_filter(a)},
             session=session,
         )
         if done is None:
@@ -113,9 +114,10 @@ async def finish_visit(
         return done
 
     finished = await transaction(db, finish)
-    if finished is None:  # finished by another request just now (a double tap)
-        current = await Visits(db).get(v.id)
-        assert current is not None
+    if finished is None:  # finished by another request just now (a double tap), or taken away
+        current = await Visits(db).find_one({"_id": v.id, **acting_filter(a)})
+        if current is None or current.status != "finished":
+            fail(status.HTTP_409_CONFLICT, "visit_changed", "That visit has just changed. Have another look.")
         return await _resume_or_report(db, s, gateway, a, current)
     return await charge_and_record(db, s, gateway, finished, a)
 

@@ -168,3 +168,59 @@ async def test_a_helper_needs_the_documents_the_job_needs(dave_client, db, world
     await set_docs(london_today() + timedelta(days=200))
     ok = await dave_client.post(f"/api/p/visits/{cleaning.id}/send-helper", json={"helper_user_id": tom.id})
     assert ok.status_code == 200, ok.text
+
+
+async def test_a_ready_helper_with_no_documents_is_only_trusted_in_demo_mode(db, world, catalogue):
+    """Codex re-check (high): outside DEMO_MODE a helper needs every document the job needs on
+    record; the demo's seeded Tom has none yet, so only DEMO_MODE lets his readiness stand."""
+    from app.provider.helpers import ready_helper
+    from app.repos import Providers
+
+    tom = await add_tom(db, world.dave)
+    p = await Providers(db).get(world.dave.id)
+    with pytest.raises(HTTPException) as e:
+        ready_helper(p, tom.id, catalogue["mowing"], demo=False)
+    assert e.value.detail["code"] == "helper_missing_documents"
+    assert ready_helper(p, tom.id, catalogue["mowing"], demo=True).user_id == tom.id
+
+
+async def test_a_helper_cant_start_a_visit_taken_away_meanwhile(db, world, monkeypatch):
+    """Codex re-check (high): the start is re-checked in its transaction and guarded on the
+    visit's performer, so a helper authorised a moment ago can't start a visit that's just been
+    sent to someone else, or start anything once removed."""
+    from app.models.providers import Helper
+    from app.models.users import User
+    from app.repos import Providers, Users
+    from tests.provider.test_finish import _cu
+
+    tom = await add_tom(db, world.dave)
+    jim = User(name="Jim Hughes", phone="+447700900221", roles=[])
+    await Users(db).insert(jim)
+    await Providers(db).update(
+        world.dave.id, {}, push={"helpers": Helper(user_id=jim.id, name="Jim Hughes", status="ready").model_dump()}
+    )
+    s = make_settings()
+    owner = Acting(provider=await Providers(db).get(world.dave.id), cu=_cu(await Users(db).get(world.dave.user_id)))
+    await round_mod.send_helper(db, s, owner, world.first.id, tom.id)
+    p = await Providers(db).get(world.dave.id)
+    as_tom = Acting(provider=p, cu=_cu(tom), as_helper=next(h for h in p.helpers if h.user_id == tom.id))
+    seen = await round_mod.visit_for(db, as_tom, world.first.id)  # Tom is authorised...
+    await round_mod.send_helper(db, s, owner, world.first.id, jim.id)  # ...then it goes to Jim
+
+    async def stale(*_a, **_k):
+        return seen  # the read made just before the reassignment
+
+    monkeypatch.setattr(round_mod, "visit_for", stale)
+    with pytest.raises(HTTPException) as e:
+        await round_mod.start_visit(db, s, as_tom, world.first.id)
+    assert e.value.status_code == 409, "the guarded update refuses: it's Jim's visit now"
+    assert (await Visits(db).get(world.first.id)).status == "scheduled"
+    monkeypatch.undo()
+
+    await round_mod.send_helper(db, s, owner, world.first.id, tom.id)
+    await db["providers"].update_one(
+        {"_id": world.dave.id, "helpers.user_id": tom.id}, {"$set": {"helpers.$.status": "removed"}}
+    )
+    with pytest.raises(HTTPException):
+        await round_mod.start_visit(db, s, as_tom, world.first.id)  # removed since authorised
+    assert (await Visits(db).get(world.first.id)).status == "scheduled"

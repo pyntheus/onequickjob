@@ -132,7 +132,9 @@ async def _overlaps(db: Db, provider_id: str, r: TimeOffRange, *, session: DbSes
     )
 
 
-async def _precheck(db: Db, provider: Provider, visits: dict[str, Visit], chosen: dict[str, ArrangementIn]) -> None:
+async def _precheck(
+    db: Db, s: Settings, provider: Provider, visits: dict[str, Visit], chosen: dict[str, ArrangementIn]
+) -> None:
     """Checks that can fail fast, on plain reads (each is repeated where it matters)."""
     today = london_today()
     if set(chosen) - set(visits):
@@ -151,7 +153,7 @@ async def _precheck(db: Db, provider: Provider, visits: dict[str, Visit], chosen
                     "One of these customers would rather not have cover. Send a helper or skip that visit.",
                 )
         elif a.action == "helper":
-            ready_helper(provider, a.helper_user_id or "", cats[v.category_id])
+            ready_helper(provider, a.helper_user_id or "", cats[v.category_id], demo=s.demo_mode)
 
 
 async def _arrange(
@@ -188,7 +190,7 @@ async def _arrange(
             arrangements.append(Arrangement(visit_id=v.id, action="skip", state="arranged"))
             lines.append(f"{who}'s visit on {day} is skipped.")
         elif a.action == "helper":
-            helper = ready_helper(provider, a.helper_user_id or "", cats[v.category_id])
+            helper = ready_helper(provider, a.helper_user_id or "", cats[v.category_id], demo=s.demo_mode)
             performer = Performer(
                 kind="helper", provider_id=provider.id, user_id=helper.user_id, name=short_name(helper.name)
             )
@@ -227,7 +229,7 @@ async def book(db: Db, s: Settings, provider: Provider, body: TimeOffIn) -> Time
     await materialise_through(db, provider, r.to_date)
     chosen = {a.visit_id: a for a in body.arrangements}
     before = await _affected(db, provider.id, r.from_date, r.to_date)
-    await _precheck(db, provider, {v.id: v for v in before}, chosen)
+    await _precheck(db, s, provider, {v.id: v for v in before}, chosen)
     cats = await categories(db)
     pu = await Users(db).get(provider.user_id)
 
@@ -285,7 +287,7 @@ async def arrange_more(
     if off is None or off.provider_id != provider.id:
         not_found("That time off")
     chosen = {a.visit_id: a for a in body}
-    await _precheck(db, provider, {v.id: v for v in await unarranged(db, off)}, chosen)
+    await _precheck(db, s, provider, {v.id: v for v in await unarranged(db, off)}, chosen)
     cats = await categories(db)
 
     async def arrange(session: DbSession) -> TimeOff:
@@ -410,21 +412,29 @@ async def cancel(db: Db, s: Settings, provider: Provider, time_off_id: str) -> N
 async def housekeeping(db: Db, s: Settings, today: date | None = None) -> None:
     """Keep time off's statuses and cover arrangements in step with what happened, and tell the
     provider (once each) about visits booked into their time off since they arranged it."""
-    today = today or london_today()
     for off in await TimeOffRepo(db).find({"status": {"$in": LIVE}}):
-        changes: dict = {}
-        now_status = _status_now(off, today)
-        if now_status != off.status:
-            changes["status"] = now_status
-        arrangements = []
-        for a in off.arrangements:
-            state, _ = await _arrangement_detail(db, a)
-            arrangements.append(a.model_copy(update={"state": state}))
-        if [x.state for x in arrangements] != [x.state for x in off.arrangements]:
-            changes["arrangements"] = [x.model_dump(mode="python") for x in arrangements]
-        if changes:
-            await TimeOffRepo(db).update(off.id, changes, extra_filter={"status": off.status})
+        await refresh_one(db, off, today)
         await _tell_unarranged(db, s, off)
+
+
+async def refresh_one(db: Db, off: TimeOff, today: date | None = None) -> bool:
+    """Bring one time off's status and arrangement states up to date, from the record as it was
+    read: the write is guarded on updated_at, so a change saved meanwhile (arranging more visits)
+    is never overwritten; the next run picks it up. True if it wrote."""
+    today = today or london_today()
+    changes: dict = {}
+    now_status = _status_now(off, today)
+    if now_status != off.status:
+        changes["status"] = now_status
+    arrangements = []
+    for a in off.arrangements:
+        state, _ = await _arrangement_detail(db, a)
+        arrangements.append(a.model_copy(update={"state": state}))
+    if [x.state for x in arrangements] != [x.state for x in off.arrangements]:
+        changes["arrangements"] = [x.model_dump(mode="python") for x in arrangements]
+    if not changes:
+        return False
+    return await TimeOffRepo(db).update(off.id, changes, extra_filter={"updated_at": off.updated_at}) is not None
 
 
 async def _tell_unarranged(db: Db, s: Settings, off: TimeOff) -> None:
