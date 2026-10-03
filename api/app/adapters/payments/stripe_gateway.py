@@ -38,6 +38,7 @@ from app.adapters.payments.base import (
     ProviderRef,
     RefundResult,
     SavedCardInfo,
+    TransferResult,
     VisitRef,
 )
 from app.core.timeutil import to_london, utcnow
@@ -358,6 +359,14 @@ class StripeGateway:
     async def charge_status(self, payment_intent_id: str) -> ChargeResult:
         return charge_result_from_intent(as_dict(await self.c.payment_intents.retrieve_async(payment_intent_id)))
 
+    async def find_charge(self, idempotency_key: str, gateway_customer_id: str) -> ChargeResult | None:
+        """Our PaymentIntents carry their attempt's key in metadata: look among the customer's."""
+        listed = as_dict(await self.c.payment_intents.list_async({"customer": gateway_customer_id, "limit": 100}))
+        for pi in listed.get("data") or []:
+            if (pi.get("metadata") or {}).get("idempotency_key") == idempotency_key:
+                return charge_result_from_intent(pi, idempotency_key=idempotency_key)
+        return None
+
     async def cancel_charge(self, payment_intent_id: str) -> ChargeResult:
         current = await self.charge_status(payment_intent_id)
         if current.status == "succeeded":
@@ -447,6 +456,35 @@ class StripeGateway:
             log.error("application fee refund for %s refused: %s", charge_id, e.code)
             return result("failed", 0, FEE_RETRY + " Stripe said: " + (e.user_message or str(e.code)))
         return result("succeeded", fee_refund_pence)
+
+    async def restore_transfer(self, charge_id: str, amount_pence: int, *, idempotency_key: str) -> TransferResult:
+        def result(status: Literal["succeeded", "pending", "failed"], tr: str | None = None, why: str | None = None):
+            return TransferResult(status=status, transfer_id=tr, amount_pence=amount_pence, failure_reason=why)
+
+        try:
+            ch = as_dict(await self.c.charges.retrieve_async(charge_id, {"expand": ["transfer"]}))
+            dest = ref_id(as_dict(ch.get("transfer")).get("destination")) or ref_id(
+                (ch.get("transfer_data") or {}).get("destination")
+            )
+            if not dest:
+                return result("failed", why="The charge has no transfer to restore.")
+            tr = as_dict(
+                await self.c.transfers.create_async(
+                    {
+                        "amount": amount_pence,
+                        "currency": CURRENCY,
+                        "destination": dest,
+                        "source_transaction": charge_id,
+                        "metadata": {"reason": "failed refund", "intent": idempotency_key},
+                    },
+                    {"idempotency_key": idempotency_key},
+                )
+            )
+        except stripe.APIConnectionError, stripe.APIError, stripe.RateLimitError, stripe.IdempotencyError:
+            return result("pending", why="We couldn't reach Stripe to restore the provider's money.")
+        except stripe.StripeError as e:
+            return result("failed", why=e.user_message or str(e.code))
+        return result("succeeded", tr.get("id"))
 
     # ------------------------------------------------------------------ payouts
     async def payout_summary(self, provider_account: str, *, limit: int = 8) -> PayoutSummary:

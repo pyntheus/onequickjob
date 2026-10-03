@@ -471,3 +471,38 @@ async def test_the_gateway_is_chosen_by_payment_gateway(db, monkeypatch):
         make_payment_gateway(make_settings(payment_gateway="stripe", stripe_secret_key="sk_test_x"), db).name
         == "stripe"
     )
+
+
+async def test_find_charge_looks_up_an_attempt_by_its_key():
+    mock = MockStripe().on(
+        "GET",
+        "/v1/payment_intents",
+        {
+            "data": [
+                payment_intent("pi_other", metadata={"idempotency_key": "visit:v2:visit"}),
+                payment_intent("pi_1", metadata={"idempotency_key": "visit:v1:visit"}),
+            ]
+        },
+    )
+    found = await gateway(mock).find_charge("visit:v1:visit", "cus_1")
+    assert found and (found.payment_intent_id, found.status) == ("pi_1", "succeeded")
+    assert mock.one("GET", "/v1/payment_intents").params["customer"] == "cus_1"
+    assert await gateway(mock).find_charge("visit:v9:visit", "cus_1") is None
+    assert not mock.find("POST", "/v1/payment_intents")  # a read, never a charge
+
+
+async def test_restoring_a_providers_money_after_a_failed_refund():
+    mock = (
+        MockStripe()
+        .on("GET", "/v1/charges/ch_1", {"id": "ch_1", "transfer": {"id": "tr_0", "destination": "acct_1"}})
+        .on("POST", "/v1/transfers", {"id": "tr_back", "amount": 1500})
+    )
+    res = await gateway(mock).restore_transfer("ch_1", 1500, idempotency_key="rf1:restore")
+    call = mock.one("POST", "/v1/transfers")
+    assert (call.params["amount"], call.params["destination"], call.params["source_transaction"]) == (
+        "1500",
+        "acct_1",
+        "ch_1",
+    )
+    assert call.idempotency_key == "rf1:restore"
+    assert (res.status, res.transfer_id) == ("succeeded", "tr_back")

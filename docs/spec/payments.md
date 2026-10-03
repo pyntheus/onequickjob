@@ -92,11 +92,13 @@ declined attempt's result for 24 hours. **Retry charge** (overview, "Payments ne
 through after all), then starts the next one.
 
 Outcomes we can't see (Stripe unreachable, a concurrent request with the same key) leave the
-charge `pending`; the webhook settles it. Whoever looks again (the `settle_pending_payments` task
-every 5 minutes, a repeated finish, an admin retry) reads the payment if we know its id, or
-repeats the call with the same key, but only between a minute (the first request may still be
-going) and 23 hours (Stripe forgets keys after 24) after that attempt began (`payment_attempts`,
-never the visit's last update). Older unknowns show in the overview for a check by hand.
+charge `pending`; the webhook settles it. **A charge is never repeated to find out.** Whoever looks
+again (the `settle_pending_payments` task every 5 minutes, a repeated finish, an admin retry)
+reads the payment if we know its id, or looks it up by its idempotency key among the customer's
+PaymentIntents (`find_charge`). Only an attempt that provably never reached Stripe (not found 5
+minutes after it began, `payment_attempts`) is failed (`platform:not_sent`, not the customer's
+card), and only then can a retry use a new key. If it can't be looked up at all it stays pending
+and shows in the overview.
 
 Failures that aren't the card (`ChargeResult.failure_code` starting `platform:`, e.g. the
 provider has no payment account) never tell the customer to check their card; they show in the
@@ -130,9 +132,15 @@ failure; the fee step then runs from the task, never inside the webhook's transa
 refund's id is known it is only ever **read** (`refund_status`), never created again. An
 unknown outcome is repeated with the same key, but not within a minute of the first request (it
 may still be in flight), and not after 23 hours from when the intent was **created** (Stripe
-forgets keys after 24): after that it shows in the overview for a check in the dashboard. The
-`settle_pending_payments` task does the same every 5 minutes. A refund that fails after it had
-succeeded is audit-logged (`payment.refund_failed_after_recording`) for a manual adjustment.
+forgets keys after 24): after that it shows in the overview for a check in the dashboard.
+
+**A refund that fails after it was made** gave the provider's money to the platform: the refund
+was made with `reverse_transfer`, and a failed refund's funds return to the platform, not the
+connected account. The intent is marked `restore: needed`, and the provider is given it back
+with a transfer (`restore_transfer`, key `<intent id>:restore`, from the charge) right away or by
+the settle task; until then new refunds of that visit wait, and the overview shows it. A refund
+that fails after it had succeeded is audit-logged (`payment.refund_failed_after_recording`) for
+a manual adjustment.
 
 The fee is **cumulative proportional** over confirmed refunds: each refund returns
 `refund_split(total refunded after) - refund_split(total refunded before)`. One refund is exactly
@@ -165,15 +173,19 @@ account's payouts and balance (`Stripe-Account` header). `payout.paid` sends `pa
 - Order doesn't matter: a payment event applies only to the attempt named in its metadata
   (`idempotency_key`), and nothing undoes a success.
 - Handled: `payment_intent.succeeded | payment_failed | requires_action | processing | canceled`,
-  `refund.updated | refund.failed` (and `charge.refund.updated`), `charge.refunded` (confirms our
-  refunds; one made in the Stripe dashboard is recorded in the ledger with our usual split and
-  audit-logged as `payment.refund_external`), `account.updated`, `payout.paid`, `payout.failed`.
-  Anything else is acknowledged and logged.
-- A `charge.refunded` that can't be applied yet is kept with its payload (`outcome: deferred`):
-  one that arrives before its charge is recorded (applied in the transaction that records the
-  charge's success; deferring writes the visit, so the two can't miss each other), or one whose
-  total can't be attributed while a refund of ours is pending (a dashboard refund at the same
-  time). The settle task replays deferred events every 5 minutes.
+  `refund.created | refund.updated | refund.failed` (and `charge.refund.updated`),
+  `charge.refunded`, `account.updated`, `payout.paid`, `payout.failed`. Anything else is
+  acknowledged and logged.
+- **Refunds are recorded one by one, by refund id**, once they've succeeded: ours through their
+  intent, any other (made in the Stripe dashboard) as an external refund with our usual split,
+  audit-logged as `payment.refund_external` for a check. `charge.refunded` totals are snapshots
+  (a refund in them may still fail), so nothing is recorded from a total: only the refunds the
+  event lists are reconciled, by id. Production webhook endpoints must send the `refund.*`
+  events.
+- A refund event that arrives before its charge is recorded is kept with its payload
+  (`outcome: deferred`) and applied in the transaction that records the charge's success
+  (deferring writes the visit, so the two can't miss each other); the settle task also replays
+  deferred events every 5 minutes.
 - Live-mode events are ignored while `DEMO_MODE` is on.
 
 ## Testing with Stripe (test mode)

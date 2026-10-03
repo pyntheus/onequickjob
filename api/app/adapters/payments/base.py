@@ -106,6 +106,16 @@ class RefundResult(BaseModel):
     failure_reason: str | None = None
 
 
+class TransferResult(BaseModel):
+    """Money sent back to a provider's account (L3 addition): status succeeded; pending (unknown:
+    repeat with the same key); failed."""
+
+    status: Literal["succeeded", "pending", "failed"]
+    transfer_id: str | None = None
+    amount_pence: int
+    failure_reason: str | None = None
+
+
 class Payout(BaseModel):
     payout_id: str
     arrival_date: date
@@ -176,10 +186,21 @@ class PaymentGateway(Protocol):
         """Where a charge attempt stands now, e.g. before retrying it (L3 addition)."""
         ...
 
+    async def find_charge(self, idempotency_key: str, gateway_customer_id: str) -> ChargeResult | None:
+        """The payment an attempt made, looked up by its idempotency key, or None if the request
+        never reached the gateway. A read: recovering an unknown outcome never repeats a charge
+        (L3 addition)."""
+        ...
+
     async def cancel_charge(self, payment_intent_id: str) -> ChargeResult:
         """Cancel an attempt that hasn't succeeded (one waiting for the customer to confirm),
         so a retry can't leave two payments open. Returns the attempt's state afterwards:
         succeeded if it had already gone through (L3 addition)."""
+        ...
+
+    async def restore_transfer(self, charge_id: str, amount_pence: int, *, idempotency_key: str) -> TransferResult:
+        """Give a provider back what a failed refund's transfer reversal took (a failed refund's
+        money returns to the platform, not the provider) (L3 addition)."""
         ...
 
     async def payout_summary(self, provider_account: str, *, limit: int = 8) -> PayoutSummary: ...

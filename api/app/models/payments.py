@@ -57,6 +57,12 @@ class RefundIntent(Timestamped):
     refund_id: str | None = None
     failure_reason: str | None = None
     recorded_at: datetime | None = None
+    restore: Literal["none", "needed", "done"] = Field(
+        default="none",
+        description="A refund that failed after it was made: its transfer reversal took the provider's money, "
+        "which a failed refund returns to the platform, so it's transferred back (needed until done)",
+    )
+    restore_transfer_id: str | None = None
 
 
 class ChargeAttempt(Doc):

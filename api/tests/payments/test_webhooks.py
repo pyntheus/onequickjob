@@ -130,21 +130,6 @@ async def test_a_decline_tells_the_customer_and_provider(client, db, catalogue, 
     assert sent == ["charge_failed_customer", "charge_failed_provider"]
 
 
-async def test_a_refund_made_in_the_stripe_dashboard_reaches_the_ledger(client, db, catalogue, webhook_secret):
-    v, key = await waiting_visit(db)
-    await post(client, pi_event("payment_intent.succeeded", v.id, key, "succeeded"))
-    ch = {"id": "ch_1", "object": "charge", "amount": 3000, "amount_refunded": 1000, "payment_intent": "pi_1"}
-    await post(client, event("charge.refunded", ch))
-    charge = (await Visits(db).get(v.id)).charge  # type: ignore[union-attr]
-    assert (charge.status, charge.refunded_pence) == ("partially_refunded", 1000)
-    [entry] = await LedgerEntries(db).find({"visit_id": v.id, "kind": "refund"})
-    assert (entry.gross_pence, entry.fee_pence, entry.net_pence) == (-1000, -150, -850)
-    assert await db["audit_log"].count_documents({"action": "payment.refund_external"}) == 1
-    # Another delivery of the same state (a new event id) adds nothing.
-    await post(client, event("charge.refunded", ch))
-    assert len(await LedgerEntries(db).find({"visit_id": v.id, "kind": "refund"})) == 1
-
-
 async def test_account_updates_sync_the_providers_payment_account(client, db, catalogue, webhook_secret):
     provider = await payable_provider(db)
     await Providers(db).patch(
@@ -180,23 +165,6 @@ async def test_live_events_are_ignored_in_demo_mode(client, db, catalogue, webho
     await post(client, e)
     assert (await Visits(db).get(v.id)).charge.status == "requires_action"  # type: ignore[union-attr]
     assert (await db["payment_events"].find_one({"_id": e["id"]}))["outcome"] == "ignored"  # type: ignore[index]
-
-
-async def test_a_refund_event_before_the_charge_is_recorded_waits_for_it(client, db, catalogue, webhook_secret):
-    v, key = await waiting_visit(db, status="pending", pi=None)  # type: ignore[arg-type]
-    ch = {"id": "ch_1", "object": "charge", "amount": 3000, "amount_refunded": 1000, "payment_intent": "pi_1"}
-    early = event("charge.refunded", ch)
-    await post(client, early)
-    rec = await db["payment_events"].find_one({"_id": early["id"]})
-    assert rec and rec["outcome"] == "deferred" and rec["payment_intent"] == "pi_1" and rec["payload"]["id"] == "ch_1"
-    assert (await post(client, early)).json()["duplicate"] is True  # Stripe's retry changes nothing
-    await post(client, pi_event("payment_intent.succeeded", v.id, key, "succeeded"))
-    charge = (await Visits(db).get(v.id)).charge  # type: ignore[union-attr]
-    assert (charge.status, charge.refunded_pence) == ("partially_refunded", 1000)
-    kinds = sorted(e.kind for e in await LedgerEntries(db).find({"visit_id": v.id}))
-    assert kinds == ["charge", "refund"]
-    rec = await db["payment_events"].find_one({"_id": early["id"]})
-    assert rec and rec["outcome"] == "applied" and rec["payload"] is None
 
 
 async def refund_waiting(db, *, refund_id: str = "re_1"):
@@ -256,39 +224,95 @@ async def test_a_refund_that_fails_releases_its_amount(client, db, catalogue, we
     assert not await LedgerEntries(db).find({"visit_id": v.id, "kind": "refund"})
 
 
+def dashboard_refund(rid: str = "re_dash", amount: int = 1000, status: str = "succeeded") -> dict:
+    """A refund made in the Stripe dashboard: no intent of ours in its metadata."""
+    return {
+        "id": rid,
+        "object": "refund",
+        "status": status,
+        "amount": amount,
+        "charge": "ch_1",
+        "payment_intent": "pi_1",
+    }
+
+
+async def test_a_dashboard_refund_is_recorded_by_its_id(client, db, catalogue, webhook_secret):
+    v, key = await waiting_visit(db)
+    await post(client, pi_event("payment_intent.succeeded", v.id, key, "succeeded"))
+    await post(client, event("refund.created", dashboard_refund(status="pending")))
+    assert (await Visits(db).get(v.id)).charge.refunded_pence == 0  # type: ignore[union-attr]  # not until it succeeds
+    await post(client, event("refund.updated", dashboard_refund()))
+    charge = (await Visits(db).get(v.id)).charge  # type: ignore[union-attr]
+    assert (charge.status, charge.refunded_pence, charge.refund_ids) == ("partially_refunded", 1000, ["re_dash"])
+    [entry] = await LedgerEntries(db).find({"visit_id": v.id, "kind": "refund"})
+    assert (entry.gross_pence, entry.fee_pence, entry.net_pence, entry.gateway_ref) == (-1000, -150, -850, "re_dash")
+    assert await db["audit_log"].count_documents({"action": "payment.refund_external"}) == 1
+    # Another event for the same refund, and Stripe's charge snapshot, add nothing.
+    await post(client, event("refund.updated", dashboard_refund()))
+    snapshot = {"id": "ch_1", "object": "charge", "amount": 3000, "amount_refunded": 1000, "payment_intent": "pi_1"}
+    await post(client, event("charge.refunded", snapshot))
+    assert len(await LedgerEntries(db).find({"visit_id": v.id, "kind": "refund"})) == 1
+
+
+async def test_a_charge_event_listing_its_refunds_reconciles_each(client, db, catalogue, webhook_secret):
+    v, key = await waiting_visit(db)
+    await post(client, pi_event("payment_intent.succeeded", v.id, key, "succeeded"))
+    listed = [{"id": "re_a", "status": "succeeded", "amount": 1000}, {"id": "re_b", "status": "failed", "amount": 500}]
+    ch = {"id": "ch_1", "object": "charge", "amount": 3000, "amount_refunded": 1500, "payment_intent": "pi_1"}
+    ch["refunds"] = {"data": listed}
+    await post(client, event("charge.refunded", ch))
+    assert (await Visits(db).get(v.id)).charge.refunded_pence == 1000  # type: ignore[union-attr]  # not the failed one
+
+
+async def test_a_refund_event_before_the_charge_is_recorded_waits_for_it(client, db, catalogue, webhook_secret):
+    v, key = await waiting_visit(db, status="pending", pi=None)  # type: ignore[arg-type]
+    early = event("refund.updated", dashboard_refund())
+    await post(client, early)
+    rec = await db["payment_events"].find_one({"_id": early["id"]})
+    assert (
+        rec and rec["outcome"] == "deferred" and rec["payment_intent"] == "pi_1" and rec["payload"]["id"] == "re_dash"
+    )
+    assert (await post(client, early)).json()["duplicate"] is True
+    await post(client, pi_event("payment_intent.succeeded", v.id, key, "succeeded"))
+    charge = (await Visits(db).get(v.id)).charge  # type: ignore[union-attr]
+    assert (charge.status, charge.refunded_pence) == ("partially_refunded", 1000)
+    rec = await db["payment_events"].find_one({"_id": early["id"]})
+    assert rec and rec["outcome"] == "applied" and rec["payload"] is None
+
+
 async def test_a_deferred_refund_stranded_by_a_concurrent_success_is_replayed(client, db, catalogue, webhook_secret):
     from app.payments.webhooks import replay_all_deferred
 
     v, _ = await waiting_visit(db, status="pending", pi=None)  # type: ignore[arg-type]
-    ch = {"id": "ch_1", "object": "charge", "amount": 3000, "amount_refunded": 500, "payment_intent": "pi_1"}
-    early = event("charge.refunded", ch)
-    await post(client, early)
+    await post(client, event("refund.updated", dashboard_refund(amount=500)))
     # The success commits without seeing the deferred event (the interleaving the review found).
     await Visits(db).update(
         v.id, {"charge.status": "succeeded", "charge.charge_id": "ch_1", "charge.payment_intent_id": "pi_1"}
     )
     assert await replay_all_deferred(db, make_settings()) == 1
     assert (await Visits(db).get(v.id)).charge.refunded_pence == 500  # type: ignore[union-attr]
-    assert (await db["payment_events"].find_one({"_id": early["id"]}))["outcome"] == "applied"  # type: ignore[index]
 
 
-async def test_a_dashboard_refund_during_one_of_ours_waits_until_it_can_be_told_apart(
-    client, db, catalogue, webhook_secret
-):
-    from app.payments.webhooks import replay_all_deferred
+async def test_a_dashboard_refund_alongside_one_of_ours_that_fails(client, db, catalogue, webhook_secret):
+    """The review's case: our £15 is pending when someone refunds £5 in the dashboard; ours then
+    fails. Only the £5 is a refund, and the provider gets back what our failed one reversed."""
+    from app.adapters.payments.fake import FakeGateway
+    from app.payments.refunds import restore_provider
     from app.repos.payments import PaymentRefunds
 
     v, intent = await refund_waiting(db, refund_id="re_ours")
-    # Stripe's total: our pending £15 plus someone's £5 in the dashboard.
-    ch = {"id": "ch_1", "object": "charge", "amount": 3000, "amount_refunded": 2000, "payment_intent": "pi_1"}
-    total = event("charge.refunded", ch)
-    await post(client, total)
-    assert (await db["payment_events"].find_one({"_id": total["id"]}))["outcome"] == "deferred"  # type: ignore[index]
-    # Ours fails; then the dashboard's £5 can be attributed.
-    re = {"id": "re_ours", "object": "refund", "status": "failed", "amount": 1500}
-    await post(client, event("refund.failed", re))
-    assert (await PaymentRefunds(db).get(intent.id)).status == "failed"  # type: ignore[union-attr]
-    await replay_all_deferred(db, make_settings())
+    await post(client, event("refund.updated", dashboard_refund(amount=500)))
+    snapshot = {"id": "ch_1", "object": "charge", "amount": 3000, "amount_refunded": 2000, "payment_intent": "pi_1"}
+    await post(client, event("charge.refunded", snapshot))  # a snapshot including ours: nothing recorded from it
+    await post(
+        client, event("refund.failed", {"id": "re_ours", "object": "refund", "status": "failed", "amount": 1500})
+    )
     charge = (await Visits(db).get(v.id)).charge  # type: ignore[union-attr]
-    assert charge.refunded_pence == 2000  # what Stripe says was refunded, ours having failed
-    assert await db["audit_log"].count_documents({"action": "payment.refund_external"}) == 1
+    assert charge.refunded_pence == 500
+    failed = await PaymentRefunds(db).get(intent.id)
+    assert failed and failed.status == "failed" and failed.restore == "needed"
+    assert await PaymentRefunds(db).unsettled(v.id)  # new refunds wait until the provider is made whole
+    restored = await restore_provider(db, FakeGateway(db), failed)
+    assert restored.restore == "done" and restored.restore_transfer_id
+    assert await db["audit_log"].count_documents({"action": "payment.transfer_restored"}) == 1
+    assert not await PaymentRefunds(db).unsettled(v.id)

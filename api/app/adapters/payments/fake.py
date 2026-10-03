@@ -26,6 +26,7 @@ from app.adapters.payments.base import (
     ProviderRef,
     RefundResult,
     SavedCardInfo,
+    TransferResult,
     VisitRef,
 )
 from app.core.ids import new_id
@@ -161,6 +162,10 @@ class FakeGateway:
             raise LookupError(f"no fake charge for {payment_intent_id}")
         return ChargeResult.model_validate(doc["result"])
 
+    async def find_charge(self, idempotency_key: str, gateway_customer_id: str) -> ChargeResult | None:
+        doc = await self.coll.find_one({"kind": "charge", "idempotency_key": idempotency_key})
+        return ChargeResult.model_validate(doc["result"]) if doc else None
+
     async def cancel_charge(self, payment_intent_id: str) -> ChargeResult:
         """Like Stripe: a charge that went through stays succeeded; anything else is cancelled."""
         current = await self.charge_status(payment_intent_id)
@@ -231,6 +236,12 @@ class FakeGateway:
     async def refund_fee(self, charge_id: str, fee_refund_pence: int, *, idempotency_key: str) -> RefundResult:
         """The fake returns the fee with the refund itself, so there's never a fee part left to do."""
         return RefundResult(status="succeeded", amount_pence=0, fee_refunded_pence=fee_refund_pence)
+
+    async def restore_transfer(self, charge_id: str, amount_pence: int, *, idempotency_key: str) -> TransferResult:
+        """The fake only moves money for refunds that succeed, so there's nothing to give back."""
+        return TransferResult(
+            status="succeeded", transfer_id=keyed("tr_fake_", idempotency_key), amount_pence=amount_pence
+        )
 
     async def payout_summary(self, provider_account: str, *, limit: int = 8) -> PayoutSummary:
         """Charges are paid out the Friday after they're made (Friday's own go next week)."""

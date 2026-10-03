@@ -8,10 +8,12 @@ holds nothing outside the database. Events may arrive out of order: a payment ev
 only to the attempt named in its metadata (its idempotency key) and never undoes a success.
 
 Handled: payment_intent.* (succeeded, payment_failed, requires_action, processing, canceled),
-charge.refunded, refund.updated / refund.failed (and the older charge.refund.updated),
-account.updated, payout.paid and payout.failed. Anything else is logged and acknowledged.
-Live-mode events are ignored while DEMO_MODE is on. A charge.refunded that arrives before its
-charge is recorded is kept, with its payload, and replayed when the charge is (replay_deferred).
+refund.created / refund.updated / refund.failed (and the older charge.refund.updated): each
+refund is recorded by its id, ours when it succeeds and others (the dashboard) likewise;
+charge.refunded (only the refunds it lists: its totals are snapshots); account.updated,
+payout.paid and payout.failed. Anything else is logged and acknowledged. Live-mode events are
+ignored while DEMO_MODE is on. A refund event that arrives before its charge is recorded is kept,
+with its payload, and replayed when the charge is (replay_deferred, and the settle task).
 """
 
 import json
@@ -103,7 +105,7 @@ async def dispatch(db: Db, s: Settings, event: Json, obj: Json, session: DbSessi
     match kind:
         case "charge.refunded":
             return await charge_refunded(db, s, obj, session)
-        case "refund.updated" | "refund.failed" | "charge.refund.updated":
+        case "refund.created" | "refund.updated" | "refund.failed" | "charge.refund.updated":
             return await refund_updated(db, s, obj, session)
         case "account.updated":
             return await account_updated(db, obj, session)
@@ -127,63 +129,101 @@ async def payment_intent(db: Db, s: Settings, pi: Json, session: DbSession) -> O
     return ("applied", result.status) if applied else ("ignored", "already settled, or an earlier attempt")
 
 
+SETTLED = ("succeeded", "partially_refunded", "refunded")
+
+
+async def _visit_for(db: Db, charge_id: str | None, payment_intent: str | None, session: DbSession):
+    match = ([{"charge.charge_id": charge_id}] if charge_id else []) + (
+        [{"charge.payment_intent_id": payment_intent}] if payment_intent else []
+    )
+    return await Visits(db).find_one({"$or": match}, session=session) if match else None
+
+
 async def charge_refunded(db: Db, s: Settings, ch: Json, session: DbSession) -> Outcome:
-    """Refunds made in the admin console are recorded as they're confirmed; this confirms them and
-    records any made elsewhere (the Stripe dashboard) so the ledger matches Stripe. If the charge
-    itself isn't recorded yet (events can arrive in any order), the event waits for it."""
-    visits = Visits(db)
-    pi = ref_id(ch.get("payment_intent"))
-    match = [{"charge.charge_id": ch.get("id")}] + ([{"charge.payment_intent_id": pi}] if pi else [])
-    visit = await visits.find_one({"$or": match}, session=session)
-    if visit is None or visit.charge.status not in ("succeeded", "partially_refunded", "refunded"):
+    """Stripe's charge totals are snapshots (a refund in them may still fail), so nothing is
+    recorded from them. Refunds are recorded one by one, by id, from refund events; when this
+    event lists its refunds, each is reconciled the same way."""
+    listed = (ch.get("refunds") or {}).get("data") or []
+    if not listed:
+        return "ignored", "refunds are recorded from refund events"
+    outcomes = []
+    for re in listed:
+        outcomes.append(
+            await refund_updated(
+                db, s, {"charge": ch.get("id"), "payment_intent": ch.get("payment_intent"), **re}, session
+            )
+        )
+    if any(o == "deferred" for o, _ in outcomes):
+        return "deferred", "the charge isn't recorded yet; replayed when it is"
+    applied = [n for o, n in outcomes if o == "applied"]
+    return ("applied", "; ".join(applied)) if applied else ("ignored", "refunds already recorded")
+
+
+async def external_refund(db: Db, s: Settings, re: Json, session: DbSession) -> Outcome:
+    """A refund not asked for here (made in the Stripe dashboard): recorded by its id once it has
+    succeeded, so the ledger matches Stripe. If its charge isn't recorded yet (events arrive in
+    any order), the event waits for it."""
+    pi = ref_id(re.get("payment_intent"))
+    visit = await _visit_for(db, ref_id(re.get("charge")), pi, session)
+    if visit is None or visit.charge.status not in SETTLED:
         if not pi:
-            return "no_match", "no visit charge with that id"
+            return "no_match", "no visit charge for that refund"
         if visit is not None:
             # Write the visit, so a charge success committing at the same moment conflicts with
             # this deferral and one of them re-runs (and sees the other).
-            await visits.update(visit.id, {}, session=session)
+            await Visits(db).update(visit.id, {}, session=session)
         return "deferred", "the charge isn't recorded yet; replayed when it is"
+    if re.get("status") != "succeeded":
+        return "ignored", f"refund {re.get('status')}: recorded if it succeeds"
     charge = visit.charge
-    total = min(int(ch.get("amount_refunded") or 0), charge.amount_pence)
-    if total <= charge.refunded_pence:
-        return "ignored", "refunds already recorded"
-    if await PaymentRefunds(db).unsettled_pence(visit.id, session=session):
-        # A refund we asked for isn't confirmed yet, so Stripe's total can't be attributed:
-        # look again once it is (the settle task replays deferred events).
-        return "deferred", "a refund of ours is still pending; replayed once it settles"
-    extra = total - charge.refunded_pence
-    split = refund_split_for(charging.charged_split(visit, charge, "visit", s), charge.refunded_pence, extra)
-    refunded = total
-    ref = f"{ch['id']}:external:{total}"
-    await visits.update(
+    if re.get("id") in charge.refund_ids:
+        return "ignored", "already recorded"
+    amount = min(int(re.get("amount") or 0), charge.amount_pence - charge.refunded_pence)
+    if amount <= 0:
+        return "ignored", "nothing left on the charge to refund"
+    split = refund_split_for(charging.charged_split(visit, charge, "visit", s), charge.refunded_pence, amount)
+    refunded = charge.refunded_pence + amount
+    await Visits(db).update(
         visit.id,
         {
             "charge.refunded_pence": refunded,
             "charge.status": "refunded" if refunded >= charge.amount_pence else "partially_refunded",
-            "charge.refund_ids": [*charge.refund_ids, ref],
+            "charge.refund_ids": [*charge.refund_ids, re["id"]],
         },
         session=session,
     )
-    await ledger.record_refund(db, visit, split, at=utcnow(), gateway="stripe", refund_id=ref, session=session)
-    await notices.refunded(db, s, visit, extra, key=f"refund:{ref}", session=session)
+    await ledger.record_refund(db, visit, split, at=utcnow(), gateway="stripe", refund_id=re["id"], session=session)
+    await notices.refunded(db, s, visit, amount, key=f"refund:{re['id']}", session=session)
     await audit(
         db,
         SYSTEM,
         "payment.refund_external",
         Related(visit_id=visit.id, booking_id=visit.booking_id, provider_id=visit.provider_id),
         before={"refunded_pence": charge.refunded_pence},
-        after={"refunded_pence": refunded, "fee_pence": split.fee_pence, "provider_pence": split.provider_pence},
+        after={
+            "refund_id": re["id"],
+            "refunded_pence": refunded,
+            "fee_pence": split.fee_pence,
+            "provider_pence": split.provider_pence,
+        },
         note="Refunded outside the admin console. The ledger assumes our usual provider-funded split: "
         "check the transfer reversal and fee refund in Stripe.",
         session=session,
     )
-    return "applied", f"external refund of {extra}p"
+    return "applied", f"external refund {re['id']} of {amount}p"
+
+
+async def _replay(db: Db, s: Settings, ev: PaymentEvent, session: DbSession) -> Outcome:
+    payload = ev.payload or {}
+    if ev.type == "charge.refunded":
+        return await charge_refunded(db, s, payload, session)
+    return await refund_updated(db, s, payload, session)
 
 
 async def replay_all_deferred(db: Db, s: Settings, *, limit: int = 100) -> int:
-    """For the periodic task: try every deferred event again, each in its own transaction (an
-    event can be stranded if its charge settled at the same moment it was deferred, or while a
-    refund of ours was pending). Returns how many were applied."""
+    """For the periodic task: try every deferred event again, each in its own transaction (one can
+    be stranded if its charge settled at the very moment it was deferred). Returns how many were
+    applied."""
     applied = 0
     for ev in await PaymentEvents(db).find({"outcome": "deferred"}, sort=[("received_at", 1)], limit=limit):
 
@@ -191,7 +231,7 @@ async def replay_all_deferred(db: Db, s: Settings, *, limit: int = 100) -> int:
             fresh = await PaymentEvents(db).get(ev.id, session=session)
             if fresh is None or fresh.outcome != "deferred":
                 return False
-            outcome, note = await charge_refunded(db, s, fresh.payload or {}, session)
+            outcome, note = await _replay(db, s, fresh, session)
             if outcome == "deferred":
                 return False
             await PaymentEvents(db).set_outcome(ev.id, outcome, f"replayed: {note}", session=session)
@@ -209,22 +249,22 @@ async def replay_deferred(db: Db, s: Settings, payment_intent: str, *, session: 
     arrived before it."""
     events = PaymentEvents(db)
     for ev in await events.deferred_for(payment_intent, session=session):
-        outcome, note = await charge_refunded(db, s, ev.payload or {}, session)
+        outcome, note = await _replay(db, s, ev, session)
         if outcome != "deferred":
             await events.set_outcome(ev.id, outcome, f"replayed: {note}", session=session)
 
 
 async def refund_updated(db: Db, s: Settings, re: Json, session: DbSession) -> Outcome:
-    """A refund we asked for moved on at Stripe: record it when it succeeds (our fee goes back
-    to the provider afterwards, from the settle task: no Stripe call here), release the amount
-    if it failed."""
+    """A refund moved on at Stripe. One we asked for is recorded when it succeeds (our fee goes
+    back to the provider afterwards, from the settle task: no Stripe call here) or released if it
+    failed; any other (the dashboard) is recorded by its id once it succeeds."""
     refunds = PaymentRefunds(db)
     intent = await refunds.by_refund_id(re.get("id", ""), session=session)
     meta_intent = (re.get("metadata") or {}).get("intent")
     if intent is None and meta_intent:
         intent = await refunds.get(meta_intent, session=session)
     if intent is None:
-        return "ignored", "not a refund we asked for (charge.refunded covers it)"
+        return await external_refund(db, s, re, session)
     state = refund_state(re)
     if intent.status in ("succeeded", "fee_pending") and state.status == "failed":
         await audit(

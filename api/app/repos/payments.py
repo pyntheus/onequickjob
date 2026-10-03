@@ -54,17 +54,27 @@ class PaymentEvents(Repo[PaymentEvent]):
 
 class PaymentRefunds(Repo[RefundIntent]):
     model = RefundIntent
-    indexes = [idx("visit_id", "created_at"), idx("status", "created_at"), idx("dispute_id"), idx("refund_id")]
+    indexes = [
+        idx("visit_id", "created_at"),
+        idx("status", "created_at"),
+        idx("dispute_id"),
+        idx("refund_id"),
+        idx("restore", partialFilterExpression={"restore": "needed"}, name="restore_needed"),
+    ]
 
     async def for_visit(self, visit_id: str, *, session: DbSession | None = None) -> list[RefundIntent]:
         return await self.find({"visit_id": visit_id}, sort=[("created_at", 1)], session=session)
 
     async def unsettled(self, visit_id: str, *, session: DbSession | None = None) -> list[RefundIntent]:
-        """Refunds asked for whose customer refund isn't confirmed yet (still reserved)."""
-        return [r for r in await self.for_visit(visit_id, session=session) if r.status == "pending"]
+        """Refunds of a visit not finished with: the customer's refund isn't confirmed (its amount
+        is reserved), or a failed one's money hasn't been restored to the provider yet."""
+        return [
+            r for r in await self.for_visit(visit_id, session=session) if r.status == "pending" or r.restore == "needed"
+        ]
 
     async def unsettled_pence(self, visit_id: str, *, session: DbSession | None = None) -> int:
-        return sum(r.amount_pence for r in await self.unsettled(visit_id, session=session))
+        """What's reserved: refunds asked for and not yet confirmed."""
+        return sum(r.amount_pence for r in await self.for_visit(visit_id, session=session) if r.status == "pending")
 
     async def by_refund_id(self, refund_id: str, *, session: DbSession | None = None) -> RefundIntent | None:
         return await self.find_one({"refund_id": refund_id}, session=session)

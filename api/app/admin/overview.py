@@ -295,7 +295,10 @@ async def payment_issues(db: Db, cats: dict[str, Category]) -> list[PaymentIssue
         limit=50,
     )
     open_refunds = await PaymentRefunds(db).find(
-        {"status": {"$in": ["pending", "fee_pending"]}, "created_at": {"$lte": utcnow() - REFUND_STUCK_AFTER}},
+        {
+            "created_at": {"$lte": utcnow() - REFUND_STUCK_AFTER},
+            "$or": [{"status": {"$in": ["pending", "fee_pending"]}}, {"restore": "needed"}],
+        },
         sort=[("created_at", -1)],
         limit=50,
     )
@@ -318,7 +321,7 @@ async def payment_issues(db: Db, cats: dict[str, Category]) -> list[PaymentIssue
             category_name=cats[v.category_id].name if v.category_id in cats else v.category_id,
             local_date=v.local_date,
             amount_pence=r.amount_pence,
-            status="refund_" + r.status,
+            status="refund_restore" if r.restore == "needed" else "refund_" + r.status,
             failure_reason=r.failure_reason,
             since=r.created_at,
             kind="refund",

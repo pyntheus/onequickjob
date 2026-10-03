@@ -45,8 +45,9 @@ RETRYABLE = ("failed", "requires_action")
 OPEN = ("pending", *RETRYABLE)
 UNKNOWN = "We couldn't reach the payment provider, so this payment is waiting to be checked."
 RETRY = re.compile(r":retry(\d+)$")
-KEY_LIFE = timedelta(hours=23)  # Stripe keeps idempotency keys for 24 hours
 IN_FLIGHT = timedelta(seconds=60)
+# By then a request that reached the gateway has made its payment, and find_charge sees it.
+NOT_SENT_AFTER = timedelta(minutes=5)
 
 
 def field_for(purpose: Purpose) -> str:
@@ -241,7 +242,7 @@ async def _record_intent(
                 "charge_in_progress",
                 "This payment changed while you were looking at it. Have another look.",
             )
-        # When this key was first used: automatic repeats stop before the gateway forgets it.
+        # When this key was first used: recovery waits for its request before concluding anything.
         await ChargeAttempts(db).insert_once(
             ChargeAttempt(id=key, visit_id=visit.id, purpose=purpose, created_at=utcnow()),
             {"_id": key},
@@ -326,22 +327,30 @@ async def charge_visit(
 
 
 async def settle_unknown(db: Db, s: Settings, gateway: PaymentGateway, visit: Visit, purpose: Purpose) -> Visit:
-    """A pending attempt whose outcome we don't know: ask the gateway about its payment (always
-    safe), or, if we never heard which payment it made, repeat the call with the same key, which
-    can't charge twice, but only while the gateway still remembers the key."""
+    """A pending attempt whose outcome we don't know. Never repeated: the gateway is asked about
+    it (by its payment, or by its key if we never learned which payment it made), and an attempt
+    that provably never reached the gateway is failed, so a retry with a new key can't charge
+    twice."""
     charge = charge_of(visit, purpose)
     assert charge is not None and charge.status == "pending" and charge.idempotency_key
+    key = charge.idempotency_key
     if charge.payment_intent_id:
-        result = await gateway.charge_status(charge.payment_intent_id)
-        return await record_result(db, s, visit.id, purpose, charge.idempotency_key, result)
-    attempt = await ChargeAttempts(db).get(charge.idempotency_key)
-    if attempt is None or utcnow() - attempt.created_at >= KEY_LIFE:
-        return visit  # too old (or not ours) to repeat safely: the overview shows it for a check by hand
-    if utcnow() - attempt.created_at < IN_FLIGHT:
+        return await record_result(db, s, visit.id, purpose, key, await gateway.charge_status(charge.payment_intent_id))
+    attempt = await ChargeAttempts(db).get(key)
+    if attempt is not None and utcnow() - attempt.created_at < IN_FLIGHT:
         return visit  # its first request is probably still going: don't race it
-    return await _attempt(
-        db, s, gateway, visit, purpose, charged_split(visit, charge, purpose, s), charge.idempotency_key
-    )
+    p = await notices.parties(db, visit)
+    customer_ref = (p.customer.payment.gateway_customer_id if p.customer and p.customer.payment else None) or ""
+    if not customer_ref:
+        return visit  # can't look it up, so can't conclude anything: the overview shows it
+    found = await gateway.find_charge(key, customer_ref)
+    if found is not None:
+        return await record_result(db, s, visit.id, purpose, key, found)
+    if attempt is None or utcnow() - attempt.created_at < NOT_SENT_AFTER:
+        return visit  # can't be sure yet that it never arrived
+    split = charged_split(visit, charge, purpose, s)
+    never = _failed("The payment never reached the payment provider.", PLATFORM_FAILURE + "not_sent", split, key)
+    return await record_result(db, s, visit.id, purpose, key, never)
 
 
 async def retry_charge(db: Db, s: Settings, gateway: PaymentGateway, visit_id: str, actor: Actor) -> Visit:
