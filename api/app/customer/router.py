@@ -412,10 +412,11 @@ async def update_plan(series_id: str, body: PlanUpdate, customer: Cust, db: DbDe
     user = await _user(db, customer)
     fields = body.model_dump(exclude_unset=True)
     frequency = fields.pop("frequency", None)
+    expected = fields.pop("expected_price_pence", None)
     if fields:
         series = await account.update_plan(db, s, series, booking, customer, user, PlanUpdate(**fields))
     if frequency:
-        await plan_changes.request_change(db, s, series, booking, customer, user, frequency)
+        await plan_changes.request_change(db, s, series, booking, customer, user, frequency, expected)
     return await plan_view(db, series, booking, Lookup(db))
 
 

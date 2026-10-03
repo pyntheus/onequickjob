@@ -252,6 +252,12 @@ class PlanUpdate(In):
         ]
         | None
     ) = Field(default=None, description="Asks the provider to accept the re-priced plan (A10); applied only if they do")
+    expected_price_pence: int | None = Field(
+        default=None,
+        ge=0,
+        description="With frequency: the price the customer was shown (GET .../reprice). If the price has changed "
+        "since, nothing is sent and the answer is 409 price_changed with the new price",
+    )
 
 
 class RebookIn(In):

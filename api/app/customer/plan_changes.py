@@ -130,13 +130,30 @@ async def reprice(db: Db, s: Settings, series: Series, booking: Booking, frequen
 
 
 async def request_change(
-    db: Db, s: Settings, series: Series, booking: Booking, customer: Customer, user: User, frequency: str
+    db: Db,
+    s: Settings,
+    series: Series,
+    booking: Booking,
+    customer: Customer,
+    user: User,
+    frequency: str,
+    expected_price_pence: int | None,
 ) -> PlanChange:
     """The customer asks: the provider is texted the re-priced plan; the plan doesn't change yet.
-    Asking again replaces a change still waiting."""
+    Asking again replaces a change still waiting. The customer names the price they were shown;
+    if pricing has moved since, nothing is sent and they see the new price first."""
     if frequency == series.frequency:
         fail(status.HTTP_409_CONFLICT, "same_frequency", f"Your plan is already {words(frequency)}.")
+    if expected_price_pence is None:
+        fail(status.HTTP_422_UNPROCESSABLE_CONTENT, "price_needed", "See the new price first, then ask.")
     priced = await reprice(db, s, series, booking, frequency, user.id)
+    if priced.price_pence != expected_price_pence:
+        fail(
+            status.HTTP_409_CONFLICT,
+            "price_changed",
+            f"The price for that has just changed to {wording.money(priced.price_pence)} a visit. Have another look.",
+            price_pence=priced.price_pence,
+        )
     cat = await _category(db, series.category_id)
     provider = await Providers(db).get(series.provider_id)
     pu = await Users(db).get(provider.user_id) if provider else None

@@ -49,8 +49,15 @@ def _token_from(body: str) -> str:
     return body.split("/plan-change/")[1].split()[0]
 
 
+async def _preview(client, series_id: str, frequency: str) -> int:
+    r = await client.get(f"/api/c/plans/{series_id}/reprice", params={"frequency": frequency})
+    assert r.status_code == 200, r.text
+    return r.json()["price_pence"]
+
+
 async def _ask(client, db, series_id: str, frequency: str) -> str:
-    r = await client.patch(f"/api/c/plans/{series_id}", json={"frequency": frequency})
+    price = await _preview(client, series_id, frequency)
+    r = await client.patch(f"/api/c/plans/{series_id}", json={"frequency": frequency, "expected_price_pence": price})
     assert r.status_code == 200, r.text
     msg = await db["outbox"].find_one({"template_id": "plan_change_proposed"}, sort=[("created_at", -1), ("_id", -1)])
     return _token_from(msg["body"])
@@ -71,7 +78,7 @@ async def test_asking_reprices_and_waits_for_the_provider(client, db, catalogue)
     assert [o["value"] for o in plan["frequency_options"]] == ["weekly", "fortnightly", "threeweekly"]
     before = sorted(v.local_date for v in await Visits(db).find({"series_id": sid, "status": "scheduled"}))
 
-    r = await client.patch(f"/api/c/plans/{sid}", json={"frequency": "weekly"})
+    r = await client.patch(f"/api/c/plans/{sid}", json={"frequency": "weekly", "expected_price_pence": weekly})
     assert r.status_code == 200
     out = r.json()
     assert out["frequency"] == "fortnightly" and out["price_pence"] == 3100, "unchanged until the provider accepts"
@@ -149,10 +156,14 @@ async def test_a_late_answer_lapses_the_change_even_before_the_task_runs(client,
 
 async def test_frequencies_the_category_doesnt_offer_are_refused(client, db, catalogue):
     _dave, booking = await _mowing_plan(client, db)
-    r = await client.patch(f"/api/c/plans/{booking.series_id}", json={"frequency": "monthly"})
+    r = await client.patch(
+        f"/api/c/plans/{booking.series_id}", json={"frequency": "monthly", "expected_price_pence": 1}
+    )
     assert r.status_code == 422 and r.json()["detail"]["code"] == "frequency_not_offered"
     r = await client.patch(f"/api/c/plans/{booking.series_id}", json={"frequency": "fortnightly"})
     assert r.status_code == 409 and r.json()["detail"]["code"] == "same_frequency"
+    r = await client.patch(f"/api/c/plans/{booking.series_id}", json={"frequency": "weekly"})
+    assert r.status_code == 422 and r.json()["detail"]["code"] == "price_needed"
     assert await PlanChanges(db).count({}) == 0
 
 
@@ -221,7 +232,13 @@ async def test_a_change_priced_from_a_stale_plan_is_refused(client, db, catalogu
     customer = await Customers(db).get(booking.customer_id)
     user = await Users(db).get(customer.user_id)
     try:
-        await plan_changes.request_change(db, make_settings(), stale_series, booking, customer, user, "threeweekly")
+        # The price as the customer's stale page would have shown it, so it's the plan guard that refuses.
+        price = (
+            await plan_changes.reprice(db, make_settings(), stale_series, booking, "threeweekly", user.id)
+        ).price_pence
+        await plan_changes.request_change(
+            db, make_settings(), stale_series, booking, customer, user, "threeweekly", price
+        )
         raise AssertionError("should have been refused")
     except Exception as e:
         assert getattr(e, "status_code", None) == 409 and e.detail["code"] == "plan_changed"
@@ -240,3 +257,24 @@ async def test_acceptance_refuses_a_change_whose_plan_has_moved_on(client, db, c
     r = await client.post(f"/api/c/plan-changes/{token}/accept")
     assert r.status_code == 409 and r.json()["detail"]["code"] == "plan_changed"
     assert (await SeriesRepo(db).get(booking.series_id)).frequency == "fortnightly"
+
+
+async def test_the_provider_is_only_sent_the_price_the_customer_saw(client, db, catalogue, monkeypatch):
+    """Codex re-check (high): if pricing moves between the preview and Ask, nothing is sent; the
+    customer gets the new price to look at first."""
+    _dave, booking = await _mowing_plan(client, db)
+    shown = await _preview(client, booking.series_id, "weekly")
+    real = plan_changes.reprice
+
+    async def dearer(*a, **kw):
+        out = await real(*a, **kw)
+        return out.__class__(**{**out.__dict__, "price_pence": out.price_pence + 900})  # a new pricing version
+
+    monkeypatch.setattr(plan_changes, "reprice", dearer)
+    r = await client.patch(
+        f"/api/c/plans/{booking.series_id}", json={"frequency": "weekly", "expected_price_pence": shown}
+    )
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "price_changed"
+    assert r.json()["detail"]["extra"]["price_pence"] == shown + 900
+    assert await PlanChanges(db).count({}) == 0
+    assert await db["outbox"].count_documents({"template_id": "plan_change_proposed"}) == 0

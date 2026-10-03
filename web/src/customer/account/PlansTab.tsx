@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useState, type CSSProperties } from "react";
 import { useNavigate } from "react-router";
-import { api, call, type Schemas } from "../../api/client";
+import { ApiError, api, call, type Schemas } from "../../api/client";
 import { Chip } from "../../shared/Chip";
 import { fmt } from "../../shared/format";
 import { Toggle } from "../../shared/Toggle";
@@ -46,7 +46,8 @@ function ChangeHowOften({ plan, onDone }: { plan: PlanOut; onDone: () => void })
       await call(
         api.PATCH("/api/c/plans/{series_id}", {
           params: { path: { series_id: plan.series_id } },
-          body: { frequency: quote.frequency as Frequency },
+          // The price shown: if it has changed since, nothing is sent and the new one is shown.
+          body: { frequency: quote.frequency as Frequency, expected_price_pence: quote.price_pence },
         }),
       );
       notify(`We've asked ${who}. Your plan stays as it is unless they accept.`);
@@ -54,6 +55,8 @@ function ChangeHowOften({ plan, onDone }: { plan: PlanOut; onDone: () => void })
       onDone();
     } catch (e) {
       setError(errorText(e));
+      const fresh = e instanceof ApiError && e.code === "price_changed" ? e.extra?.price_pence : undefined;
+      if (typeof fresh === "number") setQuote({ ...quote, price_pence: fresh });
     } finally {
       setBusy(false);
     }

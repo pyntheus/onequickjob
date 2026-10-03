@@ -407,8 +407,10 @@ Decided by Hasan after reviewing the F report; each has tests.
   change still waiting; cancelling the plan withdraws it. Only frequencies the category's intake
   offers can be chosen. A proposal is bound to the plan it was priced from (its frequency and
   price, with a guarded write when it's made): if the plan has changed meanwhile, asking or
-  accepting gets 409 rather than a mispriced change (Codex review). The web shows the API's prices
-  only. (`tests/customer/test_plan_changes.py`.)
+  accepting gets 409 rather than a mispriced change, and the customer's "Ask" names the price they
+  were shown: if pricing has moved since the preview, nothing is sent and they see the new price
+  first (409 `price_changed`; Codex reviews). The web shows the API's prices only.
+  (`tests/customer/test_plan_changes.py`.)
 - **A11. Unbooked requests close after 7 days, and the customer is texted** (Hasan: confirmed
   as built by L1). The `request_expiry` task closes an open request with no booking 7 days after
   it was made (`expired`), lapses any counters (their providers get `request_closed`) and sends

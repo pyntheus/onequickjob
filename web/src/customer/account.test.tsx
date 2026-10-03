@@ -126,7 +126,21 @@ describe("my account", () => {
     await userEvent.click(screen.getByRole("button", { name: "Ask Dave" }));
     await userEvent.click(screen.getByRole("button", { name: "Cancel plan" }));
     await waitFor(() => expect(cancelled).toBe(true));
-    expect(patches).toEqual([{ pause_winter: true }, { cover_when_away: false }, { frequency: "weekly" }]);
+    expect(patches).toEqual([{ pause_winter: true }, { cover_when_away: false }, { frequency: "weekly", expected_price_pence: 2800 }]);
+  });
+
+  it("shows the new price if it changed before asking (A10)", async () => {
+    accountApi({
+      "GET /api/c/plans/s1/reprice": () => ({ frequency: "weekly", frequency_label: "every week", price_pence: 2800, current_price_pence: 3100 }),
+      "PATCH /api/c/plans/s1": () =>
+        json(409, { detail: { code: "price_changed", message: "The price for that has just changed to £30 a visit. Have another look.", extra: { price_pence: 3000 } } }),
+    });
+    renderAt("/account?tab=plan");
+    await userEvent.click(await screen.findByRole("button", { name: "Change how often" }));
+    await userEvent.click(screen.getByRole("button", { name: "Every week" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Ask Dave" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("The price for that has just changed to £30 a visit.");
+    expect(screen.getByText(/the price would be/)).toHaveTextContent("the price would be £30 a visit");
   });
 
   it("shows a frequency change waiting for the provider", async () => {

@@ -5606,6 +5606,19 @@
             ],
             "title": "Cover When Away"
           },
+          "expected_price_pence": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "With frequency: the price the customer was shown (GET .../reprice). If the price has changed since, nothing is sent and the answer is 409 price_changed with the new price",
+            "title": "Expected Price Pence"
+          },
           "frequency": {
             "anyOf": [
               {

@@ -4484,6 +4484,11 @@ export interface components {
             /** Cover When Away */
             cover_when_away?: boolean | null;
             /**
+             * Expected Price Pence
+             * @description With frequency: the price the customer was shown (GET .../reprice). If the price has changed since, nothing is sent and the answer is 409 price_changed with the new price
+             */
+            expected_price_pence?: number | null;
+            /**
              * Frequency
              * @description Asks the provider to accept the re-priced plan (A10); applied only if they do
              */

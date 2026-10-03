@@ -294,7 +294,10 @@ async def test_away_dates_skip_those_visits(client, db, catalogue):
 async def _accepted_change(client, db, series_id: str, frequency: str) -> int:
     """Ask for a frequency (A10) and accept it as the provider would, from the link in their text.
     Returns the new price."""
-    r = await client.patch(f"/api/c/plans/{series_id}", json={"frequency": frequency})
+    shown = (await client.get(f"/api/c/plans/{series_id}/reprice", params={"frequency": frequency})).json()
+    r = await client.patch(
+        f"/api/c/plans/{series_id}", json={"frequency": frequency, "expected_price_pence": shown["price_pence"]}
+    )
     assert r.status_code == 200, r.text
     price = r.json()["pending_change"]["to_price_pence"]
     msg = await db["outbox"].find_one({"template_id": "plan_change_proposed"}, sort=[("created_at", -1), ("_id", -1)])
