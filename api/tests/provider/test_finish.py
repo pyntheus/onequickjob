@@ -1,14 +1,19 @@
-"""Finishing a visit: calibration data always kept; the charge outside any transaction with the
-fee from money.split_for_visit; one ledger entry with gross == fee + net; the messages."""
+"""Finishing a visit: calibration data always kept; the charge through app.payments.charging,
+outside any transaction, with the fee from money.split_for_visit; one ledger entry with
+gross == fee + net; the messages, the receipt and a one-off completed."""
 
 import asyncio
+from datetime import timedelta
 
 import pytest
 
+from app.adapters.payments.base import ChargeResult
 from app.adapters.payments.fake import FakeGateway
+from app.admin.tasks import LOOK_BACK, SETTLE_AFTER
 from app.core.db import transaction
 from app.core.timeutil import london_today, utcnow
 from app.models.visits import Performer
+from app.payments import charging
 from app.provider import finish
 from app.provider.acting import Acting
 from app.repos import Bookings, LedgerEntries, MileageLogs, Visits
@@ -162,9 +167,10 @@ async def test_a_declined_card_keeps_the_calibration_data_and_writes_no_ledger_e
     assert await _outbox(db, "payment_on_its_way") == []
 
 
-async def test_a_charge_that_never_reached_the_gateway_is_resumed_once(db, world, monkeypatch):
-    """A crash between saving the finished visit and charging: the visit is finished with a
-    pending charge; after the grace period the resume task charges it, exactly once."""
+async def test_a_charge_that_never_started_is_started_once(db, world, monkeypatch):
+    """The request stops between saving the finished visit and charging it: the visit is
+    finished with no charge; after a few minutes L3's settle task starts it, exactly once,
+    through the one charging path."""
     v = await move_to_today(db, world.first)
     await Visits(db).update(v.id, {"status": "in_progress", "started_at": utcnow()})
     s = make_settings()
@@ -173,24 +179,52 @@ async def test_a_charge_that_never_reached_the_gateway_is_resumed_once(db, world
     a = Acting(provider=world.dave, cu=_cu(await Users(db).get(world.dave.user_id)))
 
     async def crash(*_a, **_k):
-        raise RuntimeError("the process died")
+        raise asyncio.CancelledError  # the process went away mid-request
 
-    monkeypatch.setattr(finish, "charge_and_record", crash)
-    with pytest.raises(RuntimeError):
+    monkeypatch.setattr(charging, "charge_visit", crash)
+    with pytest.raises(asyncio.CancelledError):
         await finish.finish_visit(db, s, FakeGateway(db), a, v.id, _body())
     monkeypatch.undo()
     stored = await Visits(db).get(v.id)
     assert stored.status == "finished" and stored.minutes_actual == 52, "calibration data was kept"
-    assert stored.charge.status == "pending" and stored.charge.payment_intent_id is None
+    assert stored.charge.status == "none"
 
-    assert await finish.resume_pending_charges(db, s, FakeGateway(db)) == 0, "too soon: it may still be in flight"
-    old = utcnow().replace(year=2000)
-    await Visits(db).update(v.id, {"finished_at": old, "charge.attempted_at": old})
-    results = await asyncio.gather(*(finish.resume_pending_charges(db, s, FakeGateway(db)) for _ in range(3)))
-    assert sum(results) == 1
+    def start():
+        return charging.start_unstarted(db, s, FakeGateway(db), older_than=SETTLE_AFTER, look_back=LOOK_BACK)
+
+    assert await start() == 0, "too soon: the finishing request may still be charging it"
+    await Visits(db).update(v.id, {"finished_at": utcnow() - SETTLE_AFTER - timedelta(seconds=1)})
+    await asyncio.gather(*(start() for _ in range(3)))
     assert await db["fake_gateway"].count_documents({"kind": "charge", "visit_id": v.id}) == 1
     assert await LedgerEntries(db).count({"visit_id": v.id}) == 1
     assert (await Visits(db).get(v.id)).charge.status == "succeeded"
+    assert len(await _outbox(db, "payment_on_its_way", **{"related.visit_id": v.id})) == 1
+
+
+async def test_finishing_again_starts_a_charge_that_never_started(dave_client, db, world, monkeypatch):
+    v = await move_to_today(db, world.first)
+    await _start(dave_client, v.id)
+
+    async def unreachable(*_a, **_k):
+        raise RuntimeError("database went away")
+
+    monkeypatch.setattr(charging, "charge_visit", unreachable)
+    r = await dave_client.post(f"/api/p/visits/{v.id}/finish", json=FINISH)
+    assert r.status_code == 200 and r.json()["charge_status"] == "pending"
+    assert (r.json()["price_pence"], r.json()["fee_pence"]) == (3000, 450), "what it will charge"
+    monkeypatch.undo()
+    again = await dave_client.post(f"/api/p/visits/{v.id}/finish", json=FINISH)
+    assert again.status_code == 200 and again.json()["charge_status"] == "succeeded"
+    assert await LedgerEntries(db).count({"visit_id": v.id}) == 1
+
+
+async def test_a_visit_finished_long_ago_is_left_to_the_admin(db, world):
+    """start_unstarted looks back a week, like the settle task; older ones are the admin's retry."""
+    v = await move_to_today(db, world.first)
+    await Visits(db).update(v.id, {"status": "finished", "finished_at": utcnow() - LOOK_BACK - timedelta(hours=1)})
+    s = make_settings()
+    assert await charging.start_unstarted(db, s, FakeGateway(db), older_than=SETTLE_AFTER, look_back=LOOK_BACK) == 0
+    assert (await Visits(db).get(v.id)).charge.status == "none"
 
 
 async def test_a_one_off_booking_completes_when_its_visit_is_charged(dave_client, db, dave):
@@ -202,6 +236,63 @@ async def test_a_one_off_booking_completes_when_its_visit_is_charged(dave_client
     assert (await Bookings(db).get(booking.id)).status == "completed"
     stored = await Visits(db).get(v.id)
     assert stored.flags_none and stored.flags == [] and stored.overrun is True
+
+
+async def test_a_payment_that_lands_later_completes_the_one_off_and_counts_to_the_limit(dave_client, db, dave):
+    """The customer's bank asks them to confirm: nothing is complete yet. When the payment lands
+    (a webhook, the settle task or the admin's retry, all through charging.apply_result), the
+    one-off completes and the limit text goes, once."""
+    await db["fake_gateway"].insert_one({"_id": "cus_fake_test", "kind": "customer", "name": "Sam 3ds"})
+    await db["providers"].update_one(
+        {"_id": dave.id}, {"$set": {"earnings_limit": {"on": True, "period": "week", "amount_pence": 5000}}}
+    )
+    customer = await make_customer(db)
+    booking, v = await book(db, customer, dave, frequency="oneoff", price=6100, category="hedges")
+    v = await move_to_today(db, v)
+    await _start(dave_client, v.id)
+    r = await dave_client.post(f"/api/p/visits/{v.id}/finish", json={**FINISH, "flags": [], "nothing_different": True})
+    assert r.json()["charge_status"] == "requires_action" and "confirm the payment" in r.json()["charge_message"]
+    assert (await Bookings(db).get(booking.id)).status == "active"
+    assert await _outbox(db, "limit_reached") == []
+
+    waiting = (await Visits(db).get(v.id)).charge
+    landed = ChargeResult(
+        status="succeeded",
+        charge_id="ch_later",
+        payment_intent_id=waiting.payment_intent_id,
+        amount_pence=waiting.amount_pence,
+        fee_pence=waiting.fee_pence,
+        idempotency_key=waiting.idempotency_key,
+        created_at=utcnow(),
+    )
+    for _ in range(2):  # delivered twice
+        await charging.record_result(db, make_settings(), v.id, "visit", waiting.idempotency_key, landed)
+    assert (await Bookings(db).get(booking.id)).status == "completed"
+    assert await LedgerEntries(db).count({"visit_id": v.id}) == 1
+    [msg] = await _outbox(db, "limit_reached")
+    assert "weekly earnings limit of £50" in msg["body"]
+
+
+async def test_a_helpers_receipt_names_them_in_full(db, catalogue):
+    customer = await make_customer(db)
+    await db["users"].update_one({"_id": customer.user_id}, {"$set": {"email": "sarah@example.com"}})
+    dave = await make_dave(db)
+    tom = await add_tom(db, dave)
+    _, v = await book(db, customer, dave)
+    v = await move_to_today(db, v)
+    p = Performer(kind="helper", provider_id=dave.id, user_id=tom.id, name="Tom H.")
+    await Visits(db).update(v.id, {"performer": p.model_dump(), "status": "in_progress", "started_at": utcnow()})
+    from app.repos import Providers, Users
+
+    boss = await Providers(db).get(dave.id)
+    a = Acting(provider=boss, cu=_cu(await Users(db).get(tom.id)), as_helper=boss.helpers[0])
+    out = await finish.finish_visit(db, make_settings(), FakeGateway(db), a, v.id, _body())
+    assert out.charge_status == "succeeded" and "Dave's bank" in out.charge_message
+    receipt = (await _outbox(db, "receipt", **{"related.visit_id": v.id}))[0]
+    assert "done by Tom Hughes.\n" in receipt["body"] and ".." not in receipt["body"]
+    assert "Paid to Dave: £25.50" in receipt["body"]
+    [done] = await _outbox(db, "visit_done_customer_no_photo", **{"related.visit_id": v.id})
+    assert done["body"].startswith("OneQuickJob: Tom H. has finished your lawn mowing. We've charged £30")
 
 
 async def test_flags_and_nothing_different_are_exclusive(dave_client, db, world):
@@ -256,4 +347,4 @@ async def test_charging_happens_outside_any_transaction(db, world, monkeypatch):
     a = Acting(provider=world.dave, cu=_cu(await Users(db).get(world.dave.user_id)))
     await finish.finish_visit(db, make_settings(), Spy(db), a, v.id, _body())
     assert seen == [None]
-    assert transaction  # the module under test uses app.core.db.transaction for steps 1 and 3
+    assert transaction  # the module under test uses app.core.db.transaction for step 1

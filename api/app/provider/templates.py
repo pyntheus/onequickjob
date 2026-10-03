@@ -1,19 +1,10 @@
 """Outbox templates L2 needs beyond the catalogue (app/services/templates.py), registered from
-this package as lanes.md allows. Integration (I) folds them into the catalogue."""
+this package as lanes.md allows. Integration (I) folds them into the catalogue.
+(visit_done_customer_no_photo is sent with the other paid-visit messages, so it's registered in
+app.payments.notices.)"""
 
 from app.services.templates import Template, register
 
-register(
-    Template(
-        id="visit_done_customer_no_photo",
-        lane="L2",
-        audience="customer",
-        channels=("sms",),
-        trigger="A provider finishes a visit without adding an after photo, and the card is charged.",
-        body="{brand}: {provider} has finished your {category}. We've charged {price} to your card. "
-        "Rate the visit: {link}",
-    )
-)
 register(
     Template(
         id="time_off_unarranged",

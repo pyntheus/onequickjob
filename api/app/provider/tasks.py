@@ -9,7 +9,6 @@ task (app.shared.tasks).
 import logging
 from datetime import date, datetime, timedelta
 
-from app.adapters.payments import make_payment_gateway
 from app.core.config import Settings
 from app.core.db import Db
 from app.core.tasks import periodic
@@ -17,7 +16,6 @@ from app.core.timeutil import add_months, london_today, tax_year, tax_year_bound
 from app.models.common import Related
 from app.provider import templates as _templates  # noqa: F401 (registers L2's extra outbox templates)
 from app.provider.cover import close_dead_covers, expire_uncovered
-from app.provider.finish import resume_pending_charges
 from app.provider.own_customers import expire_invites
 from app.provider.time_off import housekeeping
 from app.repos.bookings import Bookings
@@ -191,9 +189,3 @@ async def invite_expiry(db: Db, s: Settings) -> None:
 @periodic("provider_tax_key_dates", every_seconds=3600)
 async def tax_key_dates(db: Db, s: Settings) -> None:
     await send_tax_key_dates(db, s)
-
-
-@periodic("provider_resume_charges", every_seconds=300)
-async def resume_charges(db: Db, s: Settings) -> None:
-    """Visits finished whose charge never reached the gateway (a crash in between)."""
-    await resume_pending_charges(db, s, make_payment_gateway(s, db))

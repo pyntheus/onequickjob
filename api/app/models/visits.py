@@ -38,11 +38,6 @@ class Charge(Model):
     failure_reason: str | None = None
     refunded_pence: Pence = 0
     refund_ids: list[str] = Field(default_factory=list)
-    attempted_at: datetime | None = Field(
-        default=None,
-        description="When a request last claimed this charge to send it to the gateway (L2), so a pending "
-        "charge is only ever sent by one request at a time",
-    )
 
 
 class Photos(Model):

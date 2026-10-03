@@ -1,10 +1,11 @@
 """The outbox messages money movements send, with idempotency keys so each goes once.
 
-A charge that succeeds sends visit_done_customer, receipt (when the customer has an email)
-and payment_on_its_way; one that fails or needs the customer sends charge_failed_customer
-and charge_failed_provider, once per attempt; a refund sends refund_issued; a payout that
-lands sends payout_sent; a tip that's charged sends tip_received (L1). Every call takes the
-caller's transaction session.
+A charge that succeeds sends visit_done_customer (visit_done_customer_no_photo when there's
+no after photo), receipt (when the customer has an email), payment_on_its_way and, when it
+takes the provider to their earnings limit, limit_reached; one that fails or needs the
+customer sends charge_failed_customer and charge_failed_provider, once per attempt; a refund
+sends refund_issued; a payout that lands sends payout_sent; a tip that's charged sends
+tip_received (L1). Every call takes the caller's transaction session.
 """
 
 from dataclasses import dataclass
@@ -22,6 +23,7 @@ from app.repos.customers import Customers
 from app.repos.providers import Providers
 from app.repos.users import Users
 from app.services import templates, wording
+from app.services.eligibility import limit_status
 from app.services.notify import link, notify, recipient_for
 
 
@@ -68,6 +70,28 @@ def _related(visit: Visit, p: Parties) -> Related:
     )
 
 
+VISIT_DONE_NO_PHOTO = templates.register(
+    templates.Template(
+        id="visit_done_customer_no_photo",
+        lane="L2",
+        audience="customer",
+        channels=("sms",),
+        trigger="A provider finishes a visit without adding an after photo, and the card is charged.",
+        body="{brand}: {provider} has finished your {category}. We've charged {price} to your card. "
+        "Rate the visit: {link}",
+    )
+)
+
+
+async def _full_name(db: Db, visit: Visit, session: DbSession) -> str:
+    """Who did the visit, in full for the receipt (the short form ends in a full stop: "Dave H.")."""
+    if visit.performer.kind == "helper":
+        user = await Users(db).get(visit.performer.user_id, session=session)
+        return user.name if user and user.name else visit.performer.name
+    doer = await Providers(db).get(visit.performer.provider_id, session=session)
+    return doer.name if doer else visit.performer.name
+
+
 async def charged(db: Db, s: Settings, visit: Visit, charge: Charge, session: DbSession) -> None:
     """A visit's charge went through: tell the customer (text and receipt) and the provider."""
     p = await parties(db, visit, session)
@@ -76,9 +100,11 @@ async def charged(db: Db, s: Settings, visit: Visit, charge: Charge, session: Db
     done_by = visit.performer.name
     base = f"charge:{visit.id}:visit:paid"
     if p.customer_user and p.customer_user.phone:
+        # The photo is mentioned only when there is one (L2).
+        done = "visit_done_customer" if visit.photos.after else VISIT_DONE_NO_PHOTO.id
         await notify(
             db,
-            "visit_done_customer",
+            done,
             to=recipient_for(p.customer_user),
             data={
                 "provider": done_by,
@@ -100,7 +126,7 @@ async def charged(db: Db, s: Settings, visit: Visit, charge: Charge, session: Db
             data={
                 "category": p.category_name,
                 "date": wording.day_text(visit.local_date),
-                "provider": done_by,
+                "provider": await _full_name(db, visit, session),
                 "price": price,
                 "fee": fee,
                 "provider_first": wording.first_name(p.provider.name if p.provider else done_by),
@@ -123,6 +149,33 @@ async def charged(db: Db, s: Settings, visit: Visit, charge: Charge, session: Db
             idempotency_key=f"{base}:payment_on_its_way",
             session=session,
         )
+        await _limit_reached(db, s, p.provider, p.provider_user, charge.provider_pence, session)
+
+
+async def _limit_reached(
+    db: Db, s: Settings, provider: Provider | None, user: User, just_earned: int, session: DbSession
+) -> None:
+    """The text when this payment (already in the ledger) takes the provider to their earnings
+    limit: once per period and amount, and not when they were over it before (L2)."""
+    if provider is None:
+        return
+    lim = await limit_status(db, provider, session=session)
+    if not (lim.on and lim.reached) or lim.earned_pence - just_earned >= lim.amount_pence:
+        return
+    await notify(
+        db,
+        "limit_reached",
+        to=recipient_for(user),
+        data={
+            "period_word": "weekly" if lim.period == "week" else "monthly",
+            "amount": wording.money(lim.amount_pence),
+            "resume": wording.day_text(lim.resumes_on),
+        },
+        related=Related(provider_id=provider.id),
+        settings=s,
+        idempotency_key=f"limit:{provider.id}:{lim.period}:{lim.period_start}:{lim.amount_pence}",
+        session=session,
+    )
 
 
 TIP_RECEIVED = templates.register(

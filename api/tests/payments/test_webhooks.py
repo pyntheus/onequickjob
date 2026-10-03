@@ -73,7 +73,7 @@ async def test_success_after_authentication_is_recorded_once(client, db, catalog
     [entry] = await LedgerEntries(db).find({"visit_id": v.id})
     assert (entry.gross_pence, entry.fee_pence, entry.net_pence, entry.gateway) == (3000, 450, 2550, "stripe")
     sent = {m["template_id"] async for m in db["outbox"].find({"related.visit_id": v.id})}
-    assert sent == {"visit_done_customer", "receipt", "payment_on_its_way"}
+    assert sent == {"visit_done_customer_no_photo", "receipt", "payment_on_its_way"}
 
     r = await post(client, e)  # Stripe retries the same event
     assert r.json() == {"received": True, "duplicate": True}
