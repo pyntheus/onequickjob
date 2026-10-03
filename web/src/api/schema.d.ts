@@ -4841,9 +4841,10 @@ export interface components {
             tip_pence: number;
             /**
              * Tip Status
+             * @description pending: the gateway hasn't confirmed yet; the tip_reconcile task finishes it
              * @enum {string}
              */
-            tip_status: "none" | "charged" | "failed";
+            tip_status: "none" | "charged" | "failed" | "pending";
             /** Visit Id */
             visit_id: string;
         };

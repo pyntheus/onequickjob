@@ -3,6 +3,7 @@ same provider again. Every write that spans collections is one transaction (deci
 the tip is charged through the PaymentGateway outside any transaction, between two of them.
 """
 
+import logging
 from datetime import date, time, timedelta
 
 from fastapi import status
@@ -18,7 +19,7 @@ from app.core.timeutil import london_datetime, london_today, utcnow
 from app.customer import requests as request_service
 from app.customer.schemas import ChangeDateIn, PlanUpdate, ProblemIn, RatingIn, RebookIn
 from app.customer.views import REPORT_WINDOW
-from app.models.bookings import Booking, Series
+from app.models.bookings import Booking, Pause, Series
 from app.models.categories import Category
 from app.models.common import GeoPoint, Related
 from app.models.customers import Customer
@@ -31,6 +32,7 @@ from app.models.users import User
 from app.models.visits import Charge, Performer, Visit
 from app.repos.bookings import Bookings
 from app.repos.categories import Categories
+from app.repos.customers import Customers
 from app.repos.disputes import Disputes
 from app.repos.files import Files
 from app.repos.job_requests import JobRequests
@@ -46,6 +48,7 @@ from app.services.quotes import live_version
 
 ALL_TAGS_MAX_LEN = 40
 WINTER = schedule.WINTER_MONTHS
+PAUSES = ("winter", "away")
 
 
 # ------------------------------------------------------------------------------- lookups
@@ -183,19 +186,50 @@ def _tags(tags: list[str]) -> list[str]:
     return list(dict.fromkeys(out))
 
 
+TIP_RETRY_AFTER = timedelta(minutes=5)
+log = logging.getLogger("oqj.tips")
+
+
+def _tip_key(visit_id: str) -> str:
+    return f"visit:{visit_id}:tip"
+
+
+async def _rated_message(db: Db, s: Settings, visit: Visit, stars: int, tip_text: str, *, session: DbSession) -> None:
+    """rating_received to the provider: once per visit, with the tip if it went through."""
+    customer = await Customers(db).get(visit.customer_id, session=session)
+    provider, pu = await _provider_user(db, visit.provider_id, session)
+    cat = await _category(db, visit.category_id, session)
+    if pu and pu.phone:
+        await notify(
+            db,
+            "rating_received",
+            to=recipient_for(pu),
+            settings=s,
+            related=Related(visit_id=visit.id, booking_id=visit.booking_id, provider_id=provider.id),
+            idempotency_key=f"visit:{visit.id}:rating_received",
+            data={
+                "customer": wording.first_name(customer.name if customer else "") or "Your customer",
+                "category": wording.lower_name(cat),
+                "stars": stars,
+                "tip_text": tip_text,
+            },
+            session=session,
+        )
+
+
 async def rate_visit(
     db: Db, s: Settings, gateway: PaymentGateway, visit: Visit, customer: Customer, user: User, body: RatingIn
 ) -> tuple[Rating, str]:
     """Stars and tags, then any tip. Returns the rating and the tip status (none, charged,
-    failed). The tip has no fee (money.split(tip, "tip")) and all of it goes to the provider."""
+    failed, pending). The tip has no fee (money.split(tip, "tip")) and all of it goes to the
+    provider. The rating and the tip's intent (pending, with its idempotency key) commit first;
+    the gateway is called after, outside any transaction (settle_tip)."""
     if visit.status != "finished":
         fail(status.HTTP_409_CONFLICT, "not_finished", "You can rate a visit once it's done.")
     if visit.rating_id:
         fail(status.HTTP_409_CONFLICT, "already_rated", "You've already rated this visit.")
     if body.tip_pence % 100:
         fail(status.HTTP_422_UNPROCESSABLE_CONTENT, "whole_pounds", "Tips are in whole pounds.")
-    cat = await _category(db, visit.category_id)
-    provider, pu = await _provider_user(db, visit.provider_id)
     tip = body.tip_pence
     if tip and not (customer.payment and customer.payment.gateway_customer_id):
         fail(status.HTTP_409_CONFLICT, "card_needed", "Add a card to send a tip.")
@@ -210,95 +244,113 @@ async def rate_visit(
         comment=body.comment.strip(),
     )
 
-    async def rated_message(session: DbSession, tip_text: str) -> None:
-        if pu and pu.phone:
-            await notify(
-                db,
-                "rating_received",
-                to=recipient_for(pu),
-                settings=s,
-                related=Related(visit_id=visit.id, booking_id=visit.booking_id, provider_id=provider.id),
-                idempotency_key=f"visit:{visit.id}:rating_received",
-                data={
-                    "customer": wording.first_name(customer.name) or "Your customer",
-                    "category": wording.lower_name(cat),
-                    "stars": body.stars,
-                    "tip_text": tip_text,
-                },
-                session=session,
-            )
-
     async def save(session: DbSession) -> Rating:
         fields: dict = {"rating_id": rating.id}
         if tip:
-            fields |= {"tip_pence": tip, "tip_charge": Charge(status="pending", amount_pence=tip).model_dump()}
+            intent = Charge(
+                status="pending", amount_pence=tip, gateway=gateway.name, idempotency_key=_tip_key(visit.id)
+            )
+            fields |= {"tip_pence": tip, "tip_charge": intent.model_dump()}
         if await Visits(db).update(visit.id, fields, extra_filter={"rating_id": None}, session=session) is None:
             fail(status.HTTP_409_CONFLICT, "already_rated", "You've already rated this visit.")
         await Ratings(db).insert(rating, session=session)
         await Providers(db).apply_rating(visit.provider_id, body.stars, session=session)
         if not tip:
-            await rated_message(session, "")
+            await _rated_message(db, s, visit, body.stars, "", session=session)
         return rating
 
     saved = await transaction(db, save)
     if not tip:
         return saved, "none"
+    return saved, await settle_tip(db, s, gateway, visit.id)
 
-    # The tip: charged after the rating is saved, outside any transaction, with its own
-    # idempotency key; the result is recorded in a transaction of its own.
+
+async def settle_tip(db: Db, s: Settings, gateway: PaymentGateway, visit_id: str) -> str:
+    """Charge a visit's pending tip and record the result: charged, failed, or pending when the
+    outcome isn't known (the gateway errored or is still processing). Safe to run again, by the
+    tip_reconcile task too: the gateway call reuses the tip's idempotency key, so a charge that
+    went through is returned rather than made twice, and the result is recorded (ledger entry
+    and the provider's message) only by the run that moves the tip off pending."""
+    visit = await Visits(db).get(visit_id)
+    if visit is None or visit.tip_charge is None:
+        return "none"
+    if visit.tip_charge.status != "pending":
+        return "charged" if visit.tip_charge.status == "succeeded" else "failed"
+    tip = visit.tip_charge.amount_pence
+    key = visit.tip_charge.idempotency_key or _tip_key(visit.id)
+    customer = await Customers(db).get(visit.customer_id)
+    provider, _ = await _provider_user(db, visit.provider_id)
+    cat = await _category(db, visit.category_id)
+    rating = await Ratings(db).get(visit.rating_id) if visit.rating_id else None
     sp = money.split(tip, "tip", s)
-    account = provider.payment_account.account_id if provider.payment_account else ""
-    key = f"visit:{visit.id}:tip"
     try:
         result = await gateway.charge_visit(
             VisitRef(
                 visit_id=visit.id,
                 booking_id=visit.booking_id,
-                customer_id=customer.id,
-                gateway_customer_id=customer.payment.gateway_customer_id or "",  # type: ignore[union-attr]
+                customer_id=visit.customer_id,
+                gateway_customer_id=(customer.payment.gateway_customer_id if customer and customer.payment else None)
+                or "",
                 description=f"Tip for {provider.short}, {cat.name}, {wording.day_text(visit.local_date)}",
             ),
             sp.price_pence,
             sp.fee_pence,
-            account,
+            provider.payment_account.account_id if provider.payment_account else "",
             idempotency_key=key,
             purpose="tip",
         )
-        ok = result.status == "succeeded"
-        charge = Charge(
-            status=result.status,
-            amount_pence=tip,
-            fee_pence=0,
-            provider_pence=tip,
-            gateway=gateway.name,
-            charge_id=result.charge_id,
-            payment_intent_id=result.payment_intent_id,
-            idempotency_key=key,
-            charged_at=result.created_at if ok else None,
-            failure_reason=result.failure_reason,
-        )
-    except Exception as e:  # the gateway being down mustn't lose the rating
-        ok = False
-        charge = Charge(
-            status="failed", amount_pence=tip, gateway=gateway.name, idempotency_key=key, failure_reason=str(e)[:200]
-        )
+    except Exception:  # outcome unknown: stays pending, and the same key is retried later
+        log.exception("tip charge for visit %s failed to complete", visit.id)
+        return "pending"
+    if result.status == "pending":
+        return "pending"
+    ok = result.status == "succeeded"
+    charge = Charge(
+        status="succeeded" if ok else "failed",
+        amount_pence=tip,
+        fee_pence=sp.fee_pence,
+        provider_pence=sp.provider_pence,
+        gateway=gateway.name,
+        charge_id=result.charge_id,
+        payment_intent_id=result.payment_intent_id,
+        idempotency_key=key,
+        charged_at=result.created_at if ok else None,
+        failure_reason=result.failure_reason,
+    )
 
     async def record(session: DbSession) -> None:
-        current = await Visits(db).update(visit.id, {"tip_charge": charge.model_dump()}, session=session)
-        if ok and current is not None:
+        settled = await Visits(db).update(
+            visit.id,
+            {"tip_charge": charge.model_dump()},
+            extra_filter={"tip_charge.status": "pending"},
+            session=session,
+        )
+        if settled is None:
+            return  # another run recorded it first
+        if ok:
+            at = charge.charged_at or utcnow()
             await ledger.record_tip(
-                db,
-                current,
-                tip,
-                at=charge.charged_at or utcnow(),
-                gateway=gateway.name,
-                charge_id=charge.charge_id,
-                session=session,
+                db, settled, tip, at=at, gateway=gateway.name, charge_id=charge.charge_id, session=session
             )
-        await rated_message(session, f" They added a {wording.money(tip)} tip." if ok else "")
+        tip_text = f" They added a {wording.money(tip)} tip." if ok else ""
+        await _rated_message(db, s, visit, rating.stars if rating else 5, tip_text, session=session)
 
     await transaction(db, record)
-    return saved, "charged" if ok else "failed"
+    stored = await Visits(db).get(visit.id)
+    return "charged" if stored and stored.tip_charge and stored.tip_charge.status == "succeeded" else "failed"
+
+
+async def reconcile_tips(db: Db, s: Settings, gateway: PaymentGateway) -> int:
+    """Tips still pending a few minutes after the rating (a crash or gateway error between the
+    two steps): settle them with the same idempotency key. Returns how many settled."""
+    stale = await Visits(db).find(
+        {"tip_charge.status": "pending", "updated_at": {"$lt": utcnow() - TIP_RETRY_AFTER}}, limit=100
+    )
+    n = 0
+    for v in stale:
+        if await settle_tip(db, s, gateway, v.id) != "pending":
+            n += 1
+    return n
 
 
 # ------------------------------------------------------------------------------- problems
@@ -542,20 +594,35 @@ async def update_plan(
         )
         nxt = next((v for v in future if v.status == "scheduled"), None)
         if "frequency" in set_:
-            # Keep the next visit; later ones that don't fit the new frequency are cancelled.
+            # Keep the next visit; later ones that aren't on the new frequency's dates are cancelled,
+            # including visits a pause skipped (so ending the pause can't bring the old dates back).
             await Bookings(db).update(booking.id, {"frequency": new_freq}, session=session)
-            anchor = nxt.local_date if nxt else today + timedelta(days=1)
+            paused = next((v for v in future if v.status == "skipped" and v.skipped_reason in PAUSES), None)
+            first = nxt or paused
+            anchor = first.local_date if first else today + timedelta(days=1)
             updated = await SeriesRepo(db).update(series.id, {"anchor_date": anchor.isoformat()}, session=session)
             assert updated is not None
-            wanted = set(schedule.occurrences(updated, anchor, today + timedelta(days=500))) | {anchor}
+            unpaused = updated.model_copy(update={"pause": Pause()})
+            on_dates = set(schedule.occurrences(unpaused, anchor, today + timedelta(days=500))) | {anchor}
             for v in future:
-                if v.status == "scheduled" and v.local_date not in wanted and v.cover.state == "none":
+                if v.local_date in on_dates or v.cover.state != "none":
+                    continue
+                if v.status == "scheduled" or (v.status == "skipped" and v.skipped_reason in PAUSES):
                     await Visits(db).update(
                         v.id,
                         {"status": "cancelled", "skipped_reason": "plan_change"},
-                        extra_filter={"status": "scheduled"},
+                        extra_filter={"status": v.status},
                         session=session,
                     )
+            future = await Visits(db).find(
+                {
+                    "series_id": series.id,
+                    "local_date": {"$gt": today.isoformat()},
+                    "status": {"$in": ["scheduled", "skipped", "cancelled"]},
+                },
+                sort=[("local_date", 1)],
+                session=session,
+            )
         # Pauses: skip the visits that now fall in one; bring back those a removed pause skipped.
         for v in future:
             if v.status == "scheduled" and schedule.paused_on(updated, v.local_date) and v.cover.state == "none":
@@ -566,11 +633,7 @@ async def update_plan(
                     extra_filter={"status": "scheduled"},
                     session=session,
                 )
-            elif (
-                v.status == "skipped"
-                and v.skipped_reason in ("winter", "away")
-                and not schedule.paused_on(updated, v.local_date)
-            ):
+            elif v.status == "skipped" and v.skipped_reason in PAUSES and not schedule.paused_on(updated, v.local_date):
                 await Visits(db).update(
                     v.id,
                     {"status": "scheduled", "skipped_reason": None},
@@ -600,7 +663,6 @@ async def cancel_plan(db: Db, s: Settings, series: Series, booking: Booking, cus
         return series
     cat = await _category(db, series.category_id)
     provider, _ = await _provider_user(db, series.provider_id)
-    today = london_today()
 
     async def cancel(session: DbSession) -> Series:
         now = utcnow()
@@ -611,7 +673,7 @@ async def cancel_plan(db: Db, s: Settings, series: Series, booking: Booking, cus
             fail(status.HTTP_409_CONFLICT, "plan_cancelled", "This plan is already cancelled.")
         await Bookings(db).update(booking.id, {"status": "cancelled", "cancelled_at": now}, session=session)
         await Visits(db).coll.update_many(
-            {"series_id": series.id, "status": "scheduled", "local_date": {"$gt": today.isoformat()}},
+            {"series_id": series.id, "status": "scheduled", "scheduled_start": {"$gt": now}},
             {"$set": {"status": "cancelled", "skipped_reason": "plan_cancelled", "updated_at": now}},
             session=Visits.s(session),
         )

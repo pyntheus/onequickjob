@@ -3,7 +3,7 @@ added to it), saving a card, and the landing page's fee example."""
 
 from app.core.ids import new_token, token_hash
 from app.models.provider_ops import OwnCustomerInvite
-from app.repos import Bookings, Customers, Messages, OwnCustomerInvites, Users
+from app.repos import Bookings, Customers, Messages, OwnCustomerInvites, Providers, Users
 from tests.conftest import make_settings, new_client, sign_in
 from tests.customer.helpers import address, book_at_guide, make_request_via_api, signed_in_with_card
 from tests.factories import make_provider
@@ -32,6 +32,25 @@ async def test_message_the_provider_and_read_their_reply(client, db, catalogue):
     assert [(m["sender_name"], m["mine"]) for m in msgs] == [("Sarah Whitfield", True), ("Dave H.", False)]
     assert (await client.get("/api/c/threads")).json()[0]["unread"] == 0, "reading marks them read"
     assert (await client.post(f"/api/c/threads/{booking.thread_id}/messages", json={"body": "   "})).status_code == 422
+
+
+async def test_a_long_thread_shows_the_newest_messages_and_marks_only_those_read(client, db, catalogue):
+    """Codex (medium): more than 200 messages."""
+    from datetime import timedelta
+
+    from app.core.timeutil import utcnow
+
+    dave = await make_provider(db, "Dave Hughes", "+447700900201", ["mowing"])
+    await signed_in_with_card(client, db)
+    detail = await make_request_via_api(client)
+    booking = (await book_at_guide(db, detail["ref"], dave)).booking
+    start = utcnow() - timedelta(days=1)
+    for i in range(205):
+        m = await Messages(db).post(booking.thread_id, dave.user_id, "provider", f"Message {i}")
+        await Messages(db).coll.update_one({"_id": m.id}, {"$set": {"created_at": start + timedelta(seconds=i)}})
+    msgs = (await client.get(f"/api/c/threads/{booking.thread_id}/messages")).json()
+    assert len(msgs) == 200 and msgs[0]["body"] == "Message 5" and msgs[-1]["body"] == "Message 204"
+    assert (await client.get("/api/c/threads")).json()[0]["unread"] == 5, "the five older ones weren't shown"
 
 
 async def test_threads_are_private(app, client, db, catalogue):
@@ -130,16 +149,71 @@ async def test_only_the_invited_number_can_accept(client, db, catalogue):
 
 
 async def test_a_platform_customer_stays_on_the_standard_terms(client, db, catalogue):
-    """The invite-only rule, if they booked through us after the invite was sent."""
+    """Codex (high): the normal sequence, with no profile edits. Open invite, then saving a card
+    (provisionally own_customer), then a platform booking: the invite can't be accepted."""
     dave = await make_provider(db, "Dave Hughes", "+447700900201", ["mowing"])
     token = await _invite(db, dave, phone="+447700900123")
     await signed_in_with_card(client, db)
     customer = await Customers(db).by_user((await Users(db).by_phone("+447700900123")).id)
-    await Customers(db).update(customer.id, {"joined_via": "platform"})
+    assert customer.joined_via == "own_customer", "provisional, from the open invite"
     await make_request_via_api(client)
+    customer = await Customers(db).get(customer.id)
+    assert customer.joined_via == "platform" and customer.invited_by_provider_id is None
     r = await client.post(f"/api/c/invites/{token}/accept", json={"agree_terms": True})
     assert r.status_code == 409 and r.json()["detail"]["code"] == "platform_customer"
     assert await Bookings(db).count({"source": "own_customer"}) == 0
+    assert (await OwnCustomerInvites(db).find_one({})).status == "invited"
+
+
+async def test_an_ineligible_provider_cannot_book_through_an_invite(client, db, catalogue):
+    """Codex (high): the shared eligibility rules apply to invites; refusing keeps the invite open."""
+    dave = await make_provider(db, "Dave Hughes", "+447700900201", ["mowing"])
+    token = await _invite(db, dave)
+    await signed_in_with_card(client, db, MARY, "Mary Bishop")
+    await Providers(db).set_status(dave.id, "suspended", "test")
+    r = await client.post(f"/api/c/invites/{token}/accept", json={"agree_terms": True, "address": address()})
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "provider_unavailable"
+    assert "It stays open" in r.json()["detail"]["message"]
+    assert (await OwnCustomerInvites(db).find_one({})).status == "invited" and await Bookings(db).count({}) == 0
+    await Providers(db).set_status(dave.id, "active")
+    r = await client.post(f"/api/c/invites/{token}/accept", json={"agree_terms": True, "address": address()})
+    assert r.status_code == 201
+
+
+async def test_a_suspension_during_invite_acceptance_is_seen_by_its_retry(client, db, catalogue, monkeypatch):
+    """The provider write inside the transaction makes a concurrent suspension conflict; the
+    driver re-runs the attempt, which refuses and leaves the invite open."""
+    import asyncio
+
+    from app.services import marketplace
+
+    dave = await make_provider(db, "Dave Hughes", "+447700900201", ["mowing"])
+    token = await _invite(db, dave)
+    await signed_in_with_card(client, db, MARY, "Mary Bishop")
+    invite_id = (await OwnCustomerInvites(db).find_one({})).id
+    go, done = asyncio.Event(), asyncio.Event()
+    original, attempts = marketplace._provider_now, []
+
+    async def admin_suspends():
+        await go.wait()
+        await Providers(db).set_status(dave.id, "suspended", "test")
+        done.set()
+
+    async def provider_now(db_, provider_id, session):
+        attempts.append(provider_id)
+        if len(attempts) == 1:
+            await OwnCustomerInvites(db_).get(invite_id, session=session)  # the attempt's snapshot starts
+            go.set()
+            await done.wait()
+        return await original(db_, provider_id, session)
+
+    monkeypatch.setattr(marketplace, "_provider_now", provider_now)
+    admin = asyncio.create_task(admin_suspends())
+    r = await client.post(f"/api/c/invites/{token}/accept", json={"agree_terms": True, "address": address()})
+    await admin
+    assert len(attempts) == 2
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "provider_unavailable"
+    assert (await OwnCustomerInvites(db).find_one({})).status == "invited" and await Bookings(db).count({}) == 0
 
 
 # ------------------------------------------------------------------------------- card and profile

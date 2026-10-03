@@ -5,6 +5,7 @@ customer record, the booking (services.bookings.create_booking, source own_custo
 provider's message."""
 
 from datetime import datetime
+from typing import NoReturn
 
 from fastapi import status
 
@@ -20,7 +21,6 @@ from app.customer.views import frequency_label, provider_card
 from app.models.bookings import Booking
 from app.models.categories import Category
 from app.models.common import Related
-from app.models.customers import Customer
 from app.models.provider_ops import OwnCustomerInvite
 from app.models.providers import Provider
 from app.models.users import User
@@ -33,8 +33,9 @@ from app.repos.job_requests import JobRequests
 from app.repos.own_customer_invites import OwnCustomerInvites
 from app.repos.providers import Providers
 from app.repos.users import Users
-from app.services import schedule, wording
+from app.services import marketplace, schedule, wording
 from app.services.bookings import create_booking
+from app.services.eligibility import can_take
 from app.services.notify import notify, recipient_for
 from app.services.quotes import live_version
 
@@ -108,14 +109,33 @@ async def preview(db: Db, s: Settings, invite: OwnCustomerInvite) -> InvitePrevi
     )
 
 
-async def _platform_customer(db: Db, customer: Customer) -> bool:
-    """Has this customer already booked through the platform? Then the invite-only rule keeps
-    them on the standard fee."""
-    if customer.joined_via != "platform":
-        return False
+async def booked_through_platform(db: Db, customer_id: str, *, session: DbSession | None = None) -> bool:
+    """Has this customer booked through the platform (a job request of their own, or a platform
+    booking)? Then the invite-only rule keeps them on the standard fee, whatever the provisional
+    joined_via says (card saving marks someone with an open invite own_customer). Cover requests
+    for their visits are a provider's, not theirs."""
     return (
-        await JobRequests(db).count({"customer_id": customer.id}) > 0
-        or await Bookings(db).count({"customer_id": customer.id, "source": "platform"}) > 0
+        await JobRequests(db).count({"customer_id": customer_id, "cover_for_visit_id": None}, session=session) > 0
+        or await Bookings(db).count({"customer_id": customer_id, "source": "platform"}, session=session) > 0
+    )
+
+
+def _platform_refusal(provider: Provider) -> NoReturn:
+    fail(
+        status.HTTP_409_CONFLICT,
+        "platform_customer",
+        "You already book through OneQuickJob, so this stays on the standard terms. "
+        f"You can book {wording.first_name(provider.name)} again from your account.",
+    )
+
+
+def _unavailable(provider: Provider, cat: Category) -> NoReturn:
+    who = wording.first_name(provider.name)
+    fail(
+        status.HTTP_409_CONFLICT,
+        "provider_unavailable",
+        f"{who} can't take on {cat.name.lower()} through OneQuickJob at the moment, so this invite can't be "
+        f"accepted yet. It stays open: ask {who} about it.",
     )
 
 
@@ -135,14 +155,11 @@ async def accept(db: Db, s: Settings, invite: OwnCustomerInvite, user: User, bod
             f"This invite was sent to {mask(invite.phone)}. Sign in with that number to accept it.",
         )
     provider, cat = await _parts(db, invite)
+    if not can_take(provider, cat).ok:
+        _unavailable(provider, cat)
     customer = await Customers(db).by_user(user.id)
-    if customer and await _platform_customer(db, customer):
-        fail(
-            status.HTTP_409_CONFLICT,
-            "platform_customer",
-            "You already book through OneQuickJob, so this stays on the standard terms. "
-            f"You can book {wording.first_name(provider.name)} again from your account.",
-        )
+    if customer and await booked_through_platform(db, customer.id):
+        _platform_refusal(provider)
     if customer is None or customer.payment is None or customer.payment.card is None:
         fail(status.HTTP_409_CONFLICT, "card_needed", "Add your card first. It's charged only after each visit.")
     address = body.address or (customer.addresses[0] if customer.addresses else None)
@@ -156,6 +173,14 @@ async def accept(db: Db, s: Settings, invite: OwnCustomerInvite, user: User, bod
 
     async def accept_invite(session: DbSession) -> Booking:
         now: datetime = utcnow()
+        # Inside every attempt, as for a marketplace acceptance (decisions.md A7): the provider as
+        # they are now, written so a suspension or document change committing meanwhile conflicts
+        # with this booking and its re-run refuses it. Refusing rolls back, so the invite stays open.
+        current = await marketplace._provider_now(db, provider.id, session)
+        if not can_take(current, cat).ok:
+            _unavailable(current, cat)
+        if await booked_through_platform(db, customer.id, session=session):
+            _platform_refusal(current)
         if (
             await OwnCustomerInvites(db).update(
                 invite.id,
@@ -187,7 +212,7 @@ async def accept(db: Db, s: Settings, invite: OwnCustomerInvite, user: User, bod
             source="own_customer",
             via="invite",
             customer=updated,
-            provider=provider,
+            provider=current,
             category_id=cat.id,
             price_pence=invite.price_pence,
             first_price_pence=None,

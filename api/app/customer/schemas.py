@@ -232,7 +232,9 @@ class RatingOut(BaseModel):
     stars: int
     tags: list[str]
     tip_pence: int
-    tip_status: Literal["none", "charged", "failed"]
+    tip_status: Literal["none", "charged", "failed", "pending"] = Field(
+        description="pending: the gateway hasn't confirmed yet; the tip_reconcile task finishes it"
+    )
     tip_message: str | None = Field(default=None, description="Why a tip couldn't be charged, to show as it is")
 
 

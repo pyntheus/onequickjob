@@ -104,6 +104,50 @@ async def test_rating_with_a_tip_charges_it_without_a_fee(client, db, catalogue)
     assert (await client.get(f"/api/c/visits/{first.id}")).json()["rating_stars"] == 5
 
 
+async def test_a_tip_whose_outcome_is_unknown_stays_pending_and_is_settled_once(client, db, catalogue, monkeypatch):
+    """Codex (high): a gateway error after the rating is saved leaves the tip pending (not failed);
+    the reconcile task retries with the same idempotency key and records it exactly once."""
+    from datetime import timedelta
+
+    from app.adapters.payments.fake import FakeGateway
+    from app.core.timeutil import utcnow
+    from app.customer import account
+    from tests.conftest import make_settings
+
+    _dave, _booking, first = await _booked(client, db)
+    await finish_visit(db, first.id)
+    real = FakeGateway.charge_visit
+
+    async def times_out(self, *a, **kw):
+        await real(self, *a, **kw)  # the charge goes through ...
+        raise TimeoutError("no response")  # ... but the answer never arrives
+
+    monkeypatch.setattr(FakeGateway, "charge_visit", times_out)
+    r = await client.post(f"/api/c/visits/{first.id}/rating", json={"stars": 4, "tip_pence": 300})
+    assert r.status_code == 201 and r.json()["tip_status"] == "pending"
+    assert "still going through" in r.json()["tip_message"]
+    assert (await Visits(db).get(first.id)).tip_charge.status == "pending"
+    assert (
+        await LedgerEntries(db).count({}) == 0
+        and await db["outbox"].count_documents({"template_id": "rating_received"}) == 0
+    )
+
+    monkeypatch.setattr(FakeGateway, "charge_visit", real)
+    gateway = FakeGateway(db)
+    assert await account.reconcile_tips(db, make_settings(), gateway) == 0, "too soon to retry"
+    await Visits(db).coll.update_one({"_id": first.id}, {"$set": {"updated_at": utcnow() - timedelta(minutes=10)}})
+    assert await account.reconcile_tips(db, make_settings(), gateway) == 1
+    assert await account.reconcile_tips(db, make_settings(), gateway) == 0
+    assert await account.settle_tip(db, make_settings(), gateway, first.id) == "charged"
+    visit = await Visits(db).get(first.id)
+    assert visit.tip_charge.status == "succeeded"
+    assert await db["fake_gateway"].count_documents({"kind": "charge", "idempotency_key": f"visit:{first.id}:tip"}) == 1
+    (entry,) = await LedgerEntries(db).find({"visit_id": first.id})
+    assert (entry.kind, entry.gross_pence, entry.fee_pence) == ("tip", 300, 0)
+    msg = await db["outbox"].find_one({"template_id": "rating_received"})
+    assert "rated your lawn mowing 4 out of 5. They added a £3 tip." in msg["body"]
+
+
 async def test_a_declined_tip_keeps_the_rating(app, db, catalogue):
     dave = await make_provider(db, "Dave Hughes", "+447700900201", ["mowing"])
     async with await new_client(app) as c:
@@ -207,6 +251,42 @@ async def test_changing_frequency_keeps_the_next_visit_and_the_price(client, db,
     ]
     assert scheduled[0] == first.local_date and len(scheduled) >= 2
     assert all(28 <= (b - a).days <= 31 for a, b in itertools.pairwise(scheduled)), scheduled
+
+
+async def test_a_frequency_change_during_a_pause_doesnt_bring_old_dates_back(client, db, catalogue):
+    """Codex (medium): weekly plan, away pause, change to fortnightly, clear the pause."""
+    _dave, booking, first = await _booked(client, db, "cleaning")
+    sid = booking.series_id
+    r = await client.patch(f"/api/c/plans/{sid}", json={"frequency": "weekly"})
+    assert r.status_code == 200
+    weekly = [
+        v.local_date for v in await Visits(db).find({"series_id": sid, "status": "scheduled"}, sort=[("local_date", 1)])
+    ]
+    away = {"away_from": weekly[1].isoformat(), "away_to": weekly[3].isoformat()}
+    assert (await client.patch(f"/api/c/plans/{sid}", json=away)).status_code == 200
+    assert (await client.patch(f"/api/c/plans/{sid}", json={"frequency": "fortnightly"})).status_code == 200
+    assert (await client.patch(f"/api/c/plans/{sid}", json={"away_from": None, "away_to": None})).status_code == 200
+    scheduled = [
+        v.local_date for v in await Visits(db).find({"series_id": sid, "status": "scheduled"}, sort=[("local_date", 1)])
+    ]
+    assert scheduled[0] == first.local_date
+    assert {(b - a).days for a, b in itertools.pairwise(scheduled)} == {14}, scheduled
+
+
+async def test_cancelling_a_plan_cancels_a_visit_later_today(client, db, catalogue):
+    """Codex (medium): a visit later today is cancelled with the plan; one in progress isn't."""
+    from datetime import timedelta
+
+    from app.core.timeutil import london_today, utcnow
+
+    _dave, booking, first = await _booked(client, db)
+    later = utcnow() + timedelta(minutes=30)
+    await Visits(db).update(first.id, {"local_date": london_today().isoformat(), "scheduled_start": later})
+    second = (await Visits(db).find({"series_id": booking.series_id, "is_first": False}, sort=[("local_date", 1)]))[0]
+    await Visits(db).update(second.id, {"status": "in_progress"})
+    assert (await client.post(f"/api/c/plans/{booking.series_id}/cancel")).status_code == 200
+    assert (await Visits(db).get(first.id)).status == "cancelled"
+    assert (await Visits(db).get(second.id)).status == "in_progress"
 
 
 async def test_cancelling_a_plan_cancels_future_visits_with_no_fee(client, db, catalogue):

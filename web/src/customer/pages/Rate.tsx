@@ -148,9 +148,7 @@ export default function Rate() {
           <p className="muted">
             {done.tip_status === "charged"
               ? `Your ${fmt(done.tip_pence)} tip goes straight to ${who}.`
-              : done.tip_status === "failed"
-                ? done.tip_message
-                : `${who} will see your rating.`}
+              : (done.tip_message ?? `${who} will see your rating.`)}
           </p>
           <Button to="/account" variant="primary" size="lg">
             Back to my account

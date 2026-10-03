@@ -7048,10 +7048,12 @@
             "type": "integer"
           },
           "tip_status": {
+            "description": "pending: the gateway hasn't confirmed yet; the tip_reconcile task finishes it",
             "enum": [
               "none",
               "charged",
-              "failed"
+              "failed",
+              "pending"
             ],
             "title": "Tip Status",
             "type": "string"

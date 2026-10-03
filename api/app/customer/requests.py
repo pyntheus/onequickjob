@@ -232,7 +232,13 @@ async def create_request(db: Db, s: Settings, user: User, body: NewRequest) -> J
             RequestEvent(at=now, kind="created", by_user_id=user.id),
             RequestEvent(at=now, kind="broadcast", count=len(targets)),
         ]
-        await Customers(db).update(customer.id, {"name": name, "terms_accepted_at": now}, session=session)
+        fields: dict = {"name": name, "terms_accepted_at": now}
+        own = {"customer_id": customer.id, "source": "own_customer"}
+        if customer.joined_via == "own_customer" and not await Bookings(db).count(own, session=session):
+            # Marked own_customer only provisionally (an open invite when they saved a card): booking
+            # through us makes them a platform customer, so the invite-only rule applies to them.
+            fields |= {"joined_via": "platform", "invited_by_provider_id": None}
+        await Customers(db).update(customer.id, fields, session=session)
         await Customers(db).add_address(customer.id, body.address, session=session)
         user_fields: dict = {"name": name}
         if email:
