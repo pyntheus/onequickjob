@@ -376,6 +376,21 @@ Decided by Hasan after reviewing the F report; each has tests.
   (`test_keys.py`: `test_rotation_end_to_end`, `test_overlapping_rotations_never_retire_a_key_in_use`
   and the validation tests.)
 
+- **A9. A counter whose provider can no longer take the job lapses** (ruling given with the
+  L1 brief; built by L1 in the shared marketplace). When a customer accepts a counter and
+  the provider is no longer eligible (`eligibility.can_take` fails, whether seen before the
+  acceptance's transaction or inside it), the acceptance is refused and rolls back as
+  before; then, in a transaction of its own, the counter lapses (guarded on `pending`), the
+  still-open request records a `counter_lapsed` event and the provider is texted
+  `counter_lapsed` with the reasons. The request stays open for everyone else, and the
+  customer gets 409 `provider_unavailable`: "Mike can no longer take this job. We're still
+  finding someone local." (`marketplace._lapse_unavailable`; `test_marketplace.py`:
+  `test_a_suspended_providers_counter_cannot_be_accepted`,
+  `test_a_counter_lapses_when_documents_run_out_inside_the_acceptance`;
+  `tests/customer/test_requests.py`: `test_an_ineligible_counter_lapses_and_the_request_stays_open`.)
+  The outbox message goes to the provider, who otherwise wouldn't know their price had
+  lapsed or why; the customer sees the message on screen and in the request's timeline.
+
 ## 3. Open questions (for Hasan)
 
 - **Q1 (resolved: A1). Counter-offers on jobs with a dearer first visit.** Today a counter sets the per-visit

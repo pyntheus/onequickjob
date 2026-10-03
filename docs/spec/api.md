@@ -54,6 +54,7 @@ in `web/src/api/schema.d.ts` come from it (`make types`).
 
 | Method | Path | Request | Response | Notes |
 |---|---|---|---|---|
+| `GET` | `/api/c/fees/example` |  | FeeExample | "Where your money goes" on the landing page: the split of an example price, from money.py. |
 | `POST` | `/api/c/requests` | NewRequest | RequestDetail | Turn a quote into a job request: save the customer profile and address, check the card is saved, record terms acceptance, broadcast to eligible providers (alert_targets) with job_alert messages carrying magic links, and send request_sent. |
 | `GET` | `/api/c/requests` |  | list[RequestSummary] |  |
 | `GET` | `/api/c/requests/{ref}` |  | RequestDetail | The "Finding someone local" screen polls this: timeline, pending counters, booking. |
@@ -68,6 +69,7 @@ in `web/src/api/schema.d.ts` come from it (`make types`).
 | `GET` | `/api/c/bookings/{booking_id}` |  | BookingDetail |  |
 | `POST` | `/api/c/bookings/{booking_id}/rebook` | RebookIn | RequestSummary | "Book Dave again": a request offered to the same provider at the same price. |
 | `GET` | `/api/c/visits` |  | VisitsOut |  |
+| `GET` | `/api/c/visits/{visit_id}` |  | CustomerVisit | One visit, for the rate screen. (Added by L1.) |
 | `POST` | `/api/c/visits/{visit_id}/skip` |  | CustomerVisit |  |
 | `POST` | `/api/c/visits/{visit_id}/change-date` | ChangeDateIn | CustomerVisit |  |
 | `POST` | `/api/c/visits/{visit_id}/rating` | RatingIn | RatingOut | Stars, tags and an optional tip (charged with PaymentGateway.charge_visit, purpose tip, fee 0). |
@@ -159,4 +161,4 @@ in `web/src/api/schema.d.ts` come from it (`make types`).
 | `GET` | `/api/admin/audit` |  | list[AuditEntry] |  |
 | `POST` | `/api/payments/stripe/webhook` |  | WebhookAck | Verify the Stripe-Signature header, then handle payment_intent.*, account.updated, payout.* and charge.refunded idempotently (by event id). Webhooks are the source of truth for final payment states. |
 
-117 endpoints.
+119 endpoints.

@@ -1171,7 +1171,7 @@ Indexes:
 | Field | Type | Notes |
 |---|---|---|
 | `at` | datetime |  |
-| `kind` | Literal['created', 'broadcast', 'viewed', 'countered', 'counter_declined', 'accepted', 'guide_raised', 'cancelled', 'note'] |  |
+| `kind` | Literal['created', 'broadcast', 'viewed', 'countered', 'counter_declined', 'counter_lapsed', 'accepted', 'guide_raised', 'cancelled', 'expired', 'note'] |  |
 | `provider_id` | str \| None (optional) |  |
 | `offer_id` | str \| None (optional) |  |
 | `price_pence` | int \| None (optional) |  |
