@@ -143,6 +143,8 @@ in `web/src/api/schema.d.ts` come from it (`make types`).
 | `POST` | `/api/admin/providers/{provider_id}/suspend` | SuspendIn | ProviderDetail |  |
 | `POST` | `/api/admin/providers/{provider_id}/reinstate` |  | ProviderDetail |  |
 | `POST` | `/api/admin/providers/{provider_id}/nudge` | NudgeIn | OutboxItem |  |
+| `POST` | `/api/admin/providers/{provider_id}/payment-account` |  | OnboardingLinkOut | Create the provider's payment account if needed and return the payment provider's hosted onboarding link (L3 addition: lets admin support a provider through Stripe onboarding). |
+| `POST` | `/api/admin/providers/{provider_id}/payment-account/sync` |  | ProviderDetail | Read the account's state from the payment provider now (webhooks do it too; L3 addition). |
 | `GET` | `/api/admin/pricing/calibration` |  | Calibration |  |
 | `GET` | `/api/admin/pricing/versions` |  | list[PricingVersionSummary] |  |
 | `GET` | `/api/admin/pricing/versions/{version_id}` |  | PricingVersion |  |
@@ -161,4 +163,4 @@ in `web/src/api/schema.d.ts` come from it (`make types`).
 | `GET` | `/api/admin/audit` |  | list[AuditEntry] |  |
 | `POST` | `/api/payments/stripe/webhook` |  | WebhookAck | Verify the Stripe-Signature header, then handle payment_intent.*, account.updated, payout.* and charge.refunded idempotently (by event id). Webhooks are the source of truth for final payment states. |
 
-119 endpoints.
+121 endpoints.

@@ -603,6 +603,8 @@ Model `app.models.disputes.Dispute`; repo `app.repos.disputes.Disputes`. Owner L
 | `thread_id` | str \| None (optional) |  |
 | `events` | list[DisputeEvent] |  |
 | `closed_at` | datetime \| None (optional) |  |
+| `closing` | DisputeClosing \| None (optional) | A close in progress (L3) |
+| `close_attempts` | int | Closes started, for each one's refund key (L3) |
 
 Indexes:
 - `ref` (unique)
@@ -958,6 +960,17 @@ Indexes:
 | `setup_id` | str \| None (optional) |  |
 | `setup_status` | Literal['none', 'pending', 'succeeded', 'failed'] |  |
 | `card` | SavedCard \| None (optional) |  |
+
+### `DisputeClosing`
+
+| Field | Type | Notes |
+|---|---|---|
+| `outcome` | Literal['return_visit', 'partial_refund', 'full_refund', 'none'] |  |
+| `amount_pence` | int \| None (optional) |  |
+| `attempt` | int |  |
+| `note` | str |  |
+| `by_user_id` | str \| None (optional) |  |
+| `at` | datetime |  |
 
 ### `DisputeEvent`
 
