@@ -17,7 +17,14 @@ from app.repos.plan_changes import PlanChanges
 from app.services import marketplace
 from app.services.quotes import create_quote
 from tests.conftest import make_settings, sign_in
-from tests.customer.helpers import address, book_at_guide, make_request_via_api, signed_in_with_card
+from tests.customer.helpers import (
+    address,
+    book_at_guide,
+    make_request_via_api,
+    quote,
+    request_body,
+    signed_in_with_card,
+)
 from tests.factories import HAZLEMERE, make_provider
 
 
@@ -93,6 +100,23 @@ async def test_asking_reprices_and_waits_for_the_provider(client, db, catalogue)
     assert "/plan-change/" in proposed["body"]
     requested = await db["outbox"].find_one({"template_id": "plan_change_requested"})
     assert "Your plan carries on as it is unless they accept." in requested["body"]
+
+
+async def test_at_the_minimum_price_weekly_costs_the_same_as_fortnightly(client, db, catalogue):
+    """Session S, item 1c: weekly is discounted more than fortnightly (12% against 8%), so it's
+    cheaper a visit, except on a lawn small enough that both fall below mowing's £28 minimum:
+    then both guides are £28 and the plan's price doesn't change. (Margaret's £32 weekly price was
+    this, at a lawn size her seeded plan never had: test_seed.py.)"""
+    dave = await make_provider(db, "Dave Hughes", "+447700900201", ["mowing"])
+    await signed_in_with_card(client, db)
+    q = await quote(client, "mowing", band="small", adjust="right")
+    r = await client.post("/api/c/requests", json=request_body(q["id"]))
+    assert r.status_code == 201, r.text
+    booking = (await book_at_guide(db, r.json()["ref"], dave)).booking
+    assert booking.price_pence == 2800
+    assert await _engine_price(db, "weekly", band="small") == await _engine_price(db, "fortnightly", band="small")
+    assert await _preview(client, booking.series_id, "weekly") == 2800
+    assert await _engine_price(db, "weekly") < await _engine_price(db, "fortnightly")  # a large lawn
 
 
 async def test_a_negotiated_price_stays_in_proportion_and_applies_on_acceptance(client, db, catalogue):

@@ -154,6 +154,13 @@
       "provider": "dave",
       "category": "mowing",
       "source": "platform",
+      "lawn": {
+        "band": "large",
+        "adjust": "right"
+      },
+      "counter_reasons": [
+        "Tricky access"
+      ],
       "price_pence": 3200,
       "frequency": "fortnightly",
       "weekday": "tue",

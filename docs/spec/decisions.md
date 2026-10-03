@@ -463,6 +463,20 @@ has tests.
   `test_a_long_visit_only_starts_at_the_window_start`,
   `test_the_first_visit_keeps_to_working_days_and_time_off_beyond_four_weeks`,
   `test_weekday_only_cleaning_and_flatpack_bookings_get_a_weekday_first_visit`.)
+- **A15. Margaret's weekly re-price (A10) was £32 because her plan had no lawn size** (Session S
+  investigation). The seed wrote her fortnightly £32 plan (the prototype's price) with no
+  request, so A10 had no lawn size on record and priced both frequencies at the medium band
+  (about 85 m², `plan_changes.DEFAULT_BAND`). There, with kept grass and the clippings taken
+  away, fortnightly works out at £22 and weekly at £21, both below mowing's £28 minimum, so both
+  guides were £28, the ratio was 1 and £32 stayed £32. The engine was right for the size it was
+  given; the size was a guess no real booking needs, since a platform plan always comes from a
+  request. Her plan is now seeded from the booked request it would have come from: the Large
+  band (her 40-minute visits match it), the engine's £31 guide and Dave's accepted £32 counter.
+  Weekly is then £29 x 32/31 = £29.94, half-up £30. Weekly still equals fortnightly where the
+  minimum genuinely applies to both (a small lawn). Own customers' lawn plans still have no size
+  on record and are re-priced at the medium band (open: see the S report).
+  (`test_seed.py`: `test_margarets_weekly_reprice_is_cheaper_per_visit`; `test_plan_changes.py`:
+  `test_at_the_minimum_price_weekly_costs_the_same_as_fortnightly`.)
 
 ## 3. Open questions (for Hasan)
 

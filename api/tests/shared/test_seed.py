@@ -213,3 +213,27 @@ async def test_every_seeded_dbs_check_runs_twelve_months(seeded):
                 n += 1
                 assert d["expires_on"] == expiry_for(DBS_TYPE, date.fromisoformat(d["issued_on"]), None).isoformat()
     assert n >= 7
+
+
+async def test_margarets_weekly_reprice_is_cheaper_per_visit(seeded):
+    """Session S, item 1c. Margaret's plan used to be seeded with no request, so no lawn size was
+    on record and A10 re-priced it at the medium band, where both the fortnightly and the weekly
+    guide fall below mowing's £28 minimum: the ratio was 1 and weekly came out at £32, the same as
+    fortnightly. Her plan now comes from a booked request (Large band, Dave's £32 counter on the
+    £31 guide), so weekly is the engine's weekly guide scaled by her counter."""
+    from app.customer import plan_changes
+    from app.repos import Bookings, JobRequests, Offers, SeriesRepo
+
+    db, _ = seeded
+    series = await SeriesRepo(db).get(sid("series", "margaret"))
+    booking = await Bookings(db).get(series.booking_id)
+    req = await JobRequests(db).get(booking.request_id)
+    offer = await Offers(db).get(req.booked.offer_id)
+    assert (series.price_pence, series.frequency) == (3200, "fortnightly")
+    assert booking.via == "counter" and req.measure.band == "large" and req.status == "booked"
+    assert (offer.price_pence, offer.guide_pence, offer.status) == (3200, 3100, "accepted")
+    weekly = await plan_changes.reprice(db, make_settings(), series, booking, "weekly", booking.customer_id)
+    assert (weekly.original_guide_pence, weekly.new_guide_pence) == (3100, 2900)
+    assert weekly.price_pence == 3000  # 2900 x 3200 / 3100 = 2993.5, half-up to whole pounds
+    every_three = await plan_changes.reprice(db, make_settings(), series, booking, "threeweekly", booking.customer_id)
+    assert weekly.price_pence < series.price_pence < every_three.price_pence
