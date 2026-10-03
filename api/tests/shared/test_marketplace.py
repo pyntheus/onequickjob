@@ -633,3 +633,61 @@ async def test_a_visit_can_only_be_covered_once(db, catalogue):
     assert e.value.status_code == 409
     assert (await JobRequests(db).get(second.id)).status == "open", "the second claim was undone"
     assert (await Visits(db).get(later.id)).provider_id == mike.id
+
+
+async def test_a_cover_for_a_visit_no_longer_scheduled_cant_be_taken(db, catalogue, monkeypatch):
+    """Contract-changes L2: cover acceptance checks, inside its transaction, that the visit is
+    still scheduled. A visit the customer skips while its cover request is open can't be taken,
+    even when the skip commits during the acceptance."""
+    from app.core.timeutil import utcnow
+    from app.repos import Providers
+
+    _, _dave, mike, later, cover = await _own_customer_cover(db)
+    real_update = Providers.update
+    skipped = False
+
+    async def update_then_skip(self, id_, set_, **kw):
+        nonlocal skipped
+        if not skipped:  # inside the acceptance's transaction: the customer skips the visit now
+            skipped = True
+            await db["visits"].update_one(
+                {"_id": later.id}, {"$set": {"status": "skipped", "skipped_reason": "customer", "updated_at": utcnow()}}
+            )
+        return await real_update(self, id_, set_, **kw)
+
+    monkeypatch.setattr(Providers, "update", update_then_skip)
+    with pytest.raises(Exception) as e:
+        await marketplace.accept_at_guide(db, make_settings(), cover.ref, mike)
+    assert skipped and e.value.status_code == 409 and e.value.detail["code"] == "visit_not_scheduled"
+    assert (await JobRequests(db).get(cover.id)).status == "open", "the claim was undone"
+    v = await Visits(db).get(later.id)
+    assert v.status == "skipped" and v.performer.kind == "provider" and v.cover.state != "covered"
+    assert await _outbox(db, "cover_coming") == 0
+
+
+async def test_helpers_never_accept_counter_or_price_a_job(app, db, catalogue):
+    """A17: helper_of links a helper to the provider whose visits they do, and nothing more. The
+    shared offer endpoints refuse a helper (even one holding every document) with helpers_cant."""
+    from app.models.providers import Helper, ProviderDocument
+    from app.models.users import User
+    from app.repos import Providers, Users
+
+    dave = await make_provider(db, "Dave Hughes", "+447700900201", ["mowing"])
+    tom = User(name="Tom Hughes", phone="+447700900220", roles=[], helper_of=dave.id)
+    await Users(db).insert(tom)
+    docs = [
+        ProviderDocument(type=t, status="verified", expires_on=dave.documents[0].expires_on)
+        for t in ("identity", "insurance")
+    ]
+    helper = Helper(user_id=tom.id, name="Tom Hughes", status="ready", documents=docs)
+    await Providers(db).update(dave.id, {}, push={"helpers": helper.model_dump(mode="python")})
+    req = await make_request(db, await make_customer(db))
+    async with await new_client(app) as tc:
+        await sign_in(tc, db, "07700 900220")
+        accept = await tc.post(f"/api/p/requests/{req.ref}/accept")
+        counter = await tc.post(f"/api/p/requests/{req.ref}/counter", json={"price_pence": 3700})
+    for r in (accept, counter):
+        assert r.status_code == 403 and r.json()["detail"]["code"] == "helpers_cant", r.text
+        assert r.json()["detail"]["message"].startswith("Dave takes on jobs and sets the prices.")
+    assert (await JobRequests(db).get(req.id)).status == "open"
+    assert await Offers(db).count({}) == 0

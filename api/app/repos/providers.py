@@ -3,10 +3,8 @@ providers through set_document and set_status; L1 updates ratings via apply_rati
 
 from typing import Any
 
-from fastapi import status
-
 from app.core.db import DbSession
-from app.core.errors import fail
+from app.core.errors import Conflict
 from app.core.timeutil import utcnow
 from app.models.providers import Provider, ProviderDocument, ProviderStatus, TaxIdentity
 from app.repos.base import Repo, idx
@@ -37,17 +35,16 @@ class Providers(Repo[Provider]):
         old copy, while a newer upload still waiting stays; a rejected one replaces only itself, so
         rejecting a renewal leaves the verified copy counting. Waiting copies come first (L3 checks
         the first of a type), then the one that counts. If the copy L3 read isn't on record any
-        more (the provider replaced it since), nothing changes: 409, which undoes L3's transaction."""
+        more (the provider replaced it since), nothing changes: it raises Conflict document_changed,
+        which undoes L3's transaction and answers 409."""
         p = await self.get(provider_id, session=session)
         if p is None:
             return None
         same = [d for d in p.documents if d.type == doc.type]
         read = next((d for d in same if d.file_id == doc.file_id), None)
         if same and read is None:
-            fail(
-                status.HTTP_409_CONFLICT,
-                "document_changed",
-                "That document has been replaced since you opened it. Have another look.",
+            raise Conflict(
+                "document_changed", "That document has been replaced since you opened it. Have another look."
             )
         rest = [d for d in same if d is not read]
         if doc.status == "verified":

@@ -1,11 +1,10 @@
 """Who is using the provider app: the provider themself, or one of their helpers.
 
-A helper is found through their provider's helper list (Provider.helpers). Helpers added in
-the app are users with no roles and no `helper_of`, so app.core.deps.current_provider (and the
-shared offer endpoints built on it) never give them the provider's context: they can't accept
-jobs or suggest prices for the provider. A user who has `helper_of` (the seed's Tom) is still
-recognised here; refusing helpers on the shared offer endpoints themselves is a contract-change
-request (docs/spec/contract-changes/L2.md).
+A helper is a user whose `helper_of` names the provider they help (decisions.md A17): the link
+that lets the provider send them to visits, and nothing more. app.core.deps.current_provider
+refuses helpers, so they can't accept jobs, suggest prices or decline for the provider (the shared
+offer endpoints use it). Here a helper is recognised through helper_of, as long as the provider
+still lists them (Provider.helpers, not removed).
 
 Most of the app is the provider's own business (jobs, money, settings), so those endpoints take
 `Owner` and refuse helpers; the round (today's visits, start, photos, finish) and documents take
@@ -52,10 +51,6 @@ async def acting_dep(cu: Annotated[CurrentUser, Depends(current_user)], db: Anno
         if provider is not None:
             return Acting(provider=provider, cu=cu)
     found = await providers.get(user.helper_of) if user.helper_of else None
-    if found is None or _helper_entry(found, user.id) is None:
-        found = await providers.find_one(
-            {"helpers": {"$elemMatch": {"user_id": user.id, "status": {"$ne": "removed"}}}}
-        )
     helper = _helper_entry(found, user.id) if found else None
     if found is None or helper is None:
         fail(status.HTTP_403_FORBIDDEN, "providers_only", "This is for providers. Sign up to earn with OneQuickJob.")

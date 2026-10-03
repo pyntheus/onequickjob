@@ -491,6 +491,31 @@ has tests.
   lists a finished visit whose charge never started (`not_started`), ten minutes after it
   finished, for Retry charge (L2's filing; `test_overview.py`:
   `test_a_charge_that_never_started_shows_for_a_retry`).
+- **A17. Helpers only carry out visits** (Hasan, at L2's rebase; contract-changes L2). A helper
+  never accepts, counters, declines or prices a job. `User.helper_of` is the link between a
+  helper and the provider they help: it lets the provider send them to that provider's visits,
+  and nothing more. `deps.current_provider` refuses a helper (403 `helpers_cant`: "Dave takes on
+  jobs and sets the prices..."), so the shared offer endpoints do too; the provider app's round
+  and documents recognise a helper only through `helper_of` while the provider still lists them
+  (`app.provider.acting`). Helpers added in the app now get `helper_of` (L2's workaround of
+  leaving it unset is gone, and with it the look-up by helper list), so sign-up refuses them as
+  for the seed's Tom. The DEMO_MODE exception that counted a ready helper with no documents as
+  checked is removed: a helper needs every document the job needs on record, always, and the seed
+  gives Tom his (ID, basic DBS, insurance to about June 2027, as the prototype shows).
+  (`test_marketplace.py`: `test_helpers_never_accept_counter_or_price_a_job`; `test_round.py`:
+  `test_a_helper_added_in_the_app_cant_accept_or_counter_for_the_provider`,
+  `test_a_ready_helper_with_no_documents_is_never_trusted`.)
+- **A18. Guards below the routers.** A cover acceptance re-checks, inside its transaction, that
+  the visit is still scheduled (the reassignment is guarded on `status: scheduled`), so a visit the
+  customer skips while its cover request is open can't be taken: 409 `visit_not_scheduled`, and
+  the claim is undone (contract-changes L2; `test_marketplace.py`:
+  `test_a_cover_for_a_visit_no_longer_scheduled_cant_be_taken`). Repositories never raise HTTP
+  errors: `Providers.set_document` raises the domain error `app.core.errors.Conflict`
+  (`document_changed`), which aborts the caller's transaction like any exception and which the
+  app maps to the same 409 body as before (`conflict_handler`); L2's 15-minute sweep of dead
+  covers stays as tidying. (`test_documents.py`:
+  `test_a_verdict_on_a_replaced_upload_answers_409_over_http`,
+  `test_no_repository_raises_http_errors`.)
 
 ## 3. Open questions (for Hasan)
 

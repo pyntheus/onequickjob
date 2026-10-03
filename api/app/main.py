@@ -20,6 +20,7 @@ from app.admin.router import router as admin_router
 from app.core import tasks
 from app.core.config import Settings, get_settings
 from app.core.db import check_db_name, make_client
+from app.core.errors import Conflict, conflict_handler
 from app.customer.router import router as customer_router
 from app.payments.router import router as payments_router
 from app.provider.router import router as provider_router
@@ -57,6 +58,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         redoc_url=None,
     )
     app.state.settings = s
+    app.add_exception_handler(Conflict, conflict_handler)  # domain conflicts from below the routers: 409
     # Order matters only for identical paths; the shared marketplace endpoints come first.
     for r in (shared_router, marketplace_router, customer_router, provider_router, admin_router, payments_router):
         app.include_router(r)

@@ -246,10 +246,14 @@ async def _cover(db: Db, s: Settings, req: JobRequest, session: DbSession) -> Bo
             ).model_dump(),
             "cover": {"state": "covered", "request_id": req.id, "original_provider_id": visit.provider_id},
         },
-        extra_filter={"cover.state": {"$ne": "covered"}},
+        # Still scheduled (not skipped, cancelled or under way) and not covered already, as read in
+        # this transaction: a visit the customer skipped meanwhile can't be "taken".
+        extra_filter={"status": "scheduled", "cover.state": {"$ne": "covered"}},
         session=session,
     )
-    if covered is None:  # covered through another request already: undo this claim
+    if covered is None:  # covered through another request already, or no longer happening: undo this claim
+        if visit.status != "scheduled":
+            fail(status.HTTP_409_CONFLICT, "visit_not_scheduled", "The visit this covers isn't happening any more.")
         fail(status.HTTP_409_CONFLICT, "not_open", "This job isn't open any more.")
     booking = await Bookings(db).get(covered.booking_id, session=session)
     assert booking is not None

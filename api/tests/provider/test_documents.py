@@ -4,8 +4,8 @@ basic DBS check runs 12 months from its issue date); a renewal doesn't stop the 
 from datetime import timedelta
 
 import pytest
-from fastapi import HTTPException
 
+from app.core.errors import Conflict
 from app.core.timeutil import add_months, london_today
 from app.repos import Providers
 from app.services.eligibility import can_take
@@ -235,14 +235,54 @@ async def test_a_verdict_on_a_replaced_upload_changes_nothing(dave_client, db, d
     await dave_client.post("/api/p/documents", json={"type": "insurance", "file_id": b, "expires_on": until})
     before = [d for d in (await Providers(db).get(dave.id)).documents if d.type == "insurance"]
     for verdict in ("rejected", "verified"):
-        with pytest.raises(HTTPException) as e:
+        with pytest.raises(Conflict) as e:  # a domain error: repositories never raise HTTP errors
             await Providers(db).set_document(dave.id, read.model_copy(update={"status": verdict}))
-        assert e.value.status_code == 409 and e.value.detail["code"] == "document_changed"
+        assert e.value.code == "document_changed"
     after = [d for d in (await Providers(db).get(dave.id)).documents if d.type == "insurance"]
     assert after == before and sorted((d.status, d.file_id == b) for d in after) == [
         ("pending", True),
         ("verified", False),
     ]
+
+
+async def test_a_verdict_on_a_replaced_upload_answers_409_over_http(dave_client, db, dave, jo, monkeypatch):  # noqa: F811
+    """Session S, item 2c: set_document raises a domain Conflict and the app maps it to the same 409
+    as before, undoing L3's transaction (no notice, no audit entry)."""
+    from app.repos.categories import DocumentTypes
+
+    until = (london_today() + timedelta(days=400)).isoformat()
+    a = await _upload(dave_client)
+    await dave_client.post("/api/p/documents", json={"type": "insurance", "file_id": a, "expires_on": until})
+    real_get = DocumentTypes.get
+
+    async def read_then_replaced(self, id_, *, session=None):  # after L3 read the upload, before its verdict
+        await db["providers"].update_one(
+            {"_id": dave.id, "documents.file_id": a}, {"$set": {"documents.$.file_id": "a-newer-upload"}}
+        )
+        return await real_get(self, id_, session=session)
+
+    monkeypatch.setattr(DocumentTypes, "get", read_then_replaced)
+    r = await jo.post(f"/api/admin/providers/{dave.id}/documents/insurance/verify", json={})
+    assert r.status_code == 409
+    assert r.json() == {
+        "detail": {
+            "code": "document_changed",
+            "message": "That document has been replaced since you opened it. Have another look.",
+        }
+    }
+    assert await db["outbox"].count_documents({"template_id": "document_verified"}) == 0
+    assert await db["audit_log"].count_documents({"action": "provider.document_verified"}) == 0
+
+
+def test_no_repository_raises_http_errors():
+    """Repositories are below the routers: they raise domain errors, never HTTP ones."""
+    from pathlib import Path
+
+    import app.repos
+
+    for path in Path(app.repos.__file__).parent.glob("*.py"):
+        text = path.read_text()
+        assert "fastapi" not in text and "fail(" not in text, f"{path.name} raises HTTP errors"
 
 
 async def test_rejecting_the_current_copy_keeps_a_renewal_waiting(dave_client, db, dave):

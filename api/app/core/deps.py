@@ -5,8 +5,9 @@
     provider: Provider = Depends(current_provider)     # signed in with the provider role
     admin: User = Depends(require_admin)
 
-Helpers (users with helper_of set) get a provider context for the provider they help:
-current_provider returns that provider, and `acting_as_helper` is True.
+Helpers: `User.helper_of` links a helper to the provider whose visits they can be sent to, and
+nothing more (decisions.md A17). current_provider refuses them, so they never accept, counter,
+decline or price a job; the provider app's round recognises them (app.provider.acting).
 """
 
 from dataclasses import dataclass
@@ -90,13 +91,17 @@ async def current_customer(cu: CurrentUser = Depends(current_user), db: Db = Dep
 
 
 async def current_provider(cu: CurrentUser = Depends(current_user), db: Db = Depends(get_db)) -> Provider:
+    """The signed-in provider's own record. Helpers are refused: they only carry out visits."""
     providers = Providers(db)
     if cu.user.helper_of:
-        provider = await providers.get(cu.user.helper_of)
-    elif "provider" in cu.user.roles:
-        provider = await providers.by_user(cu.user.id)
-    else:
-        provider = None
+        boss = await providers.get(cu.user.helper_of)
+        who = boss.name.split(" ")[0] if boss else "The provider you help"
+        fail(
+            status.HTTP_403_FORBIDDEN,
+            "helpers_cant",
+            f"{who} takes on jobs and sets the prices. You can see the visits you're doing on Today.",
+        )
+    provider = await providers.by_user(cu.user.id) if "provider" in cu.user.roles else None
     if provider is None:
         fail(status.HTTP_403_FORBIDDEN, "providers_only", "This is for providers. Sign up to earn with OneQuickJob.")
     # Suspended providers can still sign in to see earnings and records; taking jobs is

@@ -124,29 +124,7 @@ async def seed_people(ctx: Ctx) -> None:
                 note="Checked with Stripe" if identity == "verified" else None,
             )
         )
-        insurance_expiry = (
-            ctx.today + timedelta(days=p["insurance_expires_in_days"]) if "insurance_expires_in_days" in p else None
-        )
-        for t in p["docs"]:
-            issued = None
-            if t == "dbs_basic":
-                # Valid 12 months from the issue date (ruling after F review), via the shared rule.
-                issued = ctx.day(p["dbs_issued_days_ago"])
-                expires = expiry_for(DBS_TYPE, issued, None)
-            elif t in LATER_EXPIRY_DAYS:
-                expires = ctx.today + timedelta(days=LATER_EXPIRY_DAYS[t])
-            else:
-                expires = insurance_expiry
-            docs.append(
-                ProviderDocument(
-                    type=t,
-                    status="verified",
-                    issued_on=issued,
-                    expires_on=expires,
-                    verified_by=verifier,
-                    verified_at=verified_at,
-                )
-            )
+        docs += _verified_docs(ctx, p, verifier, verified_at)
         active = p["status"] in ("active", "payouts_paused")
         account = None
         if active:
@@ -217,7 +195,22 @@ async def seed_people(ctx: Ctx) -> None:
             **ctx.timestamps(boss.created_at + timedelta(days=30)),
         )
         ctx.users[h["key"]] = u
-        boss.helpers.append(Helper(user_id=u.id, name=h["name"], relationship=h["relationship"], status="ready"))
+        # A helper goes through the same checks; theirs are kept on the provider's helper entry, so
+        # the round sends them only to visits whose documents they hold (no DEMO_MODE exception).
+        checked = u.created_at + timedelta(days=2)
+        docs = [
+            ProviderDocument(
+                type="identity",
+                status="verified",
+                verified_by=verifier,
+                verified_at=checked,
+                note="Checked with Stripe",
+            ),
+            *_verified_docs(ctx, h, verifier, checked),
+        ]
+        boss.helpers.append(
+            Helper(user_id=u.id, name=h["name"], relationship=h["relationship"], status="ready", documents=docs)
+        )
 
     await clear_clashing_people(ctx)
     for u in ctx.users.values():
@@ -228,6 +221,36 @@ async def seed_people(ctx: Ctx) -> None:
         w.add(p)
     await w.flush()
     await _tax_identities(ctx)
+
+
+def _verified_docs(ctx: Ctx, spec: dict, verifier: str, verified_at) -> list[ProviderDocument]:
+    """The checked documents a person's spec lists (people.json "docs"), with expiry dates
+    relative to the moment of seeding (A5)."""
+    insurance_expiry = (
+        ctx.today + timedelta(days=spec["insurance_expires_in_days"]) if "insurance_expires_in_days" in spec else None
+    )
+    docs = []
+    for t in spec.get("docs", []):
+        issued = None
+        if t == "dbs_basic":
+            # Valid 12 months from the issue date (ruling after F review), via the shared rule.
+            issued = ctx.day(spec["dbs_issued_days_ago"])
+            expires = expiry_for(DBS_TYPE, issued, None)
+        elif t in LATER_EXPIRY_DAYS:
+            expires = ctx.today + timedelta(days=LATER_EXPIRY_DAYS[t])
+        else:
+            expires = insurance_expiry
+        docs.append(
+            ProviderDocument(
+                type=t,
+                status="verified",
+                issued_on=issued,
+                expires_on=expires,
+                verified_by=verifier,
+                verified_at=verified_at,
+            )
+        )
+    return docs
 
 
 async def _tax_identities(ctx: Ctx) -> None:

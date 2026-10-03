@@ -151,7 +151,7 @@ async def _precheck(
                     "One of these customers would rather not have cover. Send a helper or skip that visit.",
                 )
         elif a.action == "helper":
-            ready_helper(provider, a.helper_user_id or "", cats[v.category_id], demo=s.demo_mode)
+            ready_helper(provider, a.helper_user_id or "", cats[v.category_id])
 
 
 async def _arrange(
@@ -188,7 +188,7 @@ async def _arrange(
             arrangements.append(Arrangement(visit_id=v.id, action="skip", state="arranged"))
             lines.append(f"{who}'s visit on {day} is skipped.")
         elif a.action == "helper":
-            helper = ready_helper(provider, a.helper_user_id or "", cats[v.category_id], demo=s.demo_mode)
+            helper = ready_helper(provider, a.helper_user_id or "", cats[v.category_id])
             performer = Performer(
                 kind="helper", provider_id=provider.id, user_id=helper.user_id, name=short_name(helper.name)
             )

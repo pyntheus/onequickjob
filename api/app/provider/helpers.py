@@ -76,30 +76,27 @@ async def list_helpers(db: Db, provider: Provider) -> list[HelperOut]:
     return [helper_out(h, labels) for h in provider.helpers if h.status != "removed"]
 
 
-def helper_missing(helper: Helper, category: Category, today: date | None = None, *, demo: bool = False) -> list[str]:
+def helper_missing(helper: Helper, category: Category, today: date | None = None) -> list[str]:
     """Document types the helper doesn't hold (verified and in date) for this kind of job: the
     same rule as eligibility.can_take, on the helper's own documents. No documents on record means
-    every one is missing. Only in DEMO_MODE does a ready helper with no documents on record at all
-    count as checked: the seed's Tom has none yet (contract-changes/L2.md asks the seed for them)."""
+    every one is missing."""
     today = today or london_today()
-    if not helper.documents and demo and helper.status == "ready":
-        return []
     held = {
         d.type for d in helper.documents if d.status == "verified" and (d.expires_on is None or d.expires_on >= today)
     }
     return [t for t in ["identity", *category.requires] if t not in held]
 
 
-def ready_helper(provider: Provider, user_id: str, category: Category | None = None, *, demo: bool = False) -> Helper:
+def ready_helper(provider: Provider, user_id: str, category: Category | None = None) -> Helper:
     """The helper, if they can be sent to a visit (of this category): ready, and holding the
-    documents the job needs (demo: see helper_missing)."""
+    documents the job needs."""
     helper = next((h for h in provider.helpers if h.user_id == user_id), None)
     if helper is None or helper.status == "removed":
         fail(status.HTTP_404_NOT_FOUND, "not_your_helper", "That helper isn't on your list.")
     first = helper.name.split(" ")[0]
     if helper.status != "ready":
         fail(status.HTTP_409_CONFLICT, "helper_not_ready", f"{first} can do visits once we've checked their documents.")
-    if category is not None and helper_missing(helper, category, demo=demo):
+    if category is not None and helper_missing(helper, category):
         fail(
             status.HTTP_409_CONFLICT,
             "helper_missing_documents",
@@ -111,9 +108,10 @@ def ready_helper(provider: Provider, user_id: str, category: Category | None = N
 
 async def add_helper(db: Db, s: Settings, provider: Provider, body: HelperNew) -> HelperOut:
     """A new helper is a user of their own, invited by text with a single-use sign-in link. They
-    have no roles and no helper_of: the provider app finds them through this helper list
-    (app.provider.acting), so they never get the provider's context elsewhere (they can't accept
-    jobs for the provider). A number that already has an account can't be a helper."""
+    have no roles; helper_of links them to this provider, which lets the provider send them to
+    visits and nothing more (A17: app.core.deps.current_provider refuses them, so they can't accept
+    jobs or suggest prices for the provider). A number that already has an account can't be a
+    helper."""
     try:
         phone = to_e164(body.phone)
     except InvalidPhone as e:
@@ -128,7 +126,7 @@ async def add_helper(db: Db, s: Settings, provider: Provider, body: HelperNew) -
             "Ring us and we'll sort it out.",
         )
     name = " ".join(body.name.split())
-    helper_user = User(name=name, phone=phone, roles=[])
+    helper_user = User(name=name, phone=phone, roles=[], helper_of=provider.id)
     helper = Helper(user_id=helper_user.id, name=name, relationship=body.relationship.strip(), status="invited")
 
     async def add(session: DbSession) -> None:
