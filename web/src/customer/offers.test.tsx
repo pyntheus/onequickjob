@@ -107,14 +107,21 @@ describe("Finding someone local", () => {
 
   it("asks the customer to approve a raised guide, and approves it (A12)", async () => {
     let current = request({
-      price_change: { guide_pence: 7300, first_pence: 9700, from_guide_pence: 6600, from_first_pence: 8800, proposed_at: "2026-10-03T10:00:00Z" },
+      price_change: {
+        change_id: "pc1",
+        guide_pence: 7300,
+        first_pence: 9700,
+        from_guide_pence: 6600,
+        from_first_pence: 8800,
+        proposed_at: "2026-10-03T10:00:00Z",
+      },
     });
-    let approved = false;
+    let approved: unknown = null;
     mockApi({
       ...base(false),
       "GET /api/c/requests/R-2301": () => current,
-      "POST /api/c/requests/R-2301/price-change/approve": () => {
-        approved = true;
+      "POST /api/c/requests/R-2301/price-change/approve": async (_u, req) => {
+        approved = await req.json();
         current = request({ guide_pence: 7300, first_pence: 9700, price_change: null });
         return current;
       },
@@ -127,7 +134,7 @@ describe("Finding someone local", () => {
     expect(screen.getByRole("button", { name: "Keep £66" })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Approve £73 a clean (first visit £97)" }));
     await waitFor(() => expect(screen.queryByRole("heading", { name: "A higher guide price?" })).not.toBeInTheDocument());
-    expect(approved).toBe(true);
+    expect(approved).toEqual({ change_id: "pc1" });
   });
 
   it("offers Simulate local responses in DEMO_MODE, through the simulate endpoint", async () => {

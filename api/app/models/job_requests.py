@@ -10,6 +10,7 @@ from typing import Any, ClassVar, Literal
 
 from pydantic import Field
 
+from app.core.ids import new_id
 from app.models.common import Address, DaysPref, GeoPoint, Model, Pence, TimePref, Timestamped
 from app.models.quotes import Measure, Unit
 
@@ -71,6 +72,7 @@ class PriceChange(Model):
     """A raised guide price waiting for the customer's approval (ruling A12). Only on approval
     does the request's guide change and its job alerts go out again."""
 
+    id: str = Field(default_factory=new_id, description="Answers name it, so a stale page can't approve a newer one")
     status: Literal["pending", "approved", "declined"] = "pending"
     guide_pence: Pence
     first_pence: Pence | None = Field(default=None, description="Scaled by the same ratio (scaled_first_price)")

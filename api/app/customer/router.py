@@ -35,6 +35,7 @@ from app.customer.schemas import (
     PlanOut,
     PlanPrice,
     PlanUpdate,
+    PriceChangeAnswer,
     ProblemIn,
     ProblemOut,
     ProfileUpdate,
@@ -139,19 +140,23 @@ async def cancel_request(ref: str, customer: Cust, db: DbDep, s: SettingsDep) ->
 
 
 @router.post("/requests/{ref}/price-change/approve")
-async def approve_price_change(ref: str, customer: Cust, db: DbDep, s: SettingsDep) -> RequestDetail:
+async def approve_price_change(
+    ref: str, body: PriceChangeAnswer, customer: Cust, db: DbDep, s: SettingsDep
+) -> RequestDetail:
     """Approve a raised guide price (A12): the guide changes and the job goes out again at it.
     (Added by L1.)"""
     req = await _own_request(db, ref, customer)
-    updated = await price_changes.approve(db, s, req, await _user(db, customer))
+    updated = await price_changes.approve(db, s, req, await _user(db, customer), body.change_id)
     return await request_detail(db, updated, demo=s.demo_mode)
 
 
 @router.post("/requests/{ref}/price-change/decline")
-async def decline_price_change(ref: str, customer: Cust, db: DbDep, s: SettingsDep) -> RequestDetail:
+async def decline_price_change(
+    ref: str, body: PriceChangeAnswer, customer: Cust, db: DbDep, s: SettingsDep
+) -> RequestDetail:
     """Keep the original guide price (A12). (Added by L1.)"""
     req = await _own_request(db, ref, customer)
-    updated = await price_changes.decline(db, s, req, await _user(db, customer))
+    updated = await price_changes.decline(db, s, req, await _user(db, customer), body.change_id)
     return await request_detail(db, updated, demo=s.demo_mode)
 
 

@@ -1119,6 +1119,7 @@ Indexes:
 
 | Field | Type | Notes |
 |---|---|---|
+| `_id` | str | Answers name it, so a stale page can't approve a newer one |
 | `status` | Literal['pending', 'approved', 'declined'] |  |
 | `guide_pence` | int | Integer pence |
 | `first_pence` | int \| None (optional) | Scaled by the same ratio (scaled_first_price) |

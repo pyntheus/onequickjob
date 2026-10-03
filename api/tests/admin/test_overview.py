@@ -119,8 +119,9 @@ async def test_a_raise_beats_a_stale_acceptance_and_closed_requests_cant_be_rais
     ok(await jo.post(f"/api/admin/requests/{req.ref}/raise-guide", json={"percent": 20}))
     again = await jo.post(f"/api/admin/requests/{req.ref}/raise-guide", json={"percent": 20})
     assert again.status_code == 409 and again.json()["detail"]["code"] == "awaiting_customer"
+    pending = await JobRequests(db).get(req.id)
     await price_changes.approve(
-        db, make_settings(), await JobRequests(db).get(req.id), await Users(db).get(customer.user_id)
+        db, make_settings(), pending, await Users(db).get(customer.user_id), pending.price_change.id
     )
     # A provider who read the old guide gets price_changed, not the old price.
     claimed = await marketplace.claim_request(

@@ -2,13 +2,15 @@
 asking to move a one-off, plans (winter and away pauses, cover, frequency, cancel), rating with
 a tip, reporting a problem within 48 hours, and booking the same provider again."""
 
+import contextlib
 import itertools
 from datetime import timedelta
 
 from app.core.timeutil import london_today
-from app.repos import Bookings, Disputes, LedgerEntries, Messages, MessageThreads, Providers, SeriesRepo, Visits
+from app.customer.schemas import RatingIn
+from app.repos import Bookings, Disputes, LedgerEntries, Messages, MessageThreads, Providers, SeriesRepo, Users, Visits
 from tests.conftest import new_client
-from tests.customer.helpers import book_at_guide, finish_visit, make_request_via_api, signed_in_with_card
+from tests.customer.helpers import book_at_guide, customer_of, finish_visit, make_request_via_api, signed_in_with_card
 from tests.factories import make_provider
 
 
@@ -159,6 +161,53 @@ async def test_a_tip_whose_outcome_is_unknown_is_settled_once_by_the_payments_pa
     (entry,) = await LedgerEntries(db).find({"visit_id": first.id})
     assert (entry.kind, entry.gross_pence, entry.fee_pence) == ("tip", 300, 0)
     assert await db["outbox"].count_documents({"template_id": "tip_received"}) == 1
+
+
+async def test_an_interrupted_tip_is_finished_by_a_retry_or_the_task(client, db, catalogue, monkeypatch):
+    """Codex (medium): the rating committed but the request stopped before the tip's charge began."""
+    from datetime import timedelta
+
+    from app.adapters.payments.fake import FakeGateway
+    from app.core.timeutil import utcnow
+    from app.customer import account
+    from app.payments import charging
+    from tests.conftest import make_settings
+
+    _dave, booking, first = await _booked(client, db)
+    second = (await Visits(db).find({"series_id": booking.series_id, "is_first": False}, sort=[("local_date", 1)]))[0]
+    for v in (first, second):
+        await finish_visit(db, v.id)
+    real = charging.charge_visit
+
+    async def crash(*a, **kw):
+        raise RuntimeError("the request stopped here")
+
+    monkeypatch.setattr(charging, "charge_visit", crash)
+    customer = await customer_of(db)
+    user = await Users(db).get(customer.user_id)
+    s = make_settings()
+    for v in (first, second):
+        with contextlib.suppress(RuntimeError):
+            await account.rate_visit(
+                db, s, FakeGateway(db), await Visits(db).get(v.id), customer, user, RatingIn(stars=5, tip_pence=200)
+            )
+    monkeypatch.setattr(charging, "charge_visit", real)
+    for v in (first, second):
+        stored = await Visits(db).get(v.id)
+        assert stored.rating_id and stored.tip_pence == 200 and stored.tip_charge is None
+
+    # A retry of the rating finishes its tip ...
+    r = await client.post(f"/api/c/visits/{first.id}/rating", json={"stars": 5, "tip_pence": 200})
+    assert r.status_code == 201 and r.json()["tip_status"] == "charged"
+    # ... and the task finishes one nobody retried.
+    assert await account.start_orphaned_tips(db, s, FakeGateway(db)) == 0, "too soon: the request may still be running"
+    await Visits(db).coll.update_one({"_id": second.id}, {"$set": {"updated_at": utcnow() - timedelta(minutes=5)}})
+    assert await account.start_orphaned_tips(db, s, FakeGateway(db)) == 1
+    assert (await Visits(db).get(second.id)).tip_charge.status == "succeeded"
+    assert await LedgerEntries(db).count({"kind": "tip"}) == 2
+    assert await account.start_orphaned_tips(db, s, FakeGateway(db)) == 0
+    again = await client.post(f"/api/c/visits/{first.id}/rating", json={"stars": 5})
+    assert again.status_code == 409 and again.json()["detail"]["code"] == "already_rated"
 
 
 async def test_a_declined_tip_keeps_the_rating(app, db, catalogue):

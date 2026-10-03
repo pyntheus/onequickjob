@@ -98,11 +98,14 @@ async def propose(
     return updated
 
 
-def _pending(req: JobRequest) -> PriceChange:
+def _pending(req: JobRequest, change_id: str) -> PriceChange:
+    """The proposal the customer saw (by its id), still waiting on the still-open request."""
     if req.status != "open":
         fail(status.HTTP_409_CONFLICT, "not_open", "This request isn't open any more.")
     if req.price_change is None or req.price_change.status != "pending":
         fail(status.HTTP_409_CONFLICT, "no_price_change", "There's no new price waiting for you on this request.")
+    if req.price_change.id != change_id:
+        fail(status.HTTP_409_CONFLICT, "price_change_changed", "The suggested price has changed. Have another look.")
     return req.price_change
 
 
@@ -110,10 +113,10 @@ def _changed() -> None:
     fail(status.HTTP_409_CONFLICT, "request_changed", "This request has just changed. Have another look.")
 
 
-async def approve(db: Db, s: Settings, req: JobRequest, user: User) -> JobRequest:
+async def approve(db: Db, s: Settings, req: JobRequest, user: User, change_id: str) -> JobRequest:
     """The customer approves the raise: the guide (and first visit) change, and the request is
     sent again, at the new price, to the providers eligible now. One transaction."""
-    change = _pending(req)
+    change = _pending(req, change_id)
     cat = await Categories(db).get(req.category_id)
     assert cat is not None, req.category_id
     raised = req.model_copy(update={"guide_pence": change.guide_pence, "first_pence": change.first_pence})
@@ -142,7 +145,7 @@ async def approve(db: Db, s: Settings, req: JobRequest, user: User) -> JobReques
                 "status": "open",
                 "guide_pence": change.from_guide_pence,
                 "price_change.status": "pending",
-                "price_change.proposed_at": change.proposed_at,
+                "price_change.id": change.id,
             },
             push={"events": event.model_dump(mode="python")},
             session=session,
@@ -166,9 +169,9 @@ async def approve(db: Db, s: Settings, req: JobRequest, user: User) -> JobReques
     return await transaction(db, apply)
 
 
-async def decline(db: Db, s: Settings, req: JobRequest, user: User) -> JobRequest:
+async def decline(db: Db, s: Settings, req: JobRequest, user: User, change_id: str) -> JobRequest:
     """The customer keeps the original guide."""
-    change = _pending(req)
+    change = _pending(req, change_id)
 
     async def apply(session: DbSession) -> JobRequest:
         now = utcnow()
@@ -181,7 +184,7 @@ async def decline(db: Db, s: Settings, req: JobRequest, user: User) -> JobReques
             extra_filter={
                 "status": "open",
                 "price_change.status": "pending",
-                "price_change.proposed_at": change.proposed_at,
+                "price_change.id": change.id,
             },
             push={"events": event.model_dump(mode="python")},
             session=session,

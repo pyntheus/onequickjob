@@ -5644,9 +5644,31 @@
         "title": "PlanUpdate",
         "type": "object"
       },
+      "PriceChangeAnswer": {
+        "additionalProperties": false,
+        "description": "The customer's answer to a raised guide (A12), naming the proposal they saw.",
+        "properties": {
+          "change_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Change Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "change_id"
+        ],
+        "title": "PriceChangeAnswer",
+        "type": "object"
+      },
       "PriceChangeView": {
         "description": "A raised guide waiting for the customer's approval (A12).",
         "properties": {
+          "change_id": {
+            "description": "Send it back with the answer",
+            "title": "Change Id",
+            "type": "string"
+          },
           "first_pence": {
             "anyOf": [
               {
@@ -5684,6 +5706,7 @@
           }
         },
         "required": [
+          "change_id",
           "guide_pence",
           "first_pence",
           "from_guide_pence",
@@ -15714,6 +15737,16 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PriceChangeAnswer"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -15817,6 +15850,16 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PriceChangeAnswer"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {

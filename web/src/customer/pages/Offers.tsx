@@ -275,14 +275,18 @@ export default function Offers() {
     if (!window.confirm("Cancel this request? Nothing has been charged.")) return;
     void act(() => call(api.POST("/api/c/requests/{ref}/cancel", { params: { path: { ref } } })), "Request cancelled");
   };
+  // A12: the answer names the proposal shown, so a stale page can't approve a newer one.
+  const changeId = req.price_change?.change_id ?? "";
   const approveRaise = () =>
     act(
-      () => call(api.POST("/api/c/requests/{ref}/price-change/approve", { params: { path: { ref } } })),
+      () =>
+        call(api.POST("/api/c/requests/{ref}/price-change/approve", { params: { path: { ref } }, body: { change_id: changeId } })),
       "Done. We've sent your job to providers again at the new price.",
     );
   const declineRaise = () =>
     act(
-      () => call(api.POST("/api/c/requests/{ref}/price-change/decline", { params: { path: { ref } } })),
+      () =>
+        call(api.POST("/api/c/requests/{ref}/price-change/decline", { params: { path: { ref } }, body: { change_id: changeId } })),
       "Your guide price stays as it is.",
     );
   const simulate = () =>

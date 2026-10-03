@@ -207,3 +207,36 @@ async def test_plan_change_links_are_single_purpose_and_private(app, client, db,
         assert (
             await other.get(f"/api/c/plans/{booking.series_id}/reprice", params={"frequency": "weekly"})
         ).status_code in (403, 404)
+
+
+async def test_a_change_priced_from_a_stale_plan_is_refused(client, db, catalogue):
+    """Codex (high): the proposal is bound to the plan it was priced from. A change accepted
+    between reading the plan and asking makes the new request a 409, not a mispriced proposal."""
+    from app.repos import Customers, Users
+
+    _dave, booking = await _mowing_plan(client, db, counter_pence=3700)
+    stale_series = await SeriesRepo(db).get(booking.series_id)  # read before the acceptance below
+    token = await _ask(client, db, booking.series_id, "weekly")
+    assert (await client.post(f"/api/c/plan-changes/{token}/accept")).status_code == 200
+    customer = await Customers(db).get(booking.customer_id)
+    user = await Users(db).get(customer.user_id)
+    try:
+        await plan_changes.request_change(db, make_settings(), stale_series, booking, customer, user, "threeweekly")
+        raise AssertionError("should have been refused")
+    except Exception as e:
+        assert getattr(e, "status_code", None) == 409 and e.detail["code"] == "plan_changed"
+    assert await PlanChanges(db).count({"status": "pending"}) == 0
+    # Asked afresh, it's priced from the plan as it is now: the weekly guide is the reference.
+    series = await SeriesRepo(db).get(booking.series_id)
+    weekly, threeweekly = await _engine_price(db, "weekly"), await _engine_price(db, "threeweekly")
+    preview = (await client.get(f"/api/c/plans/{series.id}/reprice", params={"frequency": "threeweekly"})).json()
+    assert preview["price_pence"] == round_to_pound(threeweekly * series.price_pence / weekly)
+
+
+async def test_acceptance_refuses_a_change_whose_plan_has_moved_on(client, db, catalogue):
+    _dave, booking = await _mowing_plan(client, db)
+    token = await _ask(client, db, booking.series_id, "weekly")
+    await SeriesRepo(db).update(booking.series_id, {"price_pence": 3300})  # however it moved on
+    r = await client.post(f"/api/c/plan-changes/{token}/accept")
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "plan_changed"
+    assert (await SeriesRepo(db).get(booking.series_id)).frequency == "fortnightly"

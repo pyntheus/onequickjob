@@ -12,6 +12,10 @@ from tests.customer.helpers import make_request_via_api, signed_in_with_card
 from tests.factories import make_provider
 
 
+async def _change_id(client, ref: str) -> str:
+    return (await client.get(f"/api/c/requests/{ref}")).json()["price_change"]["change_id"]
+
+
 @pytest.fixture
 async def open_windows_request(client, db, catalogue):
     """A windows request (£22 a clean, first clean £33) with one eligible provider."""
@@ -49,7 +53,10 @@ async def test_approving_raises_the_guide_and_sends_the_job_out_again(client, db
     alerts_before = await db["outbox"].count_documents({"template_id": "job_alert"})
     assert alerts_before == 1
     await jo.post(f"/api/admin/requests/{detail['ref']}/raise-guide", json={"percent": 10})
-    r = await client.post(f"/api/c/requests/{detail['ref']}/price-change/approve")
+    r = await client.post(
+        f"/api/c/requests/{detail['ref']}/price-change/approve",
+        json={"change_id": await _change_id(client, detail["ref"])},
+    )
     assert r.status_code == 200, r.text
     view = r.json()
     assert (view["guide_pence"], view["first_pence"]) == (2400, 3600) and view["price_change"] is None
@@ -63,14 +70,17 @@ async def test_approving_raises_the_guide_and_sends_the_job_out_again(client, db
     assert await db["audit_log"].count_documents({"action": "request.guide_raise_approved"}) == 1
     out = await marketplace.accept_at_guide(db, make_settings(), detail["ref"], sue)
     assert out.booking.price_pence == 2400 and out.booking.first_price_pence == 3600
-    again = await client.post(f"/api/c/requests/{detail['ref']}/price-change/approve")
+    again = await client.post(f"/api/c/requests/{detail['ref']}/price-change/approve", json={"change_id": "x"})
     assert again.status_code == 409
 
 
 async def test_declining_keeps_the_original_guide(client, db, jo, open_windows_request):  # noqa: F811
     detail, _sue = open_windows_request
     await jo.post(f"/api/admin/requests/{detail['ref']}/raise-guide", json={"percent": 10})
-    r = await client.post(f"/api/c/requests/{detail['ref']}/price-change/decline")
+    r = await client.post(
+        f"/api/c/requests/{detail['ref']}/price-change/decline",
+        json={"change_id": await _change_id(client, detail["ref"])},
+    )
     assert r.status_code == 200
     view = r.json()
     assert view["guide_pence"] == 2200 and view["price_change"] is None
@@ -85,14 +95,34 @@ async def test_declining_keeps_the_original_guide(client, db, jo, open_windows_r
 async def test_a_booked_request_cant_take_a_waiting_raise(client, db, jo, open_windows_request):  # noqa: F811
     detail, sue = open_windows_request
     await jo.post(f"/api/admin/requests/{detail['ref']}/raise-guide", json={"percent": 10})
+    change_id = await _change_id(client, detail["ref"])
     out = await marketplace.accept_at_guide(db, make_settings(), detail["ref"], sue)
     assert out.booking.price_pence == 2200, "booked at the guide the provider saw"
-    r = await client.post(f"/api/c/requests/{detail['ref']}/price-change/approve")
+    r = await client.post(f"/api/c/requests/{detail['ref']}/price-change/approve", json={"change_id": change_id})
     assert r.status_code == 409 and r.json()["detail"]["code"] == "not_open"
     assert (await client.get(f"/api/c/requests/{detail['ref']}")).json()["price_change"] is None
 
 
 async def test_no_raise_to_answer(client, db, open_windows_request):
     detail, _sue = open_windows_request
-    r = await client.post(f"/api/c/requests/{detail['ref']}/price-change/approve")
+    r = await client.post(f"/api/c/requests/{detail['ref']}/price-change/approve", json={"change_id": "x"})
     assert r.status_code == 409 and r.json()["detail"]["code"] == "no_price_change"
+
+
+async def test_a_stale_page_cant_approve_a_newer_raise(client, db, jo, open_windows_request):  # noqa: F811
+    """Codex (high): the answer names the proposal the customer saw."""
+    detail, _sue = open_windows_request
+    ref = detail["ref"]
+    await jo.post(f"/api/admin/requests/{ref}/raise-guide", json={"percent": 10})
+    seen = await _change_id(client, ref)  # a tab showing £24
+    assert (
+        await client.post(f"/api/c/requests/{ref}/price-change/decline", json={"change_id": seen})
+    ).status_code == 200
+    await jo.post(f"/api/admin/requests/{ref}/raise-guide", json={"percent": 20})  # now £26 waiting
+    r = await client.post(f"/api/c/requests/{ref}/price-change/approve", json={"change_id": seen})
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "price_change_changed"
+    assert (await JobRequests(db).by_ref(ref)).guide_pence == 2200
+    newer = await _change_id(client, ref)
+    assert newer != seen
+    r = await client.post(f"/api/c/requests/{ref}/price-change/approve", json={"change_id": newer})
+    assert r.status_code == 200 and r.json()["guide_pence"] == 2600

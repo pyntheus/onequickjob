@@ -165,8 +165,12 @@ async def request_change(
     deadline = f"{wording.day_text(change.expires_at)} at {wording.time_text(change.expires_at)}"
 
     async def ask(session: DbSession) -> PlanChange:
-        if await SeriesRepo(db).count({"_id": series.id, "status": {"$ne": "cancelled"}}, session=session) == 0:
-            fail(status.HTTP_409_CONFLICT, "plan_cancelled", "This plan is cancelled.")
+        # The price was worked out from the plan as it was read (its frequency, price and the last
+        # accepted change). A guarded write on the plan binds the proposal to that state: if a change
+        # was accepted (or the plan cancelled) since, it doesn't match and nothing is sent; a
+        # concurrent acceptance conflicts with this write and the re-run sees it.
+        if await SeriesRepo(db).update(series.id, {}, extra_filter=_as_priced(change), session=session) is None:
+            _plan_moved()
         changes = PlanChanges(db)
         if (previous := await changes.pending_for(series.id, session=session)) is not None:
             await changes.update(
@@ -222,6 +226,15 @@ async def request_change(
         return change
 
     return await transaction(db, ask)
+
+
+def _as_priced(change: PlanChange) -> dict:
+    """The plan as the change was priced from: not cancelled, same frequency and price."""
+    return {"status": {"$ne": "cancelled"}, "frequency": change.from_frequency, "price_pence": change.from_price_pence}
+
+
+def _plan_moved() -> None:
+    fail(status.HTTP_409_CONFLICT, "plan_changed", "This plan has just changed. Have another look.")
 
 
 # ------------------------------------------------------------------------------- the provider's answer
@@ -282,9 +295,13 @@ async def accept(db: Db, s: Settings, found: Found) -> PlanChange:
         if accepted is None:
             current = await PlanChanges(db).get(change.id, session=session)
             _closed(current or change)
-        current_series = await SeriesRepo(db).get(series.id, session=session)
-        if current_series is None or current_series.status == "cancelled":
-            fail(status.HTTP_409_CONFLICT, "plan_cancelled", "The customer has cancelled this plan.")
+        current_series = await SeriesRepo(db).find_one({"_id": series.id, **_as_priced(change)}, session=session)
+        if current_series is None:  # cancelled, or changed since this was priced: it no longer applies
+            fail(
+                status.HTTP_409_CONFLICT,
+                "plan_changed",
+                "The customer's plan has changed since, so this no longer applies.",
+            )
         _, nxt = await account.apply_frequency_change(
             db, current_series, booking, provider, change.to_frequency, change.to_price_pence, session=session
         )

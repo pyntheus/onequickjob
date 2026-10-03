@@ -5,7 +5,7 @@ the tip is charged through the PaymentGateway outside any transaction, between t
 
 from datetime import date, time, timedelta
 
-from fastapi import status
+from fastapi import HTTPException, status
 
 from app.adapters.payments.base import PaymentGateway
 from app.core.config import Settings
@@ -231,6 +231,11 @@ async def rate_visit(
     if visit.status != "finished":
         fail(status.HTTP_409_CONFLICT, "not_finished", "You can rate a visit once it's done.")
     if visit.rating_id:
+        if visit.tip_pence and visit.tip_charge is None:
+            # The rating was saved but its tip never started (interrupted): finish it now.
+            rating = await Ratings(db).get(visit.rating_id)
+            assert rating is not None, visit.rating_id
+            return rating, await charging.charge_visit(db, s, gateway, visit.id, purpose="tip")
         fail(status.HTTP_409_CONFLICT, "already_rated", "You've already rated this visit.")
     if body.tip_pence % 100:
         fail(status.HTTP_422_UNPROCESSABLE_CONTENT, "whole_pounds", "Tips are in whole pounds.")
@@ -263,6 +268,32 @@ async def rate_visit(
     if not tip:
         return saved, await charging.get_visit(db, visit.id)
     return saved, await charging.charge_visit(db, s, gateway, visit.id, purpose="tip")
+
+
+TIP_START_AFTER = timedelta(minutes=2)
+
+
+async def start_orphaned_tips(db: Db, s: Settings, gateway: PaymentGateway) -> int:
+    """Tips whose rating was saved but whose charge never started (the request stopped between
+    the two): start them through the charging path. Safe: the gateway is only ever called after
+    the intent is recorded, so a tip with no intent was never charged. Returns how many started."""
+    n = 0
+    stale = await Visits(db).find(
+        {
+            "tip_pence": {"$gt": 0},
+            "tip_charge": None,
+            "rating_id": {"$ne": None},
+            "updated_at": {"$lt": utcnow() - TIP_START_AFTER},
+        },
+        limit=50,
+    )
+    for v in stale:
+        try:
+            await charging.charge_visit(db, s, gateway, v.id, purpose="tip")
+            n += 1
+        except HTTPException:  # e.g. charge_in_progress: the original request got there first
+            continue
+    return n
 
 
 # ------------------------------------------------------------------------------- problems
@@ -569,7 +600,7 @@ async def apply_frequency_change(
             "days": schedule.series_days(frequency, anchor),
             "price_pence": price_pence,
         },
-        extra_filter={"status": {"$ne": "cancelled"}},
+        extra_filter={"status": {"$ne": "cancelled"}, "frequency": series.frequency, "price_pence": series.price_pence},
         session=session,
     )
     if updated is None:

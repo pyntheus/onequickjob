@@ -97,6 +97,7 @@ class TimelineEvent(BaseModel):
 class PriceChangeView(BaseModel):
     """A raised guide waiting for the customer's approval (A12)."""
 
+    change_id: str = Field(description="Send it back with the answer")
     guide_pence: int
     first_pence: int | None
     from_guide_pence: int
@@ -365,3 +366,9 @@ class PlanChangeView(BaseModel):
     to_price_pence: int
     provider_pence: int = Field(description="What the provider keeps per visit at the new price (money.py)")
     expires_at: datetime
+
+
+class PriceChangeAnswer(In):
+    """The customer's answer to a raised guide (A12), naming the proposal they saw."""
+
+    change_id: str = Field(min_length=1, max_length=64)

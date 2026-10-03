@@ -405,7 +405,10 @@ Decided by Hasan after reviewing the F report; each has tests.
   the change lapses (`plan_change_expiry` task). Accepting applies the frequency and price to the
   plan, the booking and the visits still to come, in one transaction. Asking again replaces a
   change still waiting; cancelling the plan withdraws it. Only frequencies the category's intake
-  offers can be chosen. The web shows the API's prices only. (`tests/customer/test_plan_changes.py`.)
+  offers can be chosen. A proposal is bound to the plan it was priced from (its frequency and
+  price, with a guarded write when it's made): if the plan has changed meanwhile, asking or
+  accepting gets 409 rather than a mispriced change (Codex review). The web shows the API's prices
+  only. (`tests/customer/test_plan_changes.py`.)
 - **A11. Unbooked requests close after 7 days, and the customer is texted** (Hasan: confirmed
   as built by L1). The `request_expiry` task closes an open request with no booking 7 days after
   it was made (`expired`), lapses any counters (their providers get `request_closed`) and sends
@@ -418,7 +421,9 @@ Decided by Hasan after reviewing the F report; each has tests.
   The customer approves or declines it on "Finding someone local". Only on approval does the guide
   change, in one transaction with the job alerts sent again, at the new price, to the providers
   eligible then (`request.guide_raise_approved`); on decline the original guide stands and the
-  team may suggest again. Admin's waiting list shows "Awaiting customer" meanwhile. A provider who
+  team may suggest again. The customer's answer names the proposal it was shown (its id), so a
+  stale page can't approve a newer raise (409; Codex review). Admin's waiting list shows
+  "Awaiting customer" meanwhile. A provider who
   accepts the old guide while it waits books at the old guide. (`app.customer.price_changes`,
   called by `app.admin.overview.raise_guide` inside its transaction;
   `tests/customer/test_price_changes.py`, `tests/admin/test_overview.py`.)

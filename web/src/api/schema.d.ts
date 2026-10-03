@@ -4492,10 +4492,23 @@ export interface components {
             pause_winter?: boolean | null;
         };
         /**
+         * PriceChangeAnswer
+         * @description The customer's answer to a raised guide (A12), naming the proposal they saw.
+         */
+        PriceChangeAnswer: {
+            /** Change Id */
+            change_id: string;
+        };
+        /**
          * PriceChangeView
          * @description A raised guide waiting for the customer's approval (A12).
          */
         PriceChangeView: {
+            /**
+             * Change Id
+             * @description Send it back with the answer
+             */
+            change_id: string;
             /** First Pence */
             first_pence: number | null;
             /** From First Pence */
@@ -11144,7 +11157,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PriceChangeAnswer"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -11229,7 +11246,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PriceChangeAnswer"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

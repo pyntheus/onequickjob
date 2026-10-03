@@ -298,6 +298,7 @@ async def request_detail(
         notes=req.notes,
         simulating=simulating,
         price_change=PriceChangeView(
+            change_id=pc.id,
             guide_pence=pc.guide_pence,
             first_pence=pc.first_pence,
             from_guide_pence=pc.from_guide_pence,

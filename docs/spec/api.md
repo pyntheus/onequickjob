@@ -59,8 +59,8 @@ in `web/src/api/schema.d.ts` come from it (`make types`).
 | `GET` | `/api/c/requests` |  | list[RequestSummary] |  |
 | `GET` | `/api/c/requests/{ref}` |  | RequestDetail | The "Finding someone local" screen polls this: timeline, pending counters, booking. |
 | `POST` | `/api/c/requests/{ref}/cancel` |  | RequestDetail |  |
-| `POST` | `/api/c/requests/{ref}/price-change/approve` |  | RequestDetail | Approve a raised guide price (A12): the guide changes and the job goes out again at it. (Added by L1.) |
-| `POST` | `/api/c/requests/{ref}/price-change/decline` |  | RequestDetail | Keep the original guide price (A12). (Added by L1.) |
+| `POST` | `/api/c/requests/{ref}/price-change/approve` | PriceChangeAnswer | RequestDetail | Approve a raised guide price (A12): the guide changes and the job goes out again at it. (Added by L1.) |
+| `POST` | `/api/c/requests/{ref}/price-change/decline` | PriceChangeAnswer | RequestDetail | Keep the original guide price (A12). (Added by L1.) |
 | `POST` | `/api/c/requests/{ref}/demo/simulate` |  | SimulationStarted | DEMO_MODE only (404 otherwise): the nearest seeded provider with the skill counters at guide + 20% after a few seconds, and the next accepts at guide shortly after, through the real offer endpoints. |
 | `GET` | `/api/c/profile` |  | CustomerProfile |  |
 | `PATCH` | `/api/c/profile` | ProfileUpdate | CustomerProfile |  |
