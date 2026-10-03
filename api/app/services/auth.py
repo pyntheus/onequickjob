@@ -114,22 +114,29 @@ async def verify_code(db: Db, s: Settings, raw_identifier: str, code: str, name:
     row = await codes.latest(ident.value)
     if row is None or row.consumed_at is not None or row.expires_at <= now:
         fail(status.HTTP_400_BAD_REQUEST, "code_expired", "That code has expired. We can send you a new one.")
-    if row.attempts >= row.max_attempts:
+    live = {"_id": row.id, "consumed_at": None, "expires_at": {"$gt": now}}
+
+    # Every guess, right or wrong, first takes one of the code's attempts atomically, so
+    # concurrent guesses can't share an attempt: at most max_attempts are ever compared.
+    reserved = await codes.coll.find_one_and_update(
+        {**live, "attempts": {"$lt": row.max_attempts}}, {"$inc": {"attempts": 1}}, return_document=ReturnDocument.AFTER
+    )
+    if reserved is None:
+        if await codes.count(live) == 0:
+            fail(status.HTTP_400_BAD_REQUEST, "code_expired", "That code has expired. We can send you a new one.")
         fail(status.HTTP_429_TOO_MANY_REQUESTS, "too_many_attempts", "Too many wrong tries. Ask for a new code.")
 
     if not hmac.compare_digest(row.code_hash, _code_hash(ident.value, code.strip(), s)):
-        bumped = await codes.coll.find_one_and_update(
-            {"_id": row.id, "attempts": {"$lt": row.max_attempts}, "consumed_at": None},
-            {"$inc": {"attempts": 1}},
-            return_document=ReturnDocument.AFTER,
-        )
-        left = 0 if bumped is None else row.max_attempts - bumped["attempts"]
+        left = row.max_attempts - reserved["attempts"]
         if left <= 0:
             fail(status.HTTP_429_TOO_MANY_REQUESTS, "too_many_attempts", "Too many wrong tries. Ask for a new code.")
         fail(status.HTTP_400_BAD_REQUEST, "wrong_code", "That code isn't right.", attempts_left=left)
 
-    # Consume exactly once, even if two requests race with the right code.
-    used = await codes.coll.update_one({"_id": row.id, "consumed_at": None}, {"$set": {"consumed_at": now}})
+    # Only the latest code counts: one sent meanwhile replaces this one.
+    if await codes.count({"identifier": ident.value, "created_at": {"$gt": row.created_at}}):
+        fail(status.HTTP_400_BAD_REQUEST, "code_expired", "That code has expired. We can send you a new one.")
+    # Consume exactly once, even if two requests race with the right code, and never after expiry.
+    used = await codes.coll.update_one(live, {"$set": {"consumed_at": now}})
     if used.modified_count != 1:
         fail(status.HTTP_400_BAD_REQUEST, "code_expired", "That code has already been used. Ask for a new one.")
     return await find_or_create_user(db, ident, name)

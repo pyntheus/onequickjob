@@ -223,8 +223,11 @@ and integration (I) folds the accepted ones in here.
   signature is as specified.
 - **R25. Login codes** are stored as HMAC-SHA256 keyed with `SECRET_KEY` (A8); only the latest code
   for an identifier counts; at most one new code per 30 seconds and six an hour per
-  identifier. A new phone number or email becomes a customer account on first sign-in.
-  Sessions last 30 days; the cookie holds a random token and Mongo holds its HMAC.
+  identifier. Every guess, right or wrong, takes one of the code's five attempts atomically
+  before it's compared, so concurrent guesses can't exceed them (Codex re-check;
+  `test_concurrent_guesses_share_the_five_attempts`). A new phone number or email becomes a
+  customer account on first sign-in. Sessions last 30 days; the cookie holds a random token
+  and Mongo holds its HMAC.
 - **R25a. Demo sessions end with DEMO_MODE.** Switch-user sessions (`via: demo`) are refused
   and deleted when `DEMO_MODE` is false, so a demo admin cookie can't outlive the demo (Codex
   review). Outside DEMO_MODE the admin outbox also masks sign-in codes and its free-text search

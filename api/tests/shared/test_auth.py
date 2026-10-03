@@ -62,6 +62,39 @@ async def test_wrong_code_five_attempts_then_locked(client, db):
     assert r.status_code == 429, "after five wrong tries even the right code is refused"
 
 
+async def test_concurrent_guesses_share_the_five_attempts(client, db, monkeypatch):
+    """Codex re-check (high): a guess that read the code before five wrong guesses used up its
+    attempts must not then be compared, even with the right code."""
+    import asyncio
+
+    from app.repos import LoginCodes
+
+    await client.post("/api/auth/code", json={"identifier": PHONE})
+    good = await latest_code(db)
+    bad = "000000" if good != "000000" else "111111"
+    original, gate, has_read, reads = LoginCodes.latest, asyncio.Event(), asyncio.Event(), []
+
+    async def latest(self, identifier, *, session=None):
+        row = await original(self, identifier, session=session)
+        reads.append(row.attempts)
+        if len(reads) == 1:
+            has_read.set()
+            await gate.wait()  # the right guess has read the code (no attempts used) and waits here
+        return row
+
+    monkeypatch.setattr(LoginCodes, "latest", latest)
+    right = asyncio.create_task(auth.verify_code(db, make_settings(), PHONE, good))
+    await has_read.wait()
+    for _ in range(5):
+        r = await client.post("/api/auth/verify", json={"identifier": PHONE, "code": bad})
+        assert r.status_code in (400, 429)
+    gate.set()
+    with pytest.raises(Exception) as e:
+        await right
+    assert (e.value.status_code, e.value.detail["code"]) == (429, "too_many_attempts")
+    assert (await db["login_codes"].find_one({}))["attempts"] == 5 and reads[0] == 0
+
+
 async def test_expired_code_is_refused(client, db):
     await client.post("/api/auth/code", json={"identifier": PHONE})
     code = await latest_code(db)
