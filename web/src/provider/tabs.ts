@@ -14,7 +14,7 @@ export function tabOf(pathname: string): Tab["id"] | null {
   if (p === "/p" || p.startsWith("/p/j/")) return "jobs";
   if (p.startsWith("/p/today") || p.startsWith("/p/visits/")) return "today";
   if (["/p/earnings", "/p/tax", "/p/limit"].some((x) => p.startsWith(x))) return "earnings";
-  if (["/p/me", "/p/time-off", "/p/own-customers"].some((x) => p.startsWith(x))) return "me";
+  if (["/p/me", "/p/time-off", "/p/own-customers", "/p/messages"].some((x) => p.startsWith(x))) return "me";
   return null;
 }
 

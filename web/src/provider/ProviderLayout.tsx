@@ -7,7 +7,18 @@ import { Loading, Notice } from "../app/Status";
 import { Brand } from "../shared/Brand";
 import { Button } from "../shared/Button";
 import { SignInForm } from "../shared/SignInForm";
+import "./install";
 import { TABS, tabOf } from "./tabs";
+
+/** The service worker caches the app shell only (public/p/sw.js), in built apps: never in the
+ * Vite dev server, where it would fight hot reloading. */
+function useServiceWorker() {
+  useEffect(() => {
+    if (import.meta.env.PROD && "serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/p/sw.js", { scope: "/p/" }).catch(() => undefined);
+    }
+  }, []);
+}
 
 /** Adds the PWA manifest and theme colour only while the provider app is open. */
 function useProviderManifest() {
@@ -98,6 +109,7 @@ function Body({ signup }: { signup: boolean }) {
 /** Phone-width provider app: top bar, the screen, and the bottom nav (not on sign-up). */
 export function ProviderLayout() {
   useProviderManifest();
+  useServiceWorker();
   const { pathname } = useLocation();
   const { data: me } = useMe();
   const signup = pathname.startsWith("/p/signup");

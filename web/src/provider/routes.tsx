@@ -36,5 +36,7 @@ export const providerRoutes: RouteObject = {
     { path: "time-off", lazy: page(() => import("./pages/TimeOff")) },
     { path: "own-customers", lazy: page(() => import("./pages/OwnCustomers")) },
     { path: "signup", lazy: page(() => import("./pages/Signup")) },
+    { path: "messages", lazy: page(() => import("./pages/Messages")) },
+    { path: "messages/:threadId", lazy: page(() => import("./pages/Messages")) },
   ],
 };

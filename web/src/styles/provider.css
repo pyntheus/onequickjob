@@ -39,3 +39,40 @@
 .round-item.now .round-time{background:var(--primary);color:var(--on-primary)}
 .doc-row{display:flex;align-items:center;gap:12px;padding:13px 0;border-bottom:1px solid var(--hair)}
 .doc-row:last-child{border-bottom:0}
+
+/* ---------- L2: screens built for real ---------- */
+.back-link{align-self:flex-start}
+.p-app a.btn-link{text-decoration:none}
+.link-plain{color:var(--ink);text-decoration:none}
+.pt a.link-plain{color:var(--ink)}
+.link-card{color:var(--ink);text-decoration:none;padding:14px 16px;min-height:52px}
+.pt a.link-card{color:var(--ink)}
+.limit-strip{text-decoration:none}
+.offer-card:focus-visible,.limit-strip:focus-visible,.link-card:focus-visible{outline:3px solid var(--primary);outline-offset:2px}
+.note-icon{flex:none;display:inline-flex;margin-top:2px}
+.note-warn,.note-warn-card{background:var(--warn-soft);border-color:transparent}
+.note-danger{background:var(--danger-soft);color:var(--danger);font-weight:500}
+.note-ok{background:var(--ok-soft)}
+.fits-round{background:var(--accent-soft);border-color:transparent}
+.day-picker{display:flex;gap:8px;overflow-x:auto;padding:2px 2px 6px;margin:0 -2px;scrollbar-width:thin}
+.day-picker .chip{flex:none;text-decoration:none;color:var(--ink)}
+.pt .day-picker .chip.on{color:var(--on-primary)}
+.photo-check{cursor:pointer;min-height:52px}
+.photo-check[aria-disabled="true"]{opacity:.5;cursor:not-allowed}
+label.btn{cursor:pointer}
+label.btn.is-busy{opacity:.6;cursor:progress}
+input[type="file"]:focus-visible + *,label.btn:focus-within{outline:3px solid var(--primary);outline-offset:2px}
+.doc-row.stack-mobile{flex-direction:column;align-items:stretch;gap:8px}
+.doc-row .btn-link{align-self:flex-start}
+.doc-upload{padding:4px 0 6px}
+.step-num{border-radius:99px;width:28px;height:28px}
+.timer{margin-top:4px}
+.thread{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
+.bubble{display:flex;flex-direction:column;gap:4px;max-width:85%;padding:12px 14px;border-radius:16px;background:var(--surface);border:1px solid var(--line);align-self:flex-start;font-size:16px}
+.bubble.mine{align-self:flex-end;background:var(--primary-soft);border-color:transparent}
+.p-app .icon-btn{flex:none}
+.p-app input[type="date"].input{min-height:52px}
+.p-top .brand{min-height:44px}
+@media(max-width:420px){.grid2.narrow-stack{grid-template-columns:1fr}}
+.p-app .btn svg{flex:none}
+.p-app .grid2 .btn{padding:0 10px;white-space:normal;text-align:center}
