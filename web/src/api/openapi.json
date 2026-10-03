@@ -2231,6 +2231,17 @@
             "title": "Category Id",
             "type": "string"
           },
+          "charge_status": {
+            "default": "none",
+            "description": "The disputed visit's charge (L3 addition)",
+            "title": "Charge Status",
+            "type": "string"
+          },
+          "charged_pence": {
+            "default": 0,
+            "title": "Charged Pence",
+            "type": "integer"
+          },
           "customer_name": {
             "title": "Customer Name",
             "type": "string"
@@ -2266,6 +2277,11 @@
               }
             ]
           },
+          "provider_first": {
+            "default": "",
+            "title": "Provider First",
+            "type": "string"
+          },
           "provider_short": {
             "title": "Provider Short",
             "type": "string"
@@ -2273,6 +2289,17 @@
           "ref": {
             "title": "Ref",
             "type": "string"
+          },
+          "refundable_pence": {
+            "default": 0,
+            "description": "What's left to refund, less refunds in flight",
+            "title": "Refundable Pence",
+            "type": "integer"
+          },
+          "refunded_pence": {
+            "default": 0,
+            "title": "Refunded Pence",
+            "type": "integer"
           },
           "resolution": {
             "anyOf": [
@@ -2314,6 +2341,11 @@
           },
           "title": {
             "title": "Title",
+            "type": "string"
+          },
+          "visit_id": {
+            "default": "",
+            "title": "Visit Id",
             "type": "string"
           }
         },
@@ -4636,6 +4668,35 @@
         "title": "OnboardingLink",
         "type": "object"
       },
+      "OnboardingLinkOut": {
+        "description": "The payment provider's hosted onboarding for a provider's account (L3 addition).",
+        "properties": {
+          "account_id": {
+            "title": "Account Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "enabled",
+              "restricted"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "account_id",
+          "url",
+          "status"
+        ],
+        "title": "OnboardingLinkOut",
+        "type": "object"
+      },
       "OutboxItem": {
         "properties": {
           "body": {
@@ -4762,6 +4823,14 @@
           },
           "own_customers": {
             "$ref": "#/components/schemas/OwnCustomersCard"
+          },
+          "payments": {
+            "description": "Charges needing a look (L3 addition)",
+            "items": {
+              "$ref": "#/components/schemas/PaymentIssue"
+            },
+            "title": "Payments",
+            "type": "array"
           },
           "season_note": {
             "anyOf": [
@@ -4930,6 +4999,69 @@
           "after"
         ],
         "title": "ParamChange",
+        "type": "object"
+      },
+      "PaymentIssue": {
+        "description": "A visit whose charge failed, waits for the customer, or hasn't been confirmed (L3 addition).",
+        "properties": {
+          "amount_pence": {
+            "title": "Amount Pence",
+            "type": "integer"
+          },
+          "category_name": {
+            "title": "Category Name",
+            "type": "string"
+          },
+          "customer_name": {
+            "title": "Customer Name",
+            "type": "string"
+          },
+          "failure_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Reason"
+          },
+          "local_date": {
+            "format": "date",
+            "title": "Local Date",
+            "type": "string"
+          },
+          "provider_short": {
+            "title": "Provider Short",
+            "type": "string"
+          },
+          "since": {
+            "format": "date-time",
+            "title": "Since",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "visit_id": {
+            "title": "Visit Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "visit_id",
+          "customer_name",
+          "provider_short",
+          "category_name",
+          "local_date",
+          "amount_pence",
+          "status",
+          "failure_reason",
+          "since"
+        ],
+        "title": "PaymentIssue",
         "type": "object"
       },
       "PaymentsConfig": {
@@ -5744,6 +5876,14 @@
           "insurance": {
             "$ref": "#/components/schemas/InsuranceState"
           },
+          "issues": {
+            "description": "What needs attention, in words (L3 addition)",
+            "items": {
+              "type": "string"
+            },
+            "title": "Issues",
+            "type": "array"
+          },
           "jobs_30d": {
             "title": "Jobs 30D",
             "type": "integer"
@@ -5759,6 +5899,34 @@
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "payout_account_gateway": {
+            "anyOf": [
+              {
+                "enum": [
+                  "fake",
+                  "stripe"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "L3 addition",
+            "title": "Payout Account Gateway"
+          },
+          "payout_account_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "L3 addition",
+            "title": "Payout Account Id"
           },
           "payout_account_status": {
             "enum": [
@@ -5823,6 +5991,18 @@
             ],
             "title": "Status",
             "type": "string"
+          },
+          "status_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why they're suspended, if they are (L3 addition)",
+            "title": "Status Reason"
           },
           "travel_radius_miles": {
             "title": "Travel Radius Miles",
@@ -9139,7 +9319,7 @@
     },
     "/api/admin/disputes": {
       "get": {
-        "operationId": "disputes_api_admin_disputes_get",
+        "operationId": "disputes__api_admin_disputes_get",
         "responses": {
           "200": {
             "content": {
@@ -9148,7 +9328,7 @@
                   "items": {
                     "$ref": "#/components/schemas/DisputeView"
                   },
-                  "title": "Response Disputes Api Admin Disputes Get",
+                  "title": "Response Disputes  Api Admin Disputes Get",
                   "type": "array"
                 }
               }
@@ -9216,7 +9396,7 @@
             "description": "Not Implemented"
           }
         },
-        "summary": "Disputes",
+        "summary": "Disputes ",
         "tags": [
           "L3 admin"
         ]
@@ -9953,7 +10133,7 @@
     },
     "/api/admin/overview": {
       "get": {
-        "operationId": "overview_api_admin_overview_get",
+        "operationId": "overview__api_admin_overview_get",
         "responses": {
           "200": {
             "content": {
@@ -10026,7 +10206,7 @@
             "description": "Not Implemented"
           }
         },
-        "summary": "Overview",
+        "summary": "Overview ",
         "tags": [
           "L3 admin"
         ]
@@ -10504,7 +10684,7 @@
     },
     "/api/admin/providers": {
       "get": {
-        "operationId": "providers_api_admin_providers_get",
+        "operationId": "providers__api_admin_providers_get",
         "parameters": [
           {
             "in": "query",
@@ -10526,7 +10706,7 @@
                   "items": {
                     "$ref": "#/components/schemas/ProviderRow"
                   },
-                  "title": "Response Providers Api Admin Providers Get",
+                  "title": "Response Providers  Api Admin Providers Get",
                   "type": "array"
                 }
               }
@@ -10604,7 +10784,7 @@
             "description": "Not Implemented"
           }
         },
-        "summary": "Providers",
+        "summary": "Providers ",
         "tags": [
           "L3 admin"
         ]
@@ -11078,6 +11258,212 @@
           }
         },
         "summary": "Nudge Provider",
+        "tags": [
+          "L3 admin"
+        ]
+      }
+    },
+    "/api/admin/providers/{provider_id}/payment-account": {
+      "post": {
+        "description": "Create the provider's payment account if needed and return the payment provider's hosted\nonboarding link (L3 addition: lets admin support a provider through Stripe onboarding).",
+        "operationId": "provider_payment_account_api_admin_providers__provider_id__payment_account_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider_id",
+            "required": true,
+            "schema": {
+              "title": "Provider Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingLinkOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          }
+        },
+        "summary": "Provider Payment Account",
+        "tags": [
+          "L3 admin"
+        ]
+      }
+    },
+    "/api/admin/providers/{provider_id}/payment-account/sync": {
+      "post": {
+        "description": "Read the account's state from the payment provider now (webhooks do it too; L3 addition).",
+        "operationId": "sync_provider_payment_account_api_admin_providers__provider_id__payment_account_sync_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider_id",
+            "required": true,
+            "schema": {
+              "title": "Provider Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          }
+        },
+        "summary": "Sync Provider Payment Account",
         "tags": [
           "L3 admin"
         ]
@@ -20119,6 +20505,16 @@
               }
             },
             "description": "Not Implemented"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
           }
         },
         "summary": "Stripe Webhook",
