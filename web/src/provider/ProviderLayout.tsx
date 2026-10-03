@@ -75,10 +75,14 @@ function useMagicLink(): { pending: boolean; error: string | null } {
   return { pending: !!token && done.token !== token, error: done.error };
 }
 
-function Body({ signup }: { signup: boolean }) {
+/** Pages whose link carries its own single-use token as the authority: no sign-in needed. */
+const TOKEN_PAGES = ["/p/plan-change/"];
+
+function Body({ signup, open }: { signup: boolean; open: boolean }) {
   const magic = useMagicLink();
   const { data: me, isLoading } = useMe();
   const { helper, known } = useHelperMode();
+  if (open) return <Outlet />;
   if (magic.pending || isLoading) return <Loading label={magic.pending ? "Signing you in…" : "Loading…"} />;
   if (!me) {
     return (
@@ -116,6 +120,7 @@ export function ProviderLayout() {
   const { pathname } = useLocation();
   const { data: me } = useMe();
   const signup = pathname.startsWith("/p/signup");
+  const open = TOKEN_PAGES.some((prefix) => pathname.startsWith(prefix));
   const current = tabOf(pathname);
   return (
     <div className="p-app">
@@ -128,7 +133,7 @@ export function ProviderLayout() {
           <span className="xs muted">{signup ? "Sign up" : me?.name || ""}</span>
         </header>
         <main id="main" className="p-body" tabIndex={-1}>
-          <Body signup={signup} />
+          <Body signup={signup} open={open} />
         </main>
         {!signup && me && (
           <nav className="p-nav" aria-label="Provider">

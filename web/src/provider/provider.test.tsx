@@ -284,3 +284,60 @@ describe("the provider app", () => {
   });
 });
 
+
+describe("a plan change, answered in the provider app (A10)", () => {
+  const change = {
+    status: "pending", customer_first_name: "Sarah", provider_first_name: "Dave", category_name: "Lawn mowing",
+    area: "Hazlemere", from_frequency_label: "every 2 weeks", to_frequency_label: "every week", from_price_pence: 3100,
+    to_price_pence: 2800, provider_pence: 2380, expires_at: "2026-10-05T09:00:00Z",
+  };
+  const unauthorised = () => jsonResponse(401, { detail: { code: "not_signed_in", message: "Please sign in." } });
+
+  it("needs no sign-in: the link's token is the authority, and declining keeps the plan", async () => {
+    let declined = false;
+    mockApi({
+      "GET /api/config": () => config(false),
+      "GET /api/auth/me": unauthorised,
+      "GET /api/c/plan-changes/tok9": () => change,
+      "POST /api/c/plan-changes/tok9/decline": () => ((declined = true), { ...change, status: "declined" }),
+    });
+    renderAt("/p/plan-change/tok9");
+    expect(await screen.findByRole("heading", { name: "Sarah would like visits every week" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Send code/ })).not.toBeInTheDocument();
+    expect(screen.getByText("£23.80 a visit, after the OneQuickJob fee")).toBeInTheDocument();
+    expect(screen.getByText(/Please answer by Monday 5 October at 10:00/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Keep it as it is" }));
+    expect(await screen.findByText("You declined this change. The plan stays as it was.")).toBeInTheDocument();
+    expect(declined).toBe(true);
+  });
+
+  it("sends the old customer-web address on to the provider app", async () => {
+    mockApi({
+      "GET /api/config": () => config(false),
+      "GET /api/auth/me": unauthorised,
+      "GET /api/c/plan-changes/tok9": () => change,
+    });
+    const router = renderAt("/plan-change/tok9");
+    expect(await screen.findByRole("heading", { name: "Sarah would like visits every week" })).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/p/plan-change/tok9");
+  });
+
+  it("shows the change as it is now when it closed meanwhile (409)", async () => {
+    let answered = false;
+    mockApi({
+      "GET /api/config": () => config(false),
+      "GET /api/auth/me": () => me,
+      "GET /api/p/home": () => ({ greeting: "", today_text: "", week_earned_pence: 0, week_jobs: 0, rating_avg: null,
+        rating_count: 0, limit, new_jobs: [], coming_up: [], status: "active", helper: false, unread_messages: 0 }),
+      "GET /api/c/plan-changes/tok9": () => (answered ? { ...change, status: "withdrawn" } : change),
+      "POST /api/c/plan-changes/tok9/accept": () => (
+        (answered = true),
+        jsonResponse(409, { detail: { code: "not_pending", message: "Sarah has withdrawn this change." } })
+      ),
+    });
+    renderAt("/p/plan-change/tok9");
+    await userEvent.click(await screen.findByRole("button", { name: "Accept £28 a visit" }));
+    expect(await screen.findByText("The customer withdrew or replaced this change.")).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Provider" })).toBeInTheDocument();
+  });
+});
