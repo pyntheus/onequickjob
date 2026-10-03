@@ -5,6 +5,7 @@ from datetime import date
 
 from pymongo import DESCENDING
 
+from app.core.db import DbSession
 from app.models.records import LedgerEntry
 from app.repos.base import Repo, idx
 
@@ -18,7 +19,7 @@ class LedgerEntries(Repo[LedgerEntry]):
         idx("tax_year", "provider_id"),
     ]
 
-    async def net_between(self, provider_id: str, first: date, last: date) -> int:
+    async def net_between(self, provider_id: str, first: date, last: date, *, session: DbSession | None = None) -> int:
         """Sum of net pence (what the provider receives) for London dates first..last inclusive."""
         rows = self.coll.aggregate(
             [
@@ -29,7 +30,8 @@ class LedgerEntries(Repo[LedgerEntry]):
                     }
                 },
                 {"$group": {"_id": None, "net": {"$sum": "$net_pence"}}},
-            ]
+            ],
+            session=self.s(session),
         )
         async for row in await rows:
             return int(row["net"])

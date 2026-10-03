@@ -104,7 +104,9 @@ async def add_photo(visit_id: str, body: PhotoIn, provider: Prov) -> ProviderVis
 async def finish_visit(visit_id: str, body: FinishIn, provider: Prov) -> FinishOut:
     """Record minutes and flags (calibration data), charge through PaymentGateway.charge_visit
     with the fee from money.split_for_visit(price, source, performer kind) (a cover provider
-    pays 15% even on an own customer), write the ledger entry (services.ledger), send messages."""
+    pays 15% even on an own customer), write the ledger entry (services.ledger), send messages.
+    The charge is never inside a transaction: save the finished visit first, charge with the
+    visit's idempotency key, then record the result, ledger entry and messages in one."""
     not_implemented(LANE)
 
 

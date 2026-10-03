@@ -3,6 +3,7 @@ charge state from gateway webhooks. Created by app.services.schedule."""
 
 from datetime import date
 
+from app.core.db import DbSession
 from app.models.visits import Visit
 from app.repos.base import Repo, idx
 
@@ -28,17 +29,21 @@ class Visits(Repo[Visit]):
         idx("booking_id", unique=True, partialFilterExpression={"is_first": True}, name="one_first_visit_per_booking"),
     ]
 
-    async def for_provider_day(self, provider_id: str, day: date) -> list[Visit]:
+    async def for_provider_day(self, provider_id: str, day: date, *, session: DbSession | None = None) -> list[Visit]:
         return await self.find(
             {"provider_id": provider_id, "local_date": day.isoformat(), "status": {"$ne": "cancelled"}},
             sort=[("scheduled_start", 1)],
+            session=session,
         )
 
-    async def for_provider_between(self, provider_id: str, first: date, last: date) -> list[Visit]:
+    async def for_provider_between(
+        self, provider_id: str, first: date, last: date, *, session: DbSession | None = None
+    ) -> list[Visit]:
         return await self.find(
             {"provider_id": provider_id, "local_date": {"$gte": first.isoformat(), "$lte": last.isoformat()}},
             sort=[("scheduled_start", 1)],
+            session=session,
         )
 
-    async def for_booking(self, booking_id: str) -> list[Visit]:
-        return await self.find({"booking_id": booking_id}, sort=[("scheduled_start", 1)])
+    async def for_booking(self, booking_id: str, *, session: DbSession | None = None) -> list[Visit]:
+        return await self.find({"booking_id": booking_id}, sort=[("scheduled_start", 1)], session=session)

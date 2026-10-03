@@ -56,6 +56,7 @@ def test_postcodes_and_distance():
 def test_tax_identity_sealing():
     sealed = crypto.seal("QQ123456C")
     assert "QQ123456C" not in sealed and crypto.unseal(sealed) == "QQ123456C"
+    assert crypto.key_id(sealed) == "t1", "every sealed value records its key id"
     assert crypto.mask_ni("QQ 12 34 56 C") == "QQ •• •• •• C"
     assert crypto.mask_dob("1958-03-14") == "•• / •• / 1958"
 

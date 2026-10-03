@@ -105,7 +105,8 @@ class Provider(Timestamped):
 
 
 class TaxIdentity(Doc):
-    """Full NI number and date of birth, sealed (app.core.crypto). Read only by the HMRC export."""
+    """Full NI number and date of birth, sealed with the tax data keys (app.core.crypto): each
+    value is "<key id>:<token>". Read only by the HMRC export."""
 
     COLLECTION: ClassVar[str] = "tax_identities"
 

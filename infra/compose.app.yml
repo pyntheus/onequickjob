@@ -13,10 +13,10 @@ services:
     restart: unless-stopped
     env_file: ../.env
     environment:
-      MONGO_URL: mongodb://oqj-mongo:27017
+      MONGO_URL: mongodb://oqj-mongo:27017/?replicaSet=rs0
       FILES_DIR: /data/files
       SEED_DIR: /app/seed
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/api/app"]
+    command: ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/api/app"]
     ports:
       - "127.0.0.1:${API_PORT:?set API_PORT in .env}:8000"
     volumes:

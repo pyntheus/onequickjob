@@ -53,14 +53,7 @@ class Booking(Timestamped):
     est_mins: int = Field(default=60, description="Estimated minutes for a routine visit")
     first_est_mins: int | None = Field(default=None, description="Estimated minutes for the first visit")
     pricing_version_id: str | None = None
-    first_visit_start: datetime | None = Field(
-        default=None, description="Chosen when the booking is created, so a resumed setup schedules the same slot"
-    )
     thread_id: str | None = None
-    setup_complete: bool = Field(
-        default=False, description="Series, first visit and thread all exist (services.bookings.finish_setup)"
-    )
-    confirmations_sent_at: datetime | None = Field(default=None, description="Booking messages sent (once)")
     status: Literal["active", "completed", "cancelled"] = "active"
     cancelled_at: datetime | None = None
 

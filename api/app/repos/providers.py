@@ -3,6 +3,7 @@ providers through set_document and set_status; L1 updates ratings via apply_rati
 
 from typing import Any
 
+from app.core.db import DbSession
 from app.core.timeutil import utcnow
 from app.models.providers import Provider, ProviderDocument, ProviderStatus, TaxIdentity
 from app.repos.base import Repo, idx
@@ -12,36 +13,50 @@ class Providers(Repo[Provider]):
     model = Provider
     indexes = [idx("user_id", unique=True), idx("skills"), idx("status"), idx("home.district")]
 
-    async def by_user(self, user_id: str) -> Provider | None:
-        return await self.find_one({"user_id": user_id})
+    async def by_user(self, user_id: str, *, session: DbSession | None = None) -> Provider | None:
+        return await self.find_one({"user_id": user_id}, session=session)
 
     async def with_skill(
-        self, category_id: str, statuses: tuple[ProviderStatus, ...] = ("active", "payouts_paused")
+        self,
+        category_id: str,
+        statuses: tuple[ProviderStatus, ...] = ("active", "payouts_paused"),
+        *,
+        session: DbSession | None = None,
     ) -> list[Provider]:
-        return await self.find({"skills": category_id, "status": {"$in": list(statuses)}})
+        return await self.find({"skills": category_id, "status": {"$in": list(statuses)}}, session=session)
 
-    async def set_document(self, provider_id: str, doc: ProviderDocument) -> Provider | None:
+    async def set_document(
+        self, provider_id: str, doc: ProviderDocument, *, session: DbSession | None = None
+    ) -> Provider | None:
         """Insert or replace the provider's document of doc.type."""
-        p = await self.get(provider_id)
+        p = await self.get(provider_id, session=session)
         if p is None:
             return None
         docs = [d for d in p.documents if d.type != doc.type] + [doc]
-        return await self.update(provider_id, {"documents": [d.model_dump(mode="python") for d in docs]})
+        return await self.update(
+            provider_id, {"documents": [d.model_dump(mode="python") for d in docs]}, session=session
+        )
 
-    async def set_status(self, provider_id: str, status: ProviderStatus, reason: str | None = None) -> Provider | None:
-        return await self.update(provider_id, {"status": status, "status_reason": reason})
+    async def set_status(
+        self, provider_id: str, status: ProviderStatus, reason: str | None = None, *, session: DbSession | None = None
+    ) -> Provider | None:
+        return await self.update(provider_id, {"status": status, "status_reason": reason}, session=session)
 
-    async def apply_rating(self, provider_id: str, stars: int) -> Provider | None:
+    async def apply_rating(self, provider_id: str, stars: int, *, session: DbSession | None = None) -> Provider | None:
         """Fold one new rating into the running average."""
-        p = await self.get(provider_id)
+        p = await self.get(provider_id, session=session)
         if p is None:
             return None
         n = p.stats.rating_count
         avg = ((p.stats.rating_avg or 0) * n + stars) / (n + 1)
-        return await self.update(provider_id, {"stats.rating_avg": round(avg, 2), "stats.rating_count": n + 1})
+        return await self.update(
+            provider_id, {"stats.rating_avg": round(avg, 2), "stats.rating_count": n + 1}, session=session
+        )
 
-    async def patch(self, provider_id: str, fields: dict[str, Any]) -> Provider | None:
-        return await self.update(provider_id, fields)
+    async def patch(
+        self, provider_id: str, fields: dict[str, Any], *, session: DbSession | None = None
+    ) -> Provider | None:
+        return await self.update(provider_id, fields, session=session)
 
 
 class TaxIdentities(Repo[TaxIdentity]):
@@ -49,7 +64,9 @@ class TaxIdentities(Repo[TaxIdentity]):
     touch_updated_at = False
     indexes = [idx("provider_id", unique=True)]
 
-    async def upsert(self, provider_id: str, ni_sealed: str, dob_sealed: str) -> None:
+    async def upsert(
+        self, provider_id: str, ni_sealed: str, dob_sealed: str, *, session: DbSession | None = None
+    ) -> None:
         await self.coll.update_one(
             {"provider_id": provider_id},
             {
@@ -57,4 +74,5 @@ class TaxIdentities(Repo[TaxIdentity]):
                 "$setOnInsert": {"_id": provider_id},
             },
             upsert=True,
+            session=self.s(session),
         )

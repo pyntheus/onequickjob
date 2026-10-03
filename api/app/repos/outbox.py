@@ -4,6 +4,7 @@ import re
 
 from pymongo import DESCENDING
 
+from app.core.db import DbSession
 from app.models.system import OutboxMessage
 from app.repos.base import Repo, idx
 
@@ -19,8 +20,8 @@ class Outbox(Repo[OutboxMessage]):
         idx("idempotency_key", unique=True, partialFilterExpression={"idempotency_key": {"$type": "string"}}),
     ]
 
-    async def latest(self, limit: int = 30) -> list[OutboxMessage]:
-        return await self.find({}, sort=[("created_at", DESCENDING), ("_id", DESCENDING)], limit=limit)
+    async def latest(self, limit: int = 30, *, session: DbSession | None = None) -> list[OutboxMessage]:
+        return await self.find({}, sort=[("created_at", DESCENDING), ("_id", DESCENDING)], limit=limit, session=session)
 
     async def search(
         self,
@@ -32,6 +33,7 @@ class Outbox(Repo[OutboxMessage]):
         before_id: str | None = None,
         limit: int = 50,
         search_login_codes: bool = True,
+        session: DbSession | None = None,
     ) -> list[OutboxMessage]:
         """search_login_codes=False (outside DEMO_MODE): free text never matches the body of a
         login_code message, so search results can't be used to probe a masked code."""
@@ -54,4 +56,4 @@ class Outbox(Repo[OutboxMessage]):
             flt["recipient.user_id"] = user_id
         if before_id:
             flt["_id"] = {"$lt": before_id}
-        return await self.find(flt, sort=[("_id", DESCENDING)], limit=limit)
+        return await self.find(flt, sort=[("_id", DESCENDING)], limit=limit, session=session)

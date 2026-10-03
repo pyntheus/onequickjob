@@ -3,12 +3,10 @@
 python -m app.cli.docs notifications   > docs/spec/notifications.md
 """
 
-import os
 import re
 import sys
 
-os.environ.setdefault("SERVE_FILES", "false")
-
+from app.cli import offline_settings
 from app.services import templates
 
 LANE_TITLES = {
@@ -98,7 +96,7 @@ def api() -> str:
     from app.core.routes import api_routes
     from app.main import create_app
 
-    app = create_app()
+    app = create_app(offline_settings())
     rows: dict[str, list[str]] = {}
     sections = {
         "F": "Shared, built in foundations (F)",

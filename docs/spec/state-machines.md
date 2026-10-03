@@ -24,9 +24,9 @@ stateDiagram-v2
 | open | open | provider opens it | L2 | `JobRequests.record_view` adds a `viewed` event once per provider |
 | open | open | provider counters | F | offer created; `countered` event; `counter_offer` to the customer |
 | open | open | admin raises the guide | L3 | `guide_pence` up (whole pounds), `guide_raised` event, audit log |
-| open | booked | provider accepts the guide | F (`marketplace.accept_at_guide`) | **atomic claim** on `status: "open"` and the guide read (409 `price_changed` if an admin raised it meanwhile), freezing the agreed prices; then resumable setup: booking, plan, visits, thread; pending counters lapse; `request_booked`, `booking_confirmed`, `job_taken` to lapsed counterers. Losers get 409 `already_taken` |
-| open | booked | customer accepts a counter | F (`marketplace.accept_counter`) | same atomic claim (fails with 409 if a guide acceptance won) |
-| open | cancelled | customer cancels | L1 | pending counters `withdrawn`; providers who countered are told (`job_taken`) |
+| open | booked | provider accepts the guide | F (`marketplace.accept_at_guide`) | **one transaction**: atomic claim on `status: "open"` and the guide read (409 `price_changed` if an admin raised it meanwhile), recording the agreed prices; the booking, plan, visits and thread; pending counters lapse; `request_booked`, `booking_confirmed`, `job_taken` to lapsed counterers. All of it commits or none does. Losers get 409 `already_taken` |
+| open | booked | customer accepts a counter | F (`marketplace.accept_counter`) | the same, with the offer marked accepted in the same transaction (409 if a guide acceptance won) |
+| open | cancelled | customer cancels | L1 | in one transaction: guarded on `status: "open"`, pending counters `withdrawn`, providers who countered told (`job_taken`) |
 | open | expired | open for 7 days with no booking | L1 (task) | suggested ruling for L1; the admin's "Waiting for a provider" list shows it until then |
 
 `booked` is final: changes after booking happen on the booking, plan and visits.
@@ -37,9 +37,7 @@ stateDiagram-v2
 stateDiagram-v2
     [*] --> pending: provider suggests a price
     pending --> withdrawn: provider changes their price (a new offer replaces it)
-    pending --> accepting: customer accepts (offer reserved)
-    accepting --> accepted: request claimed at the offer's terms
-    accepting --> lapsed: someone else booked the request first
+    pending --> accepted: customer accepts (request claimed at the offer's terms)
     pending --> declined: customer keeps waiting
     pending --> lapsed: someone else books the request
     pending --> withdrawn: request cancelled
@@ -47,11 +45,11 @@ stateDiagram-v2
 
 At most one pending counter per provider per request (unique partial index). Offers are
 immutable: a changed price withdraws the old offer and creates a new one (`supersedes`), so
-accepting an offer id books exactly that offer's terms. Accepting reserves the offer
-(`pending -> accepting`, guarded, so it can't be withdrawn), then claims the request at its
-terms and marks it `accepted`; if the request was booked meanwhile the offer lapses and the
-customer gets 409. An acceptance interrupted between the two steps is finished by a retry or
-by the repair task after two minutes. A declined provider may still accept the guide price
+accepting an offer id books exactly that offer's terms. Accepting marks the offer `accepted`
+(guarded on `pending`, so a withdrawal can't slip in) and claims the request at its terms in
+one transaction; if the request was booked meanwhile, nothing changes and the customer gets
+409. A counter is made in a transaction that writes an event on the still-open request, so it
+can't land beside a booking and stay pending. A declined provider may still accept the guide price
 while the request is open.
 
 ## Booking (`bookings.status`)

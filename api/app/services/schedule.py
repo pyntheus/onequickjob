@@ -17,9 +17,7 @@
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Literal
 
-from pymongo.errors import DuplicateKeyError
-
-from app.core.db import Db
+from app.core.db import Db, DbSession
 from app.core.timeutil import add_months, london_datetime, london_today, to_london, weekday_key
 from app.models.bookings import Frequency, Series
 from app.models.common import DaysPref, TimePref, Weekday
@@ -68,7 +66,7 @@ def _round_up_half_hour(dt: datetime) -> datetime:
     return local + timedelta(minutes=(-local.minute) % 30)
 
 
-async def _away(db: Db, provider_id: str, day: date) -> bool:
+async def _away(db: Db, provider_id: str, day: date, *, session: DbSession | None = None) -> bool:
     iso = day.isoformat()
     return (
         await TimeOffRepo(db).count(
@@ -77,18 +75,21 @@ async def _away(db: Db, provider_id: str, day: date) -> bool:
                 "status": {"$in": ["planned", "active"]},
                 "from_date": {"$lte": iso},
                 "to_date": {"$gte": iso},
-            }
+            },
+            session=session,
         )
         > 0
     )
 
 
-async def free_slot_on(db: Db, provider: Provider, day: date, window: TimePref, mins: int) -> datetime | None:
+async def free_slot_on(
+    db: Db, provider: Provider, day: date, window: TimePref, mins: int, *, session: DbSession | None = None
+) -> datetime | None:
     """First start time on day in window that fits mins, after the provider's other visits."""
     start_t, end_t = WINDOWS[window]
     window_end = london_datetime(day, end_t)
     candidate = to_london(london_datetime(day, start_t))
-    for v in await Visits(db).for_provider_day(provider.id, day):
+    for v in await Visits(db).for_provider_day(provider.id, day, session=session):
         v_start = v.scheduled_start
         v_end = v_start + timedelta(minutes=v.est_mins)
         if candidate < v_end + TRAVEL_BUFFER and candidate + timedelta(minutes=mins) + TRAVEL_BUFFER > v_start:
@@ -99,12 +100,23 @@ async def free_slot_on(db: Db, provider: Provider, day: date, window: TimePref, 
 
 
 async def first_slot(
-    db: Db, provider: Provider, days: DaysPref, window: TimePref, mins: int, from_day: date | None = None
+    db: Db,
+    provider: Provider,
+    days: DaysPref,
+    window: TimePref,
+    mins: int,
+    from_day: date | None = None,
+    *,
+    session: DbSession | None = None,
 ) -> datetime:
     day = from_day or (london_today() + timedelta(days=1))
     for _ in range(SEARCH_DAYS):
-        if weekday_key(day) in provider.working_days and suits(day, days) and not await _away(db, provider.id, day):
-            slot = await free_slot_on(db, provider, day, window, mins)
+        if (
+            weekday_key(day) in provider.working_days
+            and suits(day, days)
+            and not await _away(db, provider.id, day, session=session)
+        ):
+            slot = await free_slot_on(db, provider, day, window, mins, session=session)
             if slot is not None:
                 return slot
         day += timedelta(days=1)
@@ -165,16 +177,18 @@ async def ensure_horizon(
     *,
     today: date | None = None,
     source: Literal["platform", "own_customer"] = "platform",
+    session: DbSession | None = None,
 ) -> list[Visit]:
-    """Create the series' visits up to the horizon. Safe to call repeatedly."""
+    """Create the series' visits up to the horizon. Safe to call repeatedly and concurrently
+    (one visit per plan and day is a unique index; existing days are left as they are)."""
     if series.status != "active":
         return []
     today = today or london_today()
     visits = Visits(db)
-    last = await visits.find_one({"series_id": series.id}, sort=[("local_date", -1)])
+    last = await visits.find_one({"series_id": series.id}, sort=[("local_date", -1)], session=session)
     after = max(last.local_date if last else series.anchor_date - timedelta(days=1), today)
     until = today + timedelta(days=HORIZON_DAYS)
-    upcoming = await visits.count({"series_id": series.id, "local_date": {"$gt": today.isoformat()}})
+    upcoming = await visits.count({"series_id": series.id, "local_date": {"$gt": today.isoformat()}}, session=session)
     dates = occurrences(series, after, until)
     if upcoming + len(dates) < MIN_UPCOMING:
         dates = occurrences(series, after, until + timedelta(days=400))[: MIN_UPCOMING - upcoming] or dates
@@ -198,11 +212,9 @@ async def ensure_horizon(
             price_pence=series.price_pence,
             est_mins=series.est_mins,
         )
-        try:
-            await visits.insert(v)
+        stored = await visits.insert_once(v, {"series_id": series.id, "local_date": d.isoformat()}, session=session)
+        if stored.id == v.id:
             created.append(v)
-        except DuplicateKeyError:
-            continue
     if dates:
-        await SeriesRepo(db).update(series.id, {"horizon_until": max(dates).isoformat()})
+        await SeriesRepo(db).update(series.id, {"horizon_until": max(dates).isoformat()}, session=session)
     return created

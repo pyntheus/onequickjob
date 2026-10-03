@@ -5,10 +5,8 @@ collection. Nothing is ever sent to a phone, WhatsApp or an inbox.
 from datetime import datetime
 from typing import Any
 
-from pymongo.errors import DuplicateKeyError
-
 from app.core.config import Settings, get_settings
-from app.core.db import Db
+from app.core.db import Db, DbSession
 from app.core.timeutil import utcnow
 from app.models.common import Channel, Related
 from app.models.system import OutboxMessage, Recipient
@@ -38,11 +36,13 @@ async def notify(
     not_before: datetime | None = None,
     settings: Settings | None = None,
     idempotency_key: str | None = None,
+    session: DbSession | None = None,
 ) -> OutboxMessage:
     """Render a catalogue template and log it to the outbox. Returns the stored message.
 
     With an idempotency_key the message is written at most once, however many times (or
-    however concurrently) this is called: later calls return the message already written."""
+    however concurrently) this is called: later calls return the message already written.
+    Pass session to write it in the caller's transaction (it's then logged only if that commits)."""
     s = settings or get_settings()
     t = templates.get(template_id)
     ch = channel or t.channels[0]
@@ -67,15 +67,9 @@ async def notify(
         created_at=utcnow(),
     )
     outbox = Outbox(db)
-    try:
-        await outbox.insert(msg)
-    except DuplicateKeyError:
-        if idempotency_key is None:
-            raise
-        existing = await outbox.find_one({"idempotency_key": idempotency_key})
-        assert existing is not None
-        return existing
-    return msg
+    if idempotency_key is None:
+        return await outbox.insert(msg, session=session)
+    return await outbox.insert_once(msg, {"idempotency_key": idempotency_key}, session=session)
 
 
 # Values that appear in a body but are not copied into `data` (the body already holds them).

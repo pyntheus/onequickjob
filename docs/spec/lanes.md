@@ -49,6 +49,9 @@ Rules that make parallel work possible:
   place fees are computed), pricing (`pricing/`), quotes, eligibility, the marketplace (atomic
   first acceptance, counters, cover), bookings and scheduling, the ledger, notifications,
   audit, auth. Call them; don't re-implement them.
+- **Writes that span collections are one transaction** (`app.core.db.transaction`, the pattern
+  in `CLAUDE.md`). Every repository and service function takes an optional `session`; pass it
+  to every call inside the transaction, and never call an external service there.
 - **Outbox templates**: use the catalogue (`services/templates.py`, `notifications.md`). If you
   need a new one, `templates.register(...)` it from your own package and list it in your
   report; I folds it in.
@@ -92,7 +95,7 @@ Rules that make parallel work possible:
 | L1's DEMO simulator must counter and accept "through the real offer endpoints" | F built `/api/p/requests/{ref}/accept|counter` and `/api/c/offers/{id}/accept|decline` | L1 doesn't wait for L2 (which merges after it) |
 | L2 needs open requests to show and accept | the seed has three open requests and three unfilled ones, with job alerts in the outbox | L2 doesn't wait for L1's request creation |
 | L1 and L2 both need "who is eligible" and "how close to their limit" | `services/eligibility.py` | broadcast and job lists agree |
-| L1 (invites) and the marketplace both create bookings | `services/bookings.create_booking` | one booking shape, one scheduler |
+| L1 (invites) and the marketplace both create bookings | `services/bookings.create_booking`, inside the caller's transaction | one booking shape, one scheduler, all or nothing |
 | L2 charges visits; L3 implements Stripe | `adapters/payments` interface + fake | L2 builds against the fake; Stripe drops in |
 | L2 writes ledger entries; L3 refunds and exports | `services/ledger.py`, `money.refund_split` | gross = fee + net in every entry |
 | L1 captures cards; L3 owns Stripe | `web/src/payments/CardCapture.tsx` (L3) | no edits to L1's screens |

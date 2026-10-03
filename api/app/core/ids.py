@@ -16,6 +16,8 @@ from bson import ObjectId
 from pymongo import ReturnDocument
 from pymongo.asynchronous.database import AsyncDatabase
 
+from app.core.db import DbSession, check_session
+
 REF_PREFIX = {"request": "R", "booking": "B", "dispute": "D"}
 REF_START = {"request": 2300, "booking": 1100, "dispute": 15}
 REF_WIDTH = {"request": 4, "booking": 4, "dispute": 3}
@@ -30,12 +32,14 @@ def seed_id(key: str) -> str:
     return hashlib.sha256(key.encode()).hexdigest()[:24]
 
 
-async def next_ref(db: AsyncDatabase, kind: str) -> str:
+async def next_ref(db: AsyncDatabase, kind: str, *, session: DbSession | None = None) -> str:
+    """The next reference. Inside a transaction the number is only used if it commits."""
     doc = await db["counters"].find_one_and_update(
         {"_id": kind},
         {"$inc": {"seq": 1}},
         upsert=True,
         return_document=ReturnDocument.AFTER,
+        session=check_session(session),
     )
     n = REF_START[kind] + int(doc["seq"])
     return f"{REF_PREFIX[kind]}-{n:0{REF_WIDTH[kind]}d}"

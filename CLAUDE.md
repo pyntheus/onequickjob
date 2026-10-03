@@ -14,7 +14,8 @@ Detail lives in `docs/spec/`: start with `decisions.md` and `lanes.md`.
 - `web/`: Vite + React + strict TypeScript, React Router, TanStack Query, types generated from
   the OpenAPI schema (`make types`), plain CSS ported from the prototype (same class names).
   Routes: `/` customer, `/p` provider (PWA), `/admin`.
-- `infra/`: Docker Compose (shared Mongo + Caddy; per-worktree api + web), `seed/`: seed JSON.
+- `infra/`: Docker Compose (shared Mongo, a single-node replica set `rs0`, + Caddy; per-worktree
+  api + web), `seed/`: seed JSON.
 
 ## Rules that never bend
 
@@ -52,10 +53,43 @@ make types      # after changing the API: regenerate web/src/api/schema.d.ts
 make seed       # demo data (idempotent); make seed-reset drops and reseeds
 make check      # nothing but Caddy and sshd exposed publicly
 make docs       # regenerate notifications.md, api.md, domain.md from the code
+make rotate-tax-key  # new tax data key: current, re-encrypt, retire the old (decisions.md A8)
 ```
 
 `make test-api ARGS="tests/shared/test_auth.py -x"` runs a subset. Lanes are viewed through
 an SSH tunnel to their web port (see `README.md`).
+
+## Writing to several collections
+
+One transaction, always this way (`app.core.db.transaction`; decisions.md A7):
+
+```python
+from app.core.db import DbSession, transaction
+
+async def accept_invite(db: Db, s: Settings, invite: OwnCustomerInvite, ...) -> Booking:
+    # Checks that can fail fast go here, on plain reads.
+
+    async def accept(session: DbSession) -> Booking:
+        if await OwnCustomerInvites(db).update(
+            invite.id, {"status": "accepted"}, extra_filter={"status": "invited"}, session=session
+        ) is None:
+            fail(409, "not_open", "...")             # raising undoes everything written so far
+        booking, _ = await create_booking(db, session=session, ...)
+        await notify(db, "invite_accepted", ..., session=session)
+        return booking
+
+    return await transaction(db, accept)
+```
+
+- Pass `session=` to **every** repository, service and `notify` call inside it. A call without
+  it raises: it would run outside the transaction and wait on its locks.
+- The function may run more than once (the driver retries write conflicts), so it only reads
+  and writes Mongo. **Never** call the payment gateway, the file store or anything else
+  external inside it: charge after the visit is saved as finished, with its per-visit
+  idempotency key, then record the result in a transaction of its own.
+- Don't catch `DuplicateKeyError` inside it (it aborts the transaction); use
+  `Repo.insert_once` for "insert unless it exists". Transactions don't nest: pass the session
+  down instead.
 
 ## Review and hand-off
 
@@ -66,7 +100,8 @@ you accepted and why. Then push, open a PR, and report.
 
 ## Map
 
-- `api/app/core`: config, money, rounding, ids, time, phone, auth dependencies (`deps.py`).
+- `api/app/core`: config, db (`transaction`), money, rounding, ids, time, phone, crypto, auth
+  dependencies (`deps.py`).
 - `api/app/services`: auth, quotes, eligibility, marketplace, bookings, schedule, ledger,
   notify + `templates.py` (the outbox catalogue), audit.
 - `api/app/pricing`: the ported pricing models and engine. Params are in `pricing_versions`.

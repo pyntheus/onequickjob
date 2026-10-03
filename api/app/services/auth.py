@@ -62,7 +62,7 @@ def parse_identifier(raw: str) -> Identifier:
 
 
 def _code_hash(identifier: str, code: str, s: Settings) -> str:
-    return token_hash(f"login:{identifier}:{code}", s.secret_key)
+    return token_hash(f"login:{identifier}:{code}", s.pepper)
 
 
 async def issue_code(db: Db, s: Settings, raw_identifier: str) -> tuple[Identifier, LoginCode]:
@@ -166,7 +166,7 @@ async def create_session(
     now = utcnow()
     await Sessions(db).insert(
         Session(
-            id=token_hash(token, s.secret_key),
+            id=token_hash(token, s.pepper),
             user_id=user.id,
             created_at=now,
             expires_at=now + timedelta(days=s.session_days),
@@ -182,7 +182,7 @@ async def session_user(db: Db, s: Settings, token: str | None) -> tuple[Session,
     if not token:
         return None
     sessions = Sessions(db)
-    session = await sessions.get(token_hash(token, s.secret_key))
+    session = await sessions.get(token_hash(token, s.pepper))
     now = utcnow()
     if session is None or session.expires_at <= now:
         return None
@@ -200,7 +200,7 @@ async def session_user(db: Db, s: Settings, token: str | None) -> tuple[Session,
 
 async def end_session(db: Db, s: Settings, token: str | None) -> None:
     if token:
-        await Sessions(db).delete(token_hash(token, s.secret_key))
+        await Sessions(db).delete(token_hash(token, s.pepper))
 
 
 async def create_magic_link(
@@ -215,7 +215,7 @@ async def create_magic_link(
     now = utcnow()
     await MagicLinks(db).insert(
         MagicLink(
-            token_hash=token_hash(token, s.secret_key),
+            token_hash=token_hash(token, s.pepper),
             user_id=user_id,
             purpose=purpose,
             target_path=target_path,
@@ -229,7 +229,7 @@ async def create_magic_link(
 async def consume_magic_link(db: Db, s: Settings, token: str) -> tuple[User, str]:
     now = utcnow()
     raw = await MagicLinks(db).coll.find_one_and_update(
-        {"token_hash": token_hash(token, s.secret_key), "used_at": None, "expires_at": {"$gt": now}},
+        {"token_hash": token_hash(token, s.pepper), "used_at": None, "expires_at": {"$gt": now}},
         {"$set": {"used_at": now}},
         return_document=ReturnDocument.AFTER,
     )

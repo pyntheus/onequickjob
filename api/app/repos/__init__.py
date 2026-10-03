@@ -1,6 +1,9 @@
 """Repositories, one module per collection. ALL lists every repo for index creation."""
 
+import contextlib
+
 from pymongo.asynchronous.database import AsyncDatabase
+from pymongo.errors import CollectionInvalid, OperationFailure
 
 from app.repos.audit_log import AuditLog
 from app.repos.base import Repo
@@ -61,6 +64,12 @@ ALL: list[type[Repo]] = [
 
 
 async def ensure_indexes(db: AsyncDatabase) -> None:
+    """Create every collection and its indexes (at start-up and before seeding), so no
+    transaction ever has to create a collection."""
+    existing = set(await db.list_collection_names())
+    for name in sorted(({r.model.COLLECTION for r in ALL} | {"counters"}) - existing):
+        with contextlib.suppress(CollectionInvalid, OperationFailure):  # another process made it first
+            await db.create_collection(name)
     for repo_cls in ALL:
         if repo_cls.indexes:
             await db[repo_cls.model.COLLECTION].create_indexes(repo_cls.indexes)

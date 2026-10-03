@@ -12,4 +12,4 @@ ENV UV_PYTHON_PREFERENCE=only-managed \
 WORKDIR /app/api
 COPY api/pyproject.toml api/uv.lock api/.python-version ./
 RUN uv python install && uv sync --frozen --no-install-project
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]

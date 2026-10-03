@@ -98,10 +98,8 @@ and integration (I) folds the accepted ones in here.
   uvicorn 0.54, pytest 9 with pytest-asyncio 1.4, ruff 0.16; React 19, Vite 8, TypeScript
   **5.9** (TypeScript 7 is out, but openapi-typescript and typescript-eslint need 5.x), ESLint
   **9** (eslint-plugin-jsx-a11y doesn't support 10 yet), Mongo 8.0, Caddy 2, Node 22.
-- **R2. Docker and sudo.** `hasan` is in the `docker` group, but a login session started before
-  that change doesn't have the group yet, so the Makefile uses `sudo` only when the Docker
-  socket isn't reachable (`docker info` fails) and plain `docker` otherwise. After a fresh login
-  nothing runs under sudo. (Removing the fallback outright is pending: see the post-review report.)
+- **R2. Docker without sudo.** `hasan` is in the `docker` group and the Makefile calls `docker`
+  directly: nothing runs under sudo. (The earlier sudo fallback was removed after the F review.)
 - **R3. Two Compose projects.** `infra/compose.shared.yml` (project `oqj-shared`: Mongo and
   Caddy, network `oqj`) is shared by every worktree; `infra/compose.app.yml` (project
   `oqj-<INSTANCE>`: api and web) is one per worktree. `INSTANCE` is the worktree's directory
@@ -123,6 +121,7 @@ and integration (I) folds the accepted ones in here.
   tunnel on 517N.
 - **R7. Mongo has no authentication.** It is reachable only from containers on the private
   `oqj` network and publishes no port. Acceptable for the prototype; revisit before real data.
+  It runs as a single-node replica set, `rs0`, for transactions (A7).
 
 **Pricing**
 
@@ -166,9 +165,9 @@ and integration (I) folds the accepted ones in here.
 - **R17. Counter-offers** are whole pounds between 80% and 300% of the guide (the prototype's
   stepper bounds); one pending counter per provider per request. **Offers are immutable**: a
   provider who changes their price withdraws the old offer and makes a new one, so a customer
-  always accepts exactly the terms they saw. Accepting first reserves the offer
-  (`accepting`), then claims the request; either step can be resumed, and a resumed claim
-  re-checks the provider's eligibility first (Codex review). A counter sets the per-visit
+  always accepts exactly the terms they saw. Accepting marks the offer accepted and claims
+  the request in one transaction (A7), after checking the provider is still eligible. A
+  counter sets the per-visit
   price; the first-visit price scales by the same ratio (A1, replacing the earlier
   max(counter, first-visit guide) rule). Counters aren't
   allowed on time-off cover requests (cover is at the regular price).
@@ -182,17 +181,15 @@ and integration (I) folds the accepted ones in here.
   counter screen and the DEMO simulator, which must use the real endpoints) and L2 (accept and
   counter) need them from day one, and L1 merges before L2. This is a deviation from "implement
   fully only ..." (see the F report).
-- **R20. Claim first, then book, resumably.** Accepting atomically flips the request to
-  booked with a pre-allocated booking id and the agreed prices frozen in the claim (a guide
-  acceptance also checks the guide hasn't changed since it was read). Booking setup then runs
-  in idempotent steps: the booking (with its first-visit slot fixed), plan, first visit, visit
-  horizon and thread, each checked before it's written (one first visit per booking is a
-  unique index), then `setup_complete`. Booking messages carry outbox idempotency keys, so
-  however many completions run, concurrently or after a crash, each is written exactly once. A periodic task resumes any claim from the
-  last day whose setup isn't complete, after a two-minute grace so it never races the request
-  that won; only setup creates a plan's first visit (the hourly horizon top-up skips plans whose
-  booking isn't complete, and setup adopts an anchor-day visit if one exists). Each task item
-  is isolated, so one failure doesn't stop the rest. (Mongo runs standalone, so there are no multi-document transactions.)
+- **R20. Claim and book in one transaction** (A7, replacing the earlier resumable setup).
+  Accepting flips the request to booked on `status: "open"` (a guide acceptance also checks the
+  guide hasn't changed since it was read), recording the agreed prices and the new booking's id
+  in `booked`, and in the same transaction creates the booking, plan, first visit, visits up to
+  the horizon and thread, lapses the other pending counters and writes every message. Two
+  concurrent claims write the same request, so one hits a write conflict; the driver re-runs it,
+  it finds the request booked and gets 409. One booking per request, one first visit per
+  booking and one thread per booking remain unique indexes, and booking messages keep their
+  outbox idempotency keys, as guards.
 - **R21. Eligibility** (`app.services.eligibility`). Hard rules, checked on every accept and
   counter: provider active (or payouts paused), the category in their skills, identity checked
   and every document the category requires verified and in date. Distance is not a hard rule,
@@ -211,8 +208,10 @@ and integration (I) folds the accepted ones in here.
 - **R23a. Time-off cover goes through the normal offer flow** (fees on covered visits: A4). L2 creates a job request with
   `cover_for_visit_id` for one visit (same price); accepting it (the shared accept endpoint)
   reassigns that visit to the covering provider (performer kind `cover`, paid for that visit)
-  instead of creating a booking, and tells the customer (`cover_coming`). A provider can't take
-  cover for their own visit. The plan stays with the regular provider.
+  instead of creating a booking, and tells the customer (`cover_coming`). The claim, the
+  reassignment, lapsed counters and the messages are one transaction; a visit that's already
+  covered refuses a second cover (409). A provider can't take cover for their own visit. The
+  plan stays with the regular provider.
 - **R23. Message threads**: one per booking, plus one per dispute; every lane posts through
   `Messages.post()`.
 
@@ -222,7 +221,7 @@ and integration (I) folds the accepted ones in here.
   `card_setup_status` (Stripe confirms the SetupIntent in the browser). `charge_visit` also
   takes `idempotency_key` and `purpose` ("visit" or "tip") keyword arguments; the positional
   signature is as specified.
-- **R25. Login codes** are stored as HMAC-SHA256 keyed with `SECRET_KEY`; only the latest code
+- **R25. Login codes** are stored as HMAC-SHA256 keyed with `SECRET_KEY` (A8); only the latest code
   for an identifier counts; at most one new code per 30 seconds and six an hour per
   identifier. A new phone number or email becomes a customer account on first sign-in.
   Sessions last 30 days; the cookie holds a random token and Mongo holds its HMAC.
@@ -237,8 +236,9 @@ and integration (I) folds the accepted ones in here.
   `http://localhost`, so tunnelled lanes work. `COOKIE_SECURE=false` exists for Safari over a
   tunnel; never on the public site.
 - **R28. Tax identifiers.** Providers' documents hold only masked copies (QQ •• •• •• C,
-  •• / •• / 1958). The full NI number and date of birth are sealed (Fernet, key derived from
-  `SECRET_KEY`) in `tax_identities` and unsealed only by the HMRC export.
+  •• / •• / 1958). The full NI number and date of birth are sealed (Fernet, with the tax data
+  keys, independent of `SECRET_KEY`: A8) in `tax_identities` and unsealed only by the HMRC
+  export.
 - **R29. Files.** Upload is a shared endpoint (`POST /api/files`, built in F, used by all three
   lanes). Images and PDFs only, 10 MB. Paths are random and unguessable; anyone past basic auth
   with a URL can fetch the file (no per-file authorisation in the prototype).
@@ -317,6 +317,51 @@ Decided by Hasan after reviewing the F report; each has tests.
   basic DBS check falls inside the 30-day reminder window. Birth dates are the only absolute
   dates. `make seed` stays idempotent. (`test_seed.py`:
   `test_seed_dates_are_relative_to_the_moment_of_seeding`.)
+- **A6. Lawn copy without LIDAR** (Q3). L1 rewords, for size bands, the copy that assumes
+  LIDAR: the landing page's "We measure your garden from public survey data", the measure
+  screen's "We've measured it from public survey data" and the Open Government Licence line in
+  the footer. Part of L1's acceptance; nothing changes in F.
+- **A7. Transactions on a single-node replica set.** Mongo runs as replica set `rs0` with one
+  member, `oqj-mongo:27017` (the container's name on the `oqj` network, as in every
+  `MONGO_URL`, never localhost); connection strings carry `replicaSet=rs0`. Mongo's healthcheck
+  initiates the set when it isn't yet and is a no-op afterwards, so every `make dev` is safe,
+  and an existing standalone data volume converts in place (no migration step). A write that
+  spans collections is one multi-document transaction: `app.core.db.transaction(db, fn)` runs
+  `fn(session)` with `with_transaction` (snapshot reads, majority commit), so the driver re-runs
+  it on a write conflict and retries an uncertain commit; every repository function takes an
+  optional `session`, and a repository call made inside a transaction without it raises (it
+  would run outside the transaction and wait on its locks). Nothing outside Mongo runs inside a
+  transaction: the payment gateway charges after a visit is finished, outside any transaction,
+  with its per-visit idempotency key, and the file store writes before or after. Claiming a job
+  and setting up its booking, plan, visits, thread, lapsed counters and messages (or a cover's
+  reassigned visit and messages) commit together or not at all; making, accepting and declining
+  a counter are transactions too. Removed as unnecessary: the offer state `accepting`
+  (`accepting_at`), both repair tasks and their two-minute grace periods, the booking's
+  `setup_complete`, `confirmations_sent_at` and `first_visit_start`, the cover's
+  `confirmations_sent_at`, the step-by-step setup (`ensure_booking`, `finish_setup`, adopting an
+  anchor-day visit) and the crash-at-each-step tests. Kept: outbox idempotency keys and the
+  unique indexes. The two medium fixes from the previous review stand, the transactional way:
+  a cover acceptance shows the cover provider's terms at the standard fee, and a lost cover or
+  job-taken notice is impossible, since a failed write undoes the whole acceptance and taking
+  the job again sends each once. (`test_transactions.py`; `test_marketplace.py`:
+  `test_two_concurrent_accepts_exactly_one_wins`, `test_many_concurrent_accepts_over_http`,
+  `test_a_failure_anywhere_in_booking_leaves_nothing_behind`,
+  `test_a_counter_acceptance_racing_a_guide_acceptance_books_once`,
+  `test_a_counter_made_while_the_job_is_booked_never_stays_pending`,
+  `test_cover_notices_are_written_with_the_reassignment_or_not_at_all`.)
+- **A8. Keys.** The API refuses to start if `SECRET_KEY` is missing, a placeholder or default
+  (including the old built-in one), or shorter than 32 bytes; there is no fallback key in the
+  code, and errors never echo the value. Tests set their own keys, fresh each run
+  (`tests/conftest.py`). Tax identifiers are sealed with their own keys: `TAX_DATA_KEYS` lists
+  `id:key` pairs (Fernet keys) and `TAX_DATA_KEY_CURRENT` names the one used for new values.
+  Every sealed value is stored as `<key id>:<token>`, so older values stay readable while their
+  key is listed. `make env` writes `k1` (and adds it to an older `.env` that lacks one).
+  `make rotate-tax-key` adds the next key and makes it current, restarts this worktree's API if
+  it's running, re-encrypts every sealed value (compare-and-set per record; it fails, and stops
+  the rotation, unless nothing is left under an older key), then retires the old keys and
+  restarts the API again. Only key ids are ever printed. A backup taken before a rotation needs
+  the retired key, so keep the old `TAX_DATA_KEYS` line until those backups have expired.
+  (`test_keys.py`: `test_rotation_end_to_end` and the validation tests.)
 
 ## 3. Open questions (for Hasan)
 
@@ -326,7 +371,7 @@ Decided by Hasan after reviewing the F report; each has tests.
 - **Q2 (resolved: A2). Mowing confidence with manual bands.** The prototype shows "Usually close" (high)
   because the area was measured. With the customer choosing a band, should it drop to "Fairly
   close" (medium) until LIDAR? It changes copy, not price.
-- **Q3. Lawn copy that assumes LIDAR.** "We measure your garden from public survey data", the
+- **Q3 (resolved: A6). Lawn copy that assumes LIDAR.** "We measure your garden from public survey data", the
   measure screen's "We've measured it from public survey data" and the Open Government Licence
   line only make sense with LIDAR. L1 should reword them for size bands unless you'd rather keep
   them for the pitch.

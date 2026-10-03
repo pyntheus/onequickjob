@@ -1,19 +1,18 @@
 """Print the OpenAPI schema as JSON (make types feeds it to openapi-typescript).
 
-No database is needed: the schema comes from the route and model definitions.
+No database and no real secrets are needed: the schema comes from the route and model
+definitions, so it's built with throwaway keys.
 """
 
 import json
-import os
 import sys
 
-os.environ.setdefault("SERVE_FILES", "false")
-
+from app.cli import offline_settings
 from app.main import create_app
 
 
 def main() -> None:
-    schema = create_app().openapi()
+    schema = create_app(offline_settings()).openapi()
     json.dump(schema, sys.stdout, indent=2, sort_keys=True)
     sys.stdout.write("\n")
 

@@ -1,5 +1,5 @@
 # OneQuickJob. Run everything through make: it supplies INSTANCE (this worktree's
-# directory name) so lanes never collide, and falls back to sudo for Docker.
+# directory name) so lanes never collide. Docker runs without sudo (you're in the docker group).
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
@@ -11,27 +11,32 @@ MONGO_DB ?= oqj_main
 SITE_HOST ?= dev.onequickjob.co.uk
 CADDY_FILES_VOLUME ?= oqj-files-main
 
-SUDO := $(shell docker info >/dev/null 2>&1 || echo sudo)
-DOCKER := $(SUDO) docker
-COMPOSE := $(SUDO) env INSTANCE=$(INSTANCE) docker compose --env-file .env
+DOCKER := docker
+COMPOSE := env INSTANCE=$(INSTANCE) docker compose --env-file .env
 SHARED := $(COMPOSE) -f infra/compose.shared.yml
 APP := $(COMPOSE) -f infra/compose.app.yml
 # Lanes start shared services if they're down but never recreate main's Caddy.
 NO_RECREATE := $(if $(filter main,$(INSTANCE)),,--no-recreate)
+# Tests set their own SECRET_KEY and tax data keys (tests/conftest.py), never this worktree's.
 TEST_ENV := -e MONGO_DB=$(MONGO_DB)_test -e TASKS_ENABLED=false -e SERVE_FILES=false -e DEMO_MODE=true \
-            -e SECRET_KEY=test-secret-key-0123456789 -e PAYMENT_GATEWAY=fake -e IDEAL_POSTCODES_KEY=
+            -e PAYMENT_GATEWAY=fake -e IDEAL_POSTCODES_KEY=
 
 .PHONY: help env check-env install dev up down infra-up infra-down logs ps test test-api test-web lint lint-api lint-web \
-        fmt types types-check seed seed-reset check docs shell-api mongosh
+        fmt types types-check seed seed-reset rotate-tax-key check docs shell-api mongosh
 
 help: ## List the targets
-	@grep -E '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  make %-12s %s\n", $$1, $$2}'
+	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  make %-12s %s\n", $$1, $$2}'
 
-env: ## Create .env from .env.example with fresh secrets (never overwrites)
+env: ## Create .env from .env.example with fresh secrets (never overwrites; adds missing tax data keys)
 	@if [ -f .env ]; then echo ".env already exists"; else \
 	  sed -e "s|^SECRET_KEY=.*|SECRET_KEY=$$(openssl rand -hex 32)|" \
 	      -e "s|^BASIC_AUTH_PASSWORD=.*|BASIC_AUTH_PASSWORD=$$(openssl rand -base64 18 | tr -d '/+=')|" \
+	      -e "s|^TAX_DATA_KEYS=.*|TAX_DATA_KEYS=k1:$$(openssl rand -base64 32 | tr '+/' '-_')|" \
 	      .env.example > .env && chmod 600 .env && echo "Created .env (basic auth: grep BASIC_AUTH .env)"; fi
+	@if ! grep -q '^TAX_DATA_KEYS=.' .env; then \
+	  sed -i -e '/^TAX_DATA_KEYS=/d' -e '/^TAX_DATA_KEY_CURRENT=/d' .env; \
+	  printf 'TAX_DATA_KEYS=k1:%s\nTAX_DATA_KEY_CURRENT=k1\n' "$$(openssl rand -base64 32 | tr '+/' '-_')" >> .env; \
+	  echo "Added a tax data key (k1) to .env: copy the TAX_DATA_KEYS line to your password manager"; fi
 
 install: ## Install API and web dependencies on the host (for lint, types and editors)
 	cd api && uv sync
@@ -105,6 +110,13 @@ seed: infra-up ## Load demo data into this worktree's database (idempotent)
 
 seed-reset: infra-up ## Drop this worktree's database and seed it again
 	$(APP) run --rm --no-deps api python -m app.seed --reset
+
+rotate-tax-key: check-env infra-up ## New tax data key: make it current, re-encrypt, then retire the old ones
+	cd api && uv run python -m app.cli.tax_keys add --env-file ../.env
+	@if [ -n "$$($(DOCKER) ps -q -f name=^oqj-$(INSTANCE)-api$$)" ]; then $(APP) up -d api; fi
+	$(APP) run --rm --no-deps api python -m app.cli.tax_keys reencrypt
+	cd api && uv run python -m app.cli.tax_keys retire --env-file ../.env
+	@if [ -n "$$($(DOCKER) ps -q -f name=^oqj-$(INSTANCE)-api$$)" ]; then $(APP) up -d api; fi
 
 check: ## Fail if anything but Caddy (80, 443) and sshd is exposed publicly
 	@DOCKER="$(DOCKER)" infra/check-ports.sh

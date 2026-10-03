@@ -4,10 +4,12 @@ touch each other's data or their dev data. Every test starts with empty collecti
 
 import os
 import re
+import secrets
 from collections.abc import AsyncIterator
 
 import httpx
 import pytest
+from cryptography.fernet import Fernet
 
 from app.core.config import Settings
 from app.core.db import Db
@@ -18,12 +20,20 @@ from app.seed.catalogue import load_catalogue, load_pricing_v1
 DB_NAME = os.environ.get("MONGO_DB", "oqj_test")
 assert DB_NAME.endswith("_test") or DB_NAME == "oqj_test", "tests must use a *_test database"
 
+# The test configuration's own keys, fresh for every run: never the worktree's real SECRET_KEY
+# or tax data keys (the api container has those from .env). Set before anything reads settings.
+TEST_TAX_KEY_ID = "t1"
+os.environ.update(
+    SECRET_KEY=secrets.token_hex(32),
+    TAX_DATA_KEYS=f"{TEST_TAX_KEY_ID}:{Fernet.generate_key().decode()}",
+    TAX_DATA_KEY_CURRENT=TEST_TAX_KEY_ID,
+)
+
 
 def make_settings(**overrides) -> Settings:
     base = {
-        "mongo_url": os.environ.get("MONGO_URL", "mongodb://oqj-mongo:27017"),
+        "mongo_url": os.environ.get("MONGO_URL", "mongodb://oqj-mongo:27017/?replicaSet=rs0"),
         "mongo_db": DB_NAME,
-        "secret_key": "test-secret-key-0123456789",
         "tasks_enabled": False,
         "serve_files": False,
         "demo_mode": True,

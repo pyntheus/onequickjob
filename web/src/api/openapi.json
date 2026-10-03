@@ -1817,7 +1817,6 @@
           "status": {
             "enum": [
               "pending",
-              "accepting",
               "accepted",
               "declined",
               "lapsed",
@@ -4504,19 +4503,6 @@
       "Offer": {
         "description": "Immutable terms: a provider who changes their price withdraws this offer and makes a\nnew one, so a customer always accepts exactly the price they saw.",
         "properties": {
-          "accepting_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "When the customer accepted; the request claim is finished from here (resumable)",
-            "title": "Accepting At"
-          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -4602,7 +4588,6 @@
             "default": "pending",
             "enum": [
               "pending",
-              "accepting",
               "accepted",
               "declined",
               "lapsed",
@@ -12691,7 +12676,7 @@
     },
     "/api/c/invites/{token}/accept": {
       "post": {
-        "description": "Signed in with the invited number: creates the customer (joined_via own_customer) and a\nbooking with source own_customer via app.services.bookings.create_booking.",
+        "description": "Signed in with the invited number: creates the customer (joined_via own_customer) and a\nbooking with source own_customer via app.services.bookings.create_booking, in one\ntransaction with marking the invite accepted and its messages.",
         "operationId": "accept_invite_api_c_invites__token__accept_post",
         "parameters": [
           {
@@ -19623,7 +19608,7 @@
     },
     "/api/p/visits/{visit_id}/finish": {
       "post": {
-        "description": "Record minutes and flags (calibration data), charge through PaymentGateway.charge_visit\nwith the fee from money.split_for_visit(price, source, performer kind) (a cover provider\npays 15% even on an own customer), write the ledger entry (services.ledger), send messages.",
+        "description": "Record minutes and flags (calibration data), charge through PaymentGateway.charge_visit\nwith the fee from money.split_for_visit(price, source, performer kind) (a cover provider\npays 15% even on an own customer), write the ledger entry (services.ledger), send messages.\nThe charge is never inside a transaction: save the finished visit first, charge with the\nvisit's idempotency key, then record the result, ledger entry and messages in one.",
         "operationId": "finish_visit_api_p_visits__visit_id__finish_post",
         "parameters": [
           {

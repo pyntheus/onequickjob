@@ -59,7 +59,7 @@ async def seed_messages(ctx: Ctx, requests: list[SeededRequest]) -> None:
             path = f"/p/j/{req.ref}"
             token = await create_magic_link(ctx.db, ctx.s, user.id, "job_alert", path)
             await ctx.db["magic_links"].update_one(
-                {"token_hash": token_hash(token, ctx.s.secret_key)}, {"$set": {SEED_FLAG: True}}
+                {"token_hash": token_hash(token, ctx.s.pepper)}, {"$set": {SEED_FLAG: True}}
             )
             data = {
                 "category": cat.name,
@@ -157,7 +157,7 @@ async def seed_invites(ctx: Ctx) -> None:
         )
         if inv["status"] == "invited":
             token = new_token()
-            invite.token_hash = token_hash(token, ctx.s.secret_key)
+            invite.token_hash = token_hash(token, ctx.s.pepper)
             msg = await message(
                 ctx,
                 f"invite:{inv['key']}",

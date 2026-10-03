@@ -711,7 +711,8 @@ export interface paths {
         /**
          * Accept Invite
          * @description Signed in with the invited number: creates the customer (joined_via own_customer) and a
-         *     booking with source own_customer via app.services.bookings.create_booking.
+         *     booking with source own_customer via app.services.bookings.create_booking, in one
+         *     transaction with marking the invite accepted and its messages.
          */
         post: operations["accept_invite_api_c_invites__token__accept_post"];
         delete?: never;
@@ -1821,6 +1822,8 @@ export interface paths {
          * @description Record minutes and flags (calibration data), charge through PaymentGateway.charge_visit
          *     with the fee from money.split_for_visit(price, source, performer kind) (a cover provider
          *     pays 15% even on an own customer), write the ledger entry (services.ledger), send messages.
+         *     The charge is never inside a transaction: save the finished visit first, charge with the
+         *     visit's idempotency key, then record the result, ledger entry and messages in one.
          */
         post: operations["finish_visit_api_p_visits__visit_id__finish_post"];
         delete?: never;
@@ -2713,7 +2716,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "pending" | "accepting" | "accepted" | "declined" | "lapsed" | "withdrawn";
+            status: "pending" | "accepted" | "declined" | "lapsed" | "withdrawn";
         };
         /** CounterRequest */
         CounterRequest: {
@@ -3794,11 +3797,6 @@ export interface components {
          */
         Offer: {
             /**
-             * Accepting At
-             * @description When the customer accepted; the request claim is finished from here (resumable)
-             */
-            accepting_at?: string | null;
-            /**
              * Created At
              * Format: date-time
              */
@@ -3843,7 +3841,7 @@ export interface components {
              * @default pending
              * @enum {string}
              */
-            status: "pending" | "accepting" | "accepted" | "declined" | "lapsed" | "withdrawn";
+            status: "pending" | "accepted" | "declined" | "lapsed" | "withdrawn";
             /**
              * Supersedes
              * @description The offer this one replaced (now withdrawn)

@@ -74,7 +74,7 @@ class CounterOfferView(BaseModel):
     first_price_pence: int | None
     guide_pence: int
     reason_text: str
-    status: Literal["pending", "accepting", "accepted", "declined", "lapsed", "withdrawn"]
+    status: Literal["pending", "accepted", "declined", "lapsed", "withdrawn"]
     created_at: datetime
 
 

@@ -175,24 +175,6 @@ async def test_refuses_a_database_that_isnt_ours():
         await main_async([], settings=make_settings(mongo_db="production"))
 
 
-async def test_seeded_bookings_are_never_resumed_by_the_repair_task(db):
-    from datetime import timedelta
-
-    from app.core.timeutil import utcnow
-    from app.seed.run import seed
-    from app.shared.tasks import repair_claimed
-    from tests.conftest import make_settings
-
-    await seed(db, make_settings())
-    assert await db["bookings"].count_documents({"setup_complete": {"$ne": True}}) == 0
-    # Even if a seeded claim looked recent, repair must leave seeded history alone.
-    await db["job_requests"].update_many({"status": "booked"}, {"$set": {"booked.at": utcnow() - timedelta(minutes=5)}})
-    before = {c: await db[c].count_documents({}) for c in ("bookings", "visits", "outbox", "message_threads")}
-    await repair_claimed(db, make_settings())
-    after = {c: await db[c].count_documents({}) for c in ("bookings", "visits", "outbox", "message_threads")}
-    assert before == after
-
-
 async def test_seed_dates_are_relative_to_the_moment_of_seeding(app):
     """Ruling after F review (e): the demo never goes stale."""
     from app.core.timeutil import to_london

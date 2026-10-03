@@ -1,4 +1,4 @@
-"""Periodic background tasks (reminders, horizon top-ups, repairs), run inside the API.
+"""Periodic background tasks (reminders, horizon top-ups), run inside the API.
 
 Each lane registers tasks from its own package (app/<lane>/tasks.py) with @periodic;
 main.py imports those modules so registration happens at start-up. Tasks must be

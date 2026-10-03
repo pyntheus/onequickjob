@@ -6,10 +6,8 @@ The tax pack (L2) and the HMRC export (L3) are derived from these entries only.
 
 from datetime import datetime
 
-from pymongo.errors import DuplicateKeyError
-
 from app.core import money
-from app.core.db import Db
+from app.core.db import Db, DbSession
 from app.core.timeutil import tax_year, to_london
 from app.models.records import LedgerEntry
 from app.models.visits import Visit
@@ -39,32 +37,44 @@ def _entry(
 
 
 async def record_charge(
-    db: Db, visit: Visit, split: money.Split, *, at: datetime, gateway: str, charge_id: str | None
+    db: Db,
+    visit: Visit,
+    split: money.Split,
+    *,
+    at: datetime,
+    gateway: str,
+    charge_id: str | None,
+    session: DbSession | None = None,
 ) -> LedgerEntry:
     """One charge entry per visit. Re-recording returns the existing entry."""
-    repo = LedgerEntries(db)
     entry = _entry(visit, "charge", split, 1, at, gateway, charge_id)
-    try:
-        await repo.insert(entry)
-        return entry
-    except DuplicateKeyError:
-        existing = await repo.find_one({"visit_id": visit.id, "kind": "charge"})
-        assert existing is not None
-        return existing
+    return await LedgerEntries(db).insert_once(entry, {"visit_id": visit.id, "kind": "charge"}, session=session)
 
 
 async def record_tip(
-    db: Db, visit: Visit, tip_pence: int, *, at: datetime, gateway: str, charge_id: str | None
+    db: Db,
+    visit: Visit,
+    tip_pence: int,
+    *,
+    at: datetime,
+    gateway: str,
+    charge_id: str | None,
+    session: DbSession | None = None,
 ) -> LedgerEntry:
     entry = _entry(visit, "tip", money.split(tip_pence, "tip"), 1, at, gateway, charge_id)
-    await LedgerEntries(db).insert(entry)
-    return entry
+    return await LedgerEntries(db).insert(entry, session=session)
 
 
 async def record_refund(
-    db: Db, visit: Visit, refund: money.Split, *, at: datetime, gateway: str, refund_id: str | None
+    db: Db,
+    visit: Visit,
+    refund: money.Split,
+    *,
+    at: datetime,
+    gateway: str,
+    refund_id: str | None,
+    session: DbSession | None = None,
 ) -> LedgerEntry:
     """A refund entry with negative amounts (from money.refund_split)."""
     entry = _entry(visit, "refund", refund, -1, at, gateway, refund_id)
-    await LedgerEntries(db).insert(entry)
-    return entry
+    return await LedgerEntries(db).insert(entry, session=session)

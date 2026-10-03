@@ -44,7 +44,7 @@ class Broadcast(Model):
 
 
 class Booked(Model):
-    """The terms frozen at the moment of the atomic claim; completion never re-reads them."""
+    """The terms agreed at the atomic claim, and the booking made in the same transaction."""
 
     booking_id: str
     provider_id: str

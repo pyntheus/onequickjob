@@ -3,6 +3,7 @@ app.services.bookings); L1 cancels; L3 reads."""
 
 from pymongo import DESCENDING
 
+from app.core.db import DbSession
 from app.models.bookings import Booking
 from app.repos.base import Repo, idx
 
@@ -20,5 +21,5 @@ class Bookings(Repo[Booking]):
         idx("provider_id", "status"),
     ]
 
-    async def by_request(self, request_id: str) -> Booking | None:
-        return await self.find_one({"request_id": request_id})
+    async def by_request(self, request_id: str, *, session: DbSession | None = None) -> Booking | None:
+        return await self.find_one({"request_id": request_id}, session=session)

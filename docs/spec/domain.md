@@ -204,7 +204,7 @@ Indexes:
 
 ## `tax_identities`
 
-Full NI number and date of birth, sealed (app.core.crypto). Read only by the HMRC export.
+Full NI number and date of birth, sealed with the tax data keys (app.core.crypto): each value is "<key id>:<token>". Read only by the HMRC export.
 
 Model `app.models.providers.TaxIdentity`; repo `app.repos.providers.TaxIdentities`. Owner L2.
 
@@ -411,9 +411,8 @@ Model `app.models.offers.Offer`; repo `app.repos.offers.Offers`. Owner F.
 | `first_guide_pence` | int \| None (optional) | The first-visit guide when the counter was made |
 | `reasons` | list[str] |  |
 | `message` | str |  |
-| `status` | Literal['pending', 'accepting', 'accepted', 'declined', 'lapsed', 'withdrawn'] |  |
+| `status` | Literal['pending', 'accepted', 'declined', 'lapsed', 'withdrawn'] |  |
 | `supersedes` | str \| None (optional) | The offer this one replaced (now withdrawn) |
-| `accepting_at` | datetime \| None (optional) | When the customer accepted; the request claim is finished from here (resumable) |
 | `decided_at` | datetime \| None (optional) |  |
 
 Indexes:
@@ -454,10 +453,7 @@ Model `app.models.bookings.Booking`; repo `app.repos.bookings.Bookings`. Owner F
 | `est_mins` | int | Estimated minutes for a routine visit |
 | `first_est_mins` | int \| None (optional) | Estimated minutes for the first visit |
 | `pricing_version_id` | str \| None (optional) |  |
-| `first_visit_start` | datetime \| None (optional) | Chosen when the booking is created, so a resumed setup schedules the same slot |
 | `thread_id` | str \| None (optional) |  |
-| `setup_complete` | bool | Series, first visit and thread all exist (services.bookings.finish_setup) |
-| `confirmations_sent_at` | datetime \| None (optional) | Booking messages sent (once) |
 | `status` | Literal['active', 'completed', 'cancelled'] |  |
 | `cancelled_at` | datetime \| None (optional) |  |
 
@@ -951,7 +947,6 @@ Indexes:
 | `state` | Literal['none', 'offered', 'covered'] |  |
 | `request_id` | str \| None (optional) | The cover request offered to other providers |
 | `original_provider_id` | str \| None (optional) |  |
-| `confirmations_sent_at` | datetime \| None (optional) | The cover's messages have all been written (repair resends until then) |
 
 ### `CustomerPayment`
 

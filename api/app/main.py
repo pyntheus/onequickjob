@@ -1,4 +1,8 @@
-"""The FastAPI app. Owner: F. Lanes add endpoints to their own routers, never here."""
+"""The FastAPI app. Owner: F. Lanes add endpoints to their own routers, never here.
+
+uvicorn builds it with `app.main:create_app --factory`, so importing this module reads no
+settings: the app (and its secrets check) exists only when something starts it.
+"""
 
 import logging
 from collections.abc import AsyncIterator
@@ -11,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 import app.admin.tasks
 import app.customer.tasks
 import app.provider.tasks
-import app.shared.tasks
+import app.shared.tasks  # noqa: F401 (imported for its @periodic registrations, like the three above)
 from app.admin.router import router as admin_router
 from app.core import tasks
 from app.core.config import Settings, get_settings
@@ -60,6 +64,3 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # check_dir=False: the volume may be empty at start; the FileStore creates folders.
         app.mount(s.files_url_prefix, StaticFiles(directory=s.files_dir, check_dir=False), name="files")
     return app
-
-
-app = create_app()

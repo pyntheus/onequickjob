@@ -194,5 +194,6 @@ async def get_invite(token: str) -> InvitePreview:
 @router.post("/invites/{token}/accept", status_code=status.HTTP_201_CREATED)
 async def accept_invite(token: str, body: InviteAccept, user: User) -> BookingCard:
     """Signed in with the invited number: creates the customer (joined_via own_customer) and a
-    booking with source own_customer via app.services.bookings.create_booking."""
+    booking with source own_customer via app.services.bookings.create_booking, in one
+    transaction with marking the invite accepted and its messages."""
     not_implemented(LANE)

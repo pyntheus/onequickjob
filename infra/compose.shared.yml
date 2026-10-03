@@ -10,15 +10,32 @@ services:
     image: mongo:8.0
     container_name: oqj-mongo
     restart: unless-stopped
-    command: ["--bind_ip_all", "--quiet"]
+    # A single-node replica set, so writes spanning collections can run in one transaction.
+    command: ["--replSet", "rs0", "--bind_ip_all", "--quiet"]
     volumes:
       - mongo-data:/data/db
     networks: [oqj]
+    # Healthy once it is the primary. The first check initiates the set (only when it isn't
+    # yet: a no-op on every later run, and an existing standalone volume converts in place).
+    # The member is the container's name on the oqj network, as in every MONGO_URL, never
+    # localhost: the API containers connect to whatever host the set advertises.
     healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      test:
+        - CMD
+        - mongosh
+        - --quiet
+        - --eval
+        - >-
+          try { rs.status() } catch (e) {
+            if (e.codeName !== "NotYetInitialized") throw e;
+            rs.initiate({ _id: "rs0", members: [{ _id: 0, host: "oqj-mongo:27017" }] });
+          }
+          quit(db.hello().isWritablePrimary ? 0 : 1)
       interval: 5s
-      timeout: 5s
+      timeout: 10s
       retries: 20
+      start_period: 30s
+      start_interval: 1s
 
   caddy:
     image: caddy:2

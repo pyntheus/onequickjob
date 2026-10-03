@@ -11,14 +11,14 @@ Read `CLAUDE.md` for the rules and `docs/spec/` for the detail. The design refer
 ## Prerequisites (already on the dev droplet)
 
 Docker with Compose v2, uv (it installs Python 3.14 itself from `api/.python-version`),
-Node 22, make, openssl. Docker needs root on the droplet; the Makefile adds `sudo`
-automatically when your user can't reach the Docker socket.
+Node 22, make, openssl. Your user must be in the `docker` group (`id -nG` lists it); nothing
+runs under sudo.
 
 ## First run
 
 ```bash
 cd /srv/oqj/main
-make env        # writes .env with a random SECRET_KEY and basic-auth password (never overwrites)
+make env        # writes .env with a random SECRET_KEY, tax data key and basic-auth password (never overwrites)
 make install    # host dependencies for lint and type generation (uv sync, npm ci)
 make dev        # starts Mongo + Caddy (shared) and this worktree's API and web
 make seed       # loads the demo data into this worktree's database
@@ -47,6 +47,7 @@ system "sent", including sign-in codes and job alerts with their links.
 | `make types` | Regenerate `web/src/api/schema.d.ts` from the API's OpenAPI schema |
 | `make seed` | Load demo data (idempotent: run it as often as you like) |
 | `make seed-reset` | Drop this worktree's database and seed it again |
+| `make rotate-tax-key` | Add a tax data key, make it current, re-encrypt NI numbers and birth dates, retire the old key |
 | `make check` | Fail if anything other than Caddy (80, 443) and sshd is exposed publicly |
 | `make docs` | Regenerate `docs/spec/notifications.md`, `api.md` and `domain.md` |
 | `make mongosh` | A Mongo shell on this worktree's database |
@@ -61,11 +62,14 @@ on the droplet).
 internet ──443/80──> Caddy (basic auth, HTTPS) ──> oqj-main-web (Vite dev server, :5173 inside Docker)
                                          ├─/api──> oqj-main-api (uvicorn --reload, :8000 inside Docker)
                                          └─/files> files volume (photos, documents)
-oqj-*-api ──> oqj-mongo (no published port; private Docker network "oqj")
+oqj-*-api ──> oqj-mongo (single-node replica set rs0; no published port; private Docker network "oqj")
 ```
 
 - Only Caddy publishes ports. Each worktree's API and web are published on 127.0.0.1 only
   (`API_PORT`, `WEB_PORT` in `.env`), Mongo on nothing. `make check` verifies this.
+- Mongo runs as a single-node replica set (`rs0`, member `oqj-mongo:27017`) so writes that span
+  collections can use transactions. Its healthcheck initiates the set the first time (and is a
+  no-op afterwards), so `make dev` needs no extra step; a standalone data volume converts in place.
 - Source is bind-mounted, so code changes reload without rebuilding. Rebuild (`make dev`)
   after changing `api/pyproject.toml` or `web/package.json`.
 
@@ -114,7 +118,7 @@ configuration: `PAYMENT_GATEWAY=fake|stripe` (Stripe arrives with lane L3, test 
 - **502 from the site**: the main worktree's API or web isn't running. `make ps`, then
   `make dev` in `/srv/oqj/main`.
 - **"Generated API types are stale"** from `make lint`: run `make types` and commit the result.
-- **Certificate errors on first start**: check `sudo docker logs oqj-caddy`; Let's Encrypt
+- **Certificate errors on first start**: check `docker logs oqj-caddy`; Let's Encrypt
   needs ports 80 and 443 reachable and the DNS record pointing at the droplet.
 - **Tests can't reach Mongo**: they run inside the API container on the `oqj` network; use
   `make test`, not `pytest` on the host.

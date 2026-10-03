@@ -2,7 +2,7 @@
 
 from datetime import timedelta
 
-from app.core.crypto import mask_dob, mask_ni, seal, unseal
+from app.core.crypto import key_id, mask_dob, mask_ni, seal, unseal
 from app.core.geo import district_of
 from app.models.categories import DocumentType
 from app.models.common import GeoPoint
@@ -232,7 +232,7 @@ async def seed_people(ctx: Ctx) -> None:
 
 async def _tax_identities(ctx: Ctx) -> None:
     """Sealed NI numbers and dates of birth. Sealing isn't deterministic, so an existing
-    identity that still unseals to the same values is kept as it is."""
+    identity sealed with the current key that unseals to the same values is kept as it is."""
     repo = TaxIdentities(ctx.db)
     for p in ctx.people["providers"]:
         if not p["hmrc"]:
@@ -242,7 +242,8 @@ async def _tax_identities(ctx: Ctx) -> None:
         if existing:
             try:
                 same = (
-                    unseal(existing.ni_number_sealed, ctx.s) == p["ni"]
+                    key_id(existing.ni_number_sealed) == key_id(existing.dob_sealed) == ctx.s.tax_data_key_current
+                    and unseal(existing.ni_number_sealed, ctx.s) == p["ni"]
                     and unseal(existing.dob_sealed, ctx.s) == p["dob"]
                 )
             except ValueError:

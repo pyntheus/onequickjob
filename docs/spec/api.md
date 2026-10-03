@@ -80,7 +80,7 @@ in `web/src/api/schema.d.ts` come from it (`make types`).
 | `GET` | `/api/c/threads/{thread_id}/messages` |  | list[MessageOut] |  |
 | `POST` | `/api/c/threads/{thread_id}/messages` | NewMessage | MessageOut |  |
 | `GET` | `/api/c/invites/{token}` |  | InvitePreview | Public: the invite link in the provider's text. No sign-in needed to read it. |
-| `POST` | `/api/c/invites/{token}/accept` | InviteAccept | BookingCard | Signed in with the invited number: creates the customer (joined_via own_customer) and a booking with source own_customer via app.services.bookings.create_booking. |
+| `POST` | `/api/c/invites/{token}/accept` | InviteAccept | BookingCard | Signed in with the invited number: creates the customer (joined_via own_customer) and a booking with source own_customer via app.services.bookings.create_booking, in one transaction with marking the invite accepted and its messages. |
 
 ## L2 Provider (/api/p)
 
@@ -93,7 +93,7 @@ in `web/src/api/schema.d.ts` come from it (`make types`).
 | `GET` | `/api/p/visits/{visit_id}` |  | ProviderVisit |  |
 | `POST` | `/api/p/visits/{visit_id}/start` |  | ProviderVisit |  |
 | `POST` | `/api/p/visits/{visit_id}/photos` | PhotoIn | ProviderVisit |  |
-| `POST` | `/api/p/visits/{visit_id}/finish` | FinishIn | FinishOut | Record minutes and flags (calibration data), charge through PaymentGateway.charge_visit with the fee from money.split_for_visit(price, source, performer kind) (a cover provider pays 15% even on an own customer), write the ledger entry (services.ledger), send messages. |
+| `POST` | `/api/p/visits/{visit_id}/finish` | FinishIn | FinishOut | Record minutes and flags (calibration data), charge through PaymentGateway.charge_visit with the fee from money.split_for_visit(price, source, performer kind) (a cover provider pays 15% even on an own customer), write the ledger entry (services.ledger), send messages. The charge is never inside a transaction: save the finished visit first, charge with the visit's idempotency key, then record the result, ledger entry and messages in one. |
 | `POST` | `/api/p/visits/{visit_id}/send-helper` | SendHelperIn | ProviderVisit |  |
 | `POST` | `/api/p/visits/{visit_id}/cover` |  | ProviderVisit |  |
 | `GET` | `/api/p/earnings` |  | EarningsOut |  |
