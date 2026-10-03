@@ -11,7 +11,15 @@ services:
     container_name: oqj-mongo
     restart: unless-stopped
     # A single-node replica set, so writes spanning collections can run in one transaction.
-    command: ["--replSet", "rs0", "--bind_ip_all", "--quiet"]
+    # The WiredTiger cache is capped at 1.5 GB: by default it takes about half the droplet's RAM.
+    command: ["--replSet", "rs0", "--bind_ip_all", "--quiet", "--wiredTigerCacheSizeGB", "1.5"]
+    # Every collection and index is a file, and each lane's dev and test databases hold ~150 of
+    # them: Docker's default of 1024 open files crashed Mongo with several lanes' tests running.
+    ulimits:
+      nofile:
+        soft: 64000
+        hard: 64000
+      nproc: 64000
     volumes:
       - mongo-data:/data/db
     networks: [oqj]
