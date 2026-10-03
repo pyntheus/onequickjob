@@ -22,7 +22,7 @@ TEST_ENV := -e MONGO_DB=$(MONGO_DB)_test -e TASKS_ENABLED=false -e SERVE_FILES=f
             -e PAYMENT_GATEWAY=fake -e IDEAL_POSTCODES_KEY=
 
 .PHONY: help env check-env install dev up down infra-up infra-down logs ps test test-api test-web lint lint-api lint-web \
-        fmt types types-check seed seed-reset rotate-tax-key check docs shell-api mongosh
+        fmt types types-check seed seed-reset rotate-tax-key rotate-tax-key-locked check docs shell-api mongosh
 
 help: ## List the targets
 	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  make %-12s %s\n", $$1, $$2}'
@@ -112,11 +112,17 @@ seed-reset: infra-up ## Drop this worktree's database and seed it again
 	$(APP) run --rm --no-deps api python -m app.seed --reset
 
 rotate-tax-key: check-env infra-up ## New tax data key: make it current, re-encrypt, then retire the old ones
-	cd api && uv run python -m app.cli.tax_keys add --env-file ../.env
-	@if [ -n "$$($(DOCKER) ps -q -f name=^oqj-$(INSTANCE)-api$$)" ]; then $(APP) up -d api; fi
-	$(APP) run --rm --no-deps api python -m app.cli.tax_keys reencrypt
-	cd api && uv run python -m app.cli.tax_keys retire --env-file ../.env
-	@if [ -n "$$($(DOCKER) ps -q -f name=^oqj-$(INSTANCE)-api$$)" ]; then $(APP) up -d api; fi
+	@mkdir -p var; flock -n -E 75 var/rotate-tax-key.lock $(MAKE) --no-print-directory rotate-tax-key-locked; rc=$$?; \
+	  [ $$rc -ne 75 ] || echo "Another make rotate-tax-key is running in this worktree: wait for it." >&2; exit $$rc
+
+# One rotation at a time (the lock above). reencrypt and retire act only on the key add made.
+rotate-tax-key-locked:
+	@set -e; kid=$$(cd api && uv run --quiet python -m app.cli.tax_keys add --env-file ../.env); \
+	  api=$$($(DOCKER) ps -q -f name=^oqj-$(INSTANCE)-api$$); \
+	  if [ -n "$$api" ]; then $(APP) up -d api; fi; \
+	  $(APP) run --rm --no-deps api python -m app.cli.tax_keys reencrypt --expect-current $$kid; \
+	  (cd api && uv run --quiet python -m app.cli.tax_keys retire --env-file ../.env --keep $$kid); \
+	  if [ -n "$$api" ]; then $(APP) up -d api; fi
 
 check: ## Fail if anything but Caddy (80, 443) and sshd is exposed publicly
 	@DOCKER="$(DOCKER)" infra/check-ports.sh

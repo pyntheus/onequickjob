@@ -1,12 +1,15 @@
-"""Tax data key rotation, the steps of `make rotate-tax-key`:
+"""Tax data key rotation, the steps of `make rotate-tax-key` (which holds a per-worktree lock
+around all three, so two rotations never interleave):
 
-    python -m app.cli.tax_keys add --env-file ../.env      (host) a new key, made current; old keys kept
-    python -m app.cli.tax_keys reencrypt                   (api container) re-seal every older value
-    python -m app.cli.tax_keys retire --env-file ../.env   (host) drop the old keys, once reencrypt passed
+    add --env-file ../.env                  (host) a new key, made current; prints its id; old keys kept
+    reencrypt --expect-current <id>         (api container) re-seal every value under an older key
+    retire --env-file ../.env --keep <id>   (host) drop every key but <id>, once reencrypt passed
 
 Between add and retire every key stays in TAX_DATA_KEYS, so old values can be read while
 they're re-encrypted. reencrypt fails (and make stops before retire) unless no value is left
-under an older key. Only key ids are ever printed, never keys.
+under an older key, and both later steps refuse unless <id> is still the current key, so they
+only ever act on the key that add created. If a rotation stops part way, run it again. Only
+key ids are ever printed, never keys.
 """
 
 import argparse
@@ -64,14 +67,17 @@ def add_key(path: Path) -> str:
     return kid
 
 
-def retire_keys(path: Path) -> list[str]:
-    """Keep only the current key in TAX_DATA_KEYS. Returns the ids removed."""
+def retire_keys(path: Path, keep: str) -> list[str]:
+    """Keep only `keep`, the key the re-encryption used, in TAX_DATA_KEYS. Refuses unless it's
+    still the current key. Returns the ids removed."""
     lines = path.read_text().splitlines()
     keys, current = parse_tax_keys(_get(lines, KEYS)), _get(lines, CURRENT)
-    if current not in keys:
-        raise SystemExit(f"{CURRENT} ({current!r}) isn't in {KEYS}: nothing retired")
-    _write(path, _set(lines, KEYS, _joined({current: keys[current]})))
-    return [kid for kid in keys if kid != current]
+    if current != keep or keep not in keys:
+        raise SystemExit(
+            f"{CURRENT} is {current!r}, not {keep!r}: the keys changed during the rotation; nothing retired"
+        )
+    _write(path, _set(lines, KEYS, _joined({keep: keys[keep]})))
+    return [kid for kid in keys if kid != keep]
 
 
 def _older(current: str, fields: tuple[str, ...]) -> dict:
@@ -96,8 +102,11 @@ async def reencrypt(db: Db, s: Settings) -> tuple[int, int]:
     return done, left
 
 
-async def _reencrypt_main() -> int:
+async def _reencrypt_main(expect_current: str) -> int:
     s = get_settings()
+    if s.tax_data_key_current != expect_current:
+        print(f"{CURRENT} is {s.tax_data_key_current!r}, not {expect_current!r}: not re-encrypting", file=sys.stderr)
+        return 1
     async with connect(s) as (_, db):
         done, left = await reencrypt(db, s)
     print(f"Re-encrypted {done} tax values in {s.mongo_db} with key {s.tax_data_key_current}.")
@@ -111,15 +120,22 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.cli.tax_keys", description=__doc__)
     parser.add_argument("step", choices=["add", "reencrypt", "retire"])
     parser.add_argument("--env-file", type=Path, default=Path("../.env"))
+    parser.add_argument("--expect-current", help="reencrypt: the key id add created")
+    parser.add_argument("--keep", help="retire: the key id add created and reencrypt used")
     args = parser.parse_args(argv)
     if args.step == "add":
         kid = add_key(args.env_file)
-        print(f"Added tax data key {kid} and made it current; the older keys stay until re-encryption completes.")
+        print(f"Added tax data key {kid}, now current; older keys stay until re-encryption completes.", file=sys.stderr)
+        print(kid)  # stdout carries only the id, for the next steps
     elif args.step == "retire":
-        old = retire_keys(args.env_file)
+        if not args.keep:
+            parser.error("retire needs --keep <key id>")
+        old = retire_keys(args.env_file, args.keep)
         print(f"Retired tax data keys: {', '.join(old) or 'none'}. Update your password manager's TAX_DATA_KEYS.")
     else:
-        return asyncio.run(_reencrypt_main())
+        if not args.expect_current:
+            parser.error("reencrypt needs --expect-current <key id>")
+        return asyncio.run(_reencrypt_main(args.expect_current))
     return 0
 
 

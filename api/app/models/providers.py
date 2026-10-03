@@ -102,6 +102,11 @@ class Provider(Timestamped):
     status_reason: str | None = None
     stats: ProviderStats = Field(default_factory=ProviderStats)
     joined_on: IsoDate | None = None
+    last_booked_at: datetime | None = Field(
+        default=None,
+        description="When they last took a job. Written in the booking's transaction, so a suspension or "
+        "document change committed meanwhile conflicts with it and the booking is re-checked (marketplace)",
+    )
 
 
 class TaxIdentity(Doc):

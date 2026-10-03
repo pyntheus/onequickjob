@@ -190,7 +190,7 @@ and integration (I) folds the accepted ones in here.
   it finds the request booked and gets 409. One booking per request, one first visit per
   booking and one thread per booking remain unique indexes, and booking messages keep their
   outbox idempotency keys, as guards.
-- **R21. Eligibility** (`app.services.eligibility`). Hard rules, checked on every accept and
+- **R21. Eligibility** (`app.services.eligibility`). Hard rules, checked on every accept (inside its transaction: A7) and
   counter: provider active (or payouts paused), the category in their skills, identity checked
   and every document the category requires verified and in date. Distance is not a hard rule,
   because admins dispatch further-away jobs by hand. Broadcast rules (L1): hard rules plus
@@ -335,7 +335,11 @@ Decided by Hasan after reviewing the F report; each has tests.
   with its per-visit idempotency key, and the file store writes before or after. Claiming a job
   and setting up its booking, plan, visits, thread, lapsed counters and messages (or a cover's
   reassigned visit and messages) commit together or not at all; making, accepting and declining
-  a counter are transactions too. Removed as unnecessary: the offer state `accepting`
+  a counter are transactions too. Eligibility is checked again inside every attempt of an
+  acceptance, on the provider as written in that attempt (it sets `last_booked_at`), so a
+  suspension or document change that commits meanwhile conflicts with the booking and the
+  driver's re-run refuses it (403 for a guide acceptance, 409 for a counter; Codex review).
+  Removed as unnecessary: the offer state `accepting`
   (`accepting_at`), both repair tasks and their two-minute grace periods, the booking's
   `setup_complete`, `confirmations_sent_at` and `first_visit_start`, the cover's
   `confirmations_sent_at`, the step-by-step setup (`ensure_booking`, `finish_setup`, adopting an
@@ -348,7 +352,8 @@ Decided by Hasan after reviewing the F report; each has tests.
   `test_a_failure_anywhere_in_booking_leaves_nothing_behind`,
   `test_a_counter_acceptance_racing_a_guide_acceptance_books_once`,
   `test_a_counter_made_while_the_job_is_booked_never_stays_pending`,
-  `test_cover_notices_are_written_with_the_reassignment_or_not_at_all`.)
+  `test_cover_notices_are_written_with_the_reassignment_or_not_at_all`,
+  `test_a_suspension_during_the_transaction_is_seen_by_its_retry`.)
 - **A8. Keys.** The API refuses to start if `SECRET_KEY` is missing, a placeholder or default
   (including the old built-in one), or shorter than 32 bytes; there is no fallback key in the
   code, and errors never echo the value. Tests set their own keys, fresh each run
@@ -356,12 +361,17 @@ Decided by Hasan after reviewing the F report; each has tests.
   `id:key` pairs (Fernet keys) and `TAX_DATA_KEY_CURRENT` names the one used for new values.
   Every sealed value is stored as `<key id>:<token>`, so older values stay readable while their
   key is listed. `make env` writes `k1` (and adds it to an older `.env` that lacks one).
-  `make rotate-tax-key` adds the next key and makes it current, restarts this worktree's API if
-  it's running, re-encrypts every sealed value (compare-and-set per record; it fails, and stops
-  the rotation, unless nothing is left under an older key), then retires the old keys and
-  restarts the API again. Only key ids are ever printed. A backup taken before a rotation needs
+  `make rotate-tax-key` holds a per-worktree lock (`var/rotate-tax-key.lock`) for the whole
+  rotation: it adds the next key and makes it current, restarts this worktree's API if it's
+  running, re-encrypts every sealed value (compare-and-set per record; it fails, and stops the
+  rotation, unless nothing is left under an older key), then retires every key but the new one
+  and restarts the API again. Re-encryption and retirement are bound to the id the rotation
+  added and refuse if the current key has changed, so overlapping rotations can't retire a key
+  still in use (Codex review). If a rotation stops part way, run it again. Only key ids are
+  ever printed. A backup taken before a rotation needs
   the retired key, so keep the old `TAX_DATA_KEYS` line until those backups have expired.
-  (`test_keys.py`: `test_rotation_end_to_end` and the validation tests.)
+  (`test_keys.py`: `test_rotation_end_to_end`, `test_overlapping_rotations_never_retire_a_key_in_use`
+  and the validation tests.)
 
 ## 3. Open questions (for Hasan)
 

@@ -87,6 +87,16 @@ def _check_can_take(provider: Provider, cat: Category, req: JobRequest) -> None:
         )
 
 
+async def _provider_now(db: Db, provider_id: str, session: DbSession) -> Provider:
+    """Inside the transaction, on every attempt: the provider as they are now, for the
+    eligibility check. It writes last_booked_at first, so a suspension or document change that
+    commits while this transaction runs conflicts with it: the driver re-runs the attempt,
+    which then sees the change and refuses."""
+    provider = await Providers(db).update(provider_id, {"last_booked_at": utcnow()}, session=session)
+    assert provider is not None, provider_id
+    return provider
+
+
 async def claim_request(
     db: Db,
     request_id: str,
@@ -287,6 +297,7 @@ async def accept_at_guide(db: Db, s: Settings, ref: str, provider: Provider) -> 
         _taken(req)
 
     async def accept(session: DbSession) -> BookingOutcome:
+        _check_can_take(await _provider_now(db, provider.id, session), cat, req)
         claimed = await claim_request(
             db,
             req.id,
@@ -428,6 +439,8 @@ async def accept_counter(db: Db, s: Settings, offer_id: str, customer: Customer)
         fail(status.HTTP_409_CONFLICT, "provider_unavailable", "That provider can't take this job any more.")
 
     async def accept(session: DbSession) -> BookingOutcome:
+        if not can_take(await _provider_now(db, offer.provider_id, session), cat).ok:
+            fail(status.HTTP_409_CONFLICT, "provider_unavailable", "That provider can't take this job any more.")
         accepted = await Offers(db).update(
             offer.id,
             {"status": "accepted", "decided_at": utcnow()},

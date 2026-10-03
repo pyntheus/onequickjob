@@ -22,7 +22,7 @@ from pymongo.errors import DuplicateKeyError
 
 from app.core import phone as phones
 from app.core.config import Settings
-from app.core.db import Db
+from app.core.db import Db, DbSession
 from app.core.errors import fail
 from app.core.ids import new_login_code, new_token, token_hash
 from app.core.timeutil import utcnow
@@ -209,8 +209,11 @@ async def create_magic_link(
     user_id: str,
     purpose: Literal["job_alert", "invite", "helper_signup"],
     target_path: str,
+    *,
+    session: DbSession | None = None,
 ) -> str:
-    """Mint a single-use sign-in token. Put it in a link as ?t=<token>."""
+    """Mint a single-use sign-in token. Put it in a link as ?t=<token>. With session, the link
+    exists only if the caller's transaction (say, a request and its job alerts) commits."""
     token = new_token(24)
     now = utcnow()
     await MagicLinks(db).insert(
@@ -221,7 +224,8 @@ async def create_magic_link(
             target_path=target_path,
             created_at=now,
             expires_at=now + timedelta(hours=s.magic_link_ttl_hours),
-        )
+        ),
+        session=session,
     )
     return token
 

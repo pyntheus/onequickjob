@@ -8,7 +8,7 @@ from app.adapters.area import make_area_estimator
 from app.adapters.area.base import AreaEstimateError, AreaInput
 from app.core import money
 from app.core.config import Settings
-from app.core.db import Db
+from app.core.db import Db, DbSession
 from app.core.errors import fail
 from app.models.categories import Category
 from app.models.common import Address
@@ -43,15 +43,15 @@ def fee_split(price_pence: int, mode: money.FeeMode = "standard", settings: Sett
     )
 
 
-async def live_version(db: Db) -> PricingVersion:
-    v = await PricingVersions(db).live()
+async def live_version(db: Db, *, session: DbSession | None = None) -> PricingVersion:
+    v = await PricingVersions(db).live(session=session)
     if v is None:
         fail(status.HTTP_503_SERVICE_UNAVAILABLE, "no_live_pricing", "Prices aren't available right now.")
     return v
 
 
-async def bookable_category(db: Db, category_id: str) -> Category:
-    cat = await Categories(db).get(category_id)
+async def bookable_category(db: Db, category_id: str, *, session: DbSession | None = None) -> Category:
+    cat = await Categories(db).get(category_id, session=session)
     if cat is None:
         fail(status.HTTP_404_NOT_FOUND, "unknown_category", "We don't know that kind of job.")
     if cat.status != "live":
@@ -68,9 +68,10 @@ async def create_quote(
     lawn: AreaInput | None,
     address: Address | None,
     user_id: str | None,
+    session: DbSession | None = None,
 ) -> Quote:
-    cat = await bookable_category(db, category_id)
-    version = await live_version(db)
+    cat = await bookable_category(db, category_id, session=session)
+    version = await live_version(db, session=session)
     measure: Measure | None = None
     if cat.measure == "lawn":
         if lawn is None:
@@ -122,5 +123,5 @@ async def create_quote(
         first_fee=fee_split(est.first_pence, settings=s) if est.first_pence is not None else None,
         user_id=user_id,
     )
-    await Quotes(db).insert(quote)
+    await Quotes(db).insert(quote, session=session)
     return quote

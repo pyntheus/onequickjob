@@ -448,6 +448,52 @@ async def test_a_suspended_providers_counter_cannot_be_accepted(app, client, db,
     assert await Bookings(db).count({}) == 0
 
 
+@pytest.mark.parametrize("path", ["guide", "counter"])
+async def test_a_suspension_during_the_transaction_is_seen_by_its_retry(db, catalogue, monkeypatch, path):
+    """Codex (high): eligibility is checked inside every attempt. A suspension that commits after
+    an attempt began conflicts with it; the driver re-runs the attempt, which refuses."""
+    from fastapi import HTTPException
+
+    from app.repos import Providers
+
+    customer = await make_customer(db)
+    mike = await make_provider(db, "Mike Reynolds", "+447700900202", ["mowing"])
+    req = await make_request(db, customer)
+    s = make_settings()
+    offer = await marketplace.make_counter(db, s, req.ref, mike, price_pence=3700, reasons=[])
+    go, done = asyncio.Event(), asyncio.Event()
+
+    async def admin_suspends():  # its own task, outside the transaction, like an admin's request
+        await go.wait()
+        await Providers(db).set_status(mike.id, "suspended", "test")
+        done.set()
+
+    admin = asyncio.create_task(admin_suspends())
+    original, attempts = marketplace._provider_now, []
+
+    async def provider_now(db_, provider_id, session):
+        attempts.append(provider_id)
+        if len(attempts) == 1:
+            await JobRequests(db_).get(req.id, session=session)  # the attempt's snapshot starts here
+            go.set()
+            await done.wait()  # ... and the suspension commits after it
+        return await original(db_, provider_id, session)
+
+    monkeypatch.setattr(marketplace, "_provider_now", provider_now)
+    with pytest.raises(HTTPException) as e:
+        if path == "guide":
+            await marketplace.accept_at_guide(db, s, req.ref, mike)
+        else:
+            await marketplace.accept_counter(db, s, offer.id, customer)
+    await admin
+    assert len(attempts) == 2, "the write conflict made the driver re-run the attempt"
+    assert (e.value.status_code, e.value.detail["code"]) == (
+        (403, "not_eligible") if path == "guide" else (409, "provider_unavailable")
+    )
+    assert (await JobRequests(db).get(req.id)).status == "open"
+    assert await Bookings(db).count({}) == 0 and (await Offers(db).get(offer.id)).status == "pending"
+
+
 async def _own_customer_cover(db):
     """Dave's own customer (£28 fortnightly mowing) with a cover request for a later visit."""
     from app.models.job_requests import JobRequest

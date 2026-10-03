@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 
 from app.core import money
-from app.core.db import Db
+from app.core.db import Db, DbSession
 from app.core.geo import miles_between
 from app.core.timeutil import london_today, month_start, week_start
 from app.models.categories import Category
@@ -80,7 +80,9 @@ class LimitStatus:
     resumes_on: date
 
 
-async def limit_status(db: Db, provider: Provider, today: date | None = None) -> LimitStatus:
+async def limit_status(
+    db: Db, provider: Provider, today: date | None = None, *, session: DbSession | None = None
+) -> LimitStatus:
     """Earnings so far this week (Mon-Sun) or calendar month, net of our fee, against the limit."""
     today = today or london_today()
     lim = provider.earnings_limit
@@ -90,7 +92,7 @@ async def limit_status(db: Db, provider: Provider, today: date | None = None) ->
     else:
         start = week_start(today)
         resumes = start + timedelta(days=7)
-    earned = await LedgerEntries(db).net_between(provider.id, start, today)
+    earned = await LedgerEntries(db).net_between(provider.id, start, today, session=session)
     remaining = max(0, lim.amount_pence - earned) if lim.on else None
     return LimitStatus(
         on=lim.on,
@@ -119,12 +121,12 @@ class AlertTarget:
 
 
 async def alert_targets(
-    db: Db, request: JobRequest, category: Category, today: date | None = None
+    db: Db, request: JobRequest, category: Category, today: date | None = None, *, session: DbSession | None = None
 ) -> list[AlertTarget]:
     """Providers to alert about an open request, nearest first."""
     today = today or london_today()
     out: list[AlertTarget] = []
-    for p in await Providers(db).with_skill(category.id):
+    for p in await Providers(db).with_skill(category.id, session=session):
         if request.direct_provider_id and p.id != request.direct_provider_id:
             continue
         if not can_take(p, category, today).ok:
@@ -136,7 +138,7 @@ async def alert_targets(
             continue
         if not (p.alert_settings.sms or p.alert_settings.whatsapp):
             continue
-        lim = await limit_status(db, p, today)
+        lim = await limit_status(db, p, today, session=session)
         if lim.reached:
             continue
         out.append(AlertTarget(provider=p, miles=round(miles, 1), limit=lim))

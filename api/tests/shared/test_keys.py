@@ -118,7 +118,7 @@ async def test_rotation_end_to_end(db, tmp_path, capsys):
     assert await tax_keys.reencrypt(db, during) == (6, 0)
     assert await tax_keys.reencrypt(db, during) == (0, 0), "idempotent"
 
-    assert tax_keys.retire_keys(env) == ["k1"]
+    assert tax_keys.retire_keys(env, keep="k2") == ["k1"]
     after = _settings_from(env)
     assert set(after.tax_keys()) == {"k2"}
     for t in await TaxIdentities(db).find({}):
@@ -128,6 +128,25 @@ async def test_rotation_end_to_end(db, tmp_path, capsys):
             crypto.unseal(t.ni_number_sealed, before)
     out = capsys.readouterr()
     assert k1 not in out.out + out.err
+
+
+def test_overlapping_rotations_never_retire_a_key_in_use(tmp_path):
+    """Codex (high): rotation A re-encrypted to k2, then B added k3 before A retired. A's retire
+    must not drop k2 (make also holds a lock around the whole rotation)."""
+    env = tmp_path / ".env"
+    env.write_text(f"TAX_DATA_KEYS=k1:{Fernet.generate_key().decode()}\nTAX_DATA_KEY_CURRENT=k1\n")
+    assert tax_keys.add_key(env) == "k2"  # rotation A
+    assert tax_keys.add_key(env) == "k3"  # rotation B, overlapping
+    before = env.read_text()
+    with pytest.raises(SystemExit, match="not 'k2'"):
+        tax_keys.retire_keys(env, keep="k2")
+    assert env.read_text() == before, "nothing retired"
+    assert tax_keys.retire_keys(env, keep="k3") == ["k1", "k2"]  # B, after re-encrypting to k3
+
+
+def test_reencrypt_only_acts_on_the_key_the_rotation_added(capsys):
+    assert tax_keys.main(["reencrypt", "--expect-current", "k9"]) == 1
+    assert "not re-encrypting" in capsys.readouterr().err
 
 
 async def test_reencrypt_refuses_to_finish_while_a_value_is_unreadable(db):

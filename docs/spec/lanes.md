@@ -50,8 +50,10 @@ Rules that make parallel work possible:
   first acceptance, counters, cover), bookings and scheduling, the ledger, notifications,
   audit, auth. Call them; don't re-implement them.
 - **Writes that span collections are one transaction** (`app.core.db.transaction`, the pattern
-  in `CLAUDE.md`). Every repository and service function takes an optional `session`; pass it
-  to every call inside the transaction, and never call an external service there.
+  in `CLAUDE.md`). Every repository function, and every shared service function you'd call
+  while writing (bookings, notify, schedule, ledger, audit, quotes, eligibility, magic links),
+  takes `session`; pass it to every call inside the transaction, and never call an external
+  service there.
 - **Outbox templates**: use the catalogue (`services/templates.py`, `notifications.md`). If you
   need a new one, `templates.register(...)` it from your own package and list it in your
   report; I folds it in.
