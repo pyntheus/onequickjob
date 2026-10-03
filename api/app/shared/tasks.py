@@ -5,8 +5,6 @@ import logging
 from app.core.config import Settings
 from app.core.db import Db
 from app.core.tasks import periodic
-from app.repos.bookings import Bookings
-from app.repos.providers import Providers
 from app.repos.series import SeriesRepo
 from app.services import schedule
 from app.services.documents import send_expiry_reminders
@@ -18,15 +16,9 @@ log = logging.getLogger("oqj.tasks")
 async def top_up_series(db: Db, s: Settings) -> None:
     """Make sure every active plan has visits six weeks ahead. Each plan is isolated, so one
     failure doesn't stop the rest."""
-    providers = Providers(db)
-    bookings = Bookings(db)
     for series in await SeriesRepo(db).find({"status": "active"}):
         try:
-            provider = await providers.get(series.provider_id)
-            booking = await bookings.get(series.booking_id)
-            if provider is None or booking is None:
-                continue
-            await schedule.ensure_horizon(db, series, provider, source=booking.source)
+            await schedule.top_up(db, series.id)
         except Exception:
             log.exception("horizon top-up failed for series %s", series.id)
 

@@ -201,10 +201,10 @@ and integration (I) folds the accepted ones in here.
   13:00–17:00, either 09:00–17:00 (customers see "morning, 8am to 12pm"). The first visit is
   the earliest day from tomorrow that the provider works, suits the customer and isn't time
   off, at the first free half hour after the provider's previous visit plus 30 minutes' travel
-  ("10:30, straight after Widmer End"). Recurring visits keep that weekday and time and are
-  materialised six weeks ahead (at least the next two). Monthly frequencies use calendar
-  months; "a few days a week" defaults to Monday, Wednesday and Friday. The winter pause skips
-  November to February.
+  ("10:30, straight after Widmer End"); visits longer than their window and the fallback: A14.
+  Recurring visits keep that weekday and time and are materialised six weeks ahead (at least
+  the next two; A13). Monthly frequencies use calendar months; "a few days a week" defaults to
+  Monday, Wednesday and Friday. The winter pause skips November to February.
 - **R23a. Time-off cover goes through the normal offer flow** (fees on covered visits: A4). L2 creates a job request with
   `cover_for_visit_id` for one visit (same price); accepting it (the shared accept endpoint)
   reassigns that visit to the covering provider (performer kind `cover`, paid for that visit)
@@ -431,6 +431,38 @@ Decided by Hasan after reviewing the F report; each has tests.
   accepts the old guide while it waits books at the old guide. (`app.customer.price_changes`,
   called by `app.admin.overview.raise_guide` inside its transaction;
   `tests/customer/test_price_changes.py`, `tests/admin/test_overview.py`.)
+
+## 2b. Rulings made in the shared-fixes session (S)
+
+Made by session S while resolving the lanes' contract-change requests, on Hasan's brief; each
+has tests.
+
+- **A13. The horizon top-up is transactional** (contract-changes L1 item 19). `schedule.top_up`
+  tops up one plan in a transaction of its own that reads the plan, its provider and booking as
+  they are now and returns if the plan isn't active. `ensure_horizon` writes the plan
+  (`horizon_until`) whenever it adds a visit, so a change of frequency (A10), a pause or a
+  cancellation committing while it runs conflicts with it, and the driver re-runs it on the plan
+  as changed: no visit is ever added at a frequency or price a committed change replaced. The
+  hourly `series_horizon` task and L2's time-off look-ahead (`time_off.materialise_through`) both
+  use it. `ensure_horizon` also takes `from_day`: every plan date after that day is made, and a
+  date an earlier change of frequency cancelled comes back at the plan's price; L1's copy
+  (`account._fill`) is gone. (`test_scheduling.py`:
+  `test_the_horizon_top_up_rereads_a_plan_changed_while_it_runs`,
+  `test_the_horizon_top_up_adds_nothing_to_a_plan_cancelled_while_it_runs`,
+  `test_ensure_horizon_from_a_given_day`.)
+- **A14. First visits fit the provider's days and the window** (contract-changes L1 item 4). A
+  visit starts inside its window and ends by the window's end, except one longer than its window
+  (a first regular clean is four hours, the morning three), which starts at the window's start
+  on a day with room for all of it, travel included, and runs over. The search looks six months
+  ahead (it was four weeks) for the first day the provider works, isn't away, suits the customer
+  and has room; if the customer's days and the provider's never meet, it takes the provider's
+  first working day with room (they rearrange by message). It never picks a day the provider
+  doesn't work or is away; the old fallback (tomorrow at the window's start, whatever the day)
+  is gone. Skipped visits no longer block a slot. (`test_scheduling.py`:
+  `test_a_first_visit_longer_than_its_window_starts_at_the_window_start`,
+  `test_a_long_visit_only_starts_at_the_window_start`,
+  `test_the_first_visit_keeps_to_working_days_and_time_off_beyond_four_weeks`,
+  `test_weekday_only_cleaning_and_flatpack_bookings_get_a_weekday_first_visit`.)
 
 ## 3. Open questions (for Hasan)
 
