@@ -4071,6 +4071,12 @@ export interface components {
             /** Failure Reason */
             failure_reason: string | null;
             /**
+             * Kind
+             * @default charge
+             * @enum {string}
+             */
+            kind: "charge" | "refund";
+            /**
              * Local Date
              * Format: date
              */

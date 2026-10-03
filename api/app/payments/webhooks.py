@@ -8,8 +8,10 @@ holds nothing outside the database. Events may arrive out of order: a payment ev
 only to the attempt named in its metadata (its idempotency key) and never undoes a success.
 
 Handled: payment_intent.* (succeeded, payment_failed, requires_action, processing, canceled),
-charge.refunded, account.updated, payout.paid and payout.failed. Anything else is logged and
-acknowledged. Live-mode events are ignored while DEMO_MODE is on.
+charge.refunded, refund.updated / refund.failed (and the older charge.refund.updated),
+account.updated, payout.paid and payout.failed. Anything else is logged and acknowledged.
+Live-mode events are ignored while DEMO_MODE is on. A charge.refunded that arrives before its
+charge is recorded is kept, with its payload, and replayed when the charge is (replay_deferred).
 """
 
 import json
@@ -18,14 +20,19 @@ from typing import Any
 
 import stripe
 
-from app.adapters.payments.stripe_gateway import charge_result_from_intent, provider_account_from_stripe
+from app.adapters.payments.stripe_gateway import (
+    charge_result_from_intent,
+    provider_account_from_stripe,
+    ref_id,
+    refund_state,
+)
 from app.core.config import Settings
 from app.core.db import Db, DbSession, transaction
 from app.core.timeutil import utcnow
 from app.models.common import Related
 from app.models.payments import PaymentEvent
 from app.payments import charging, notices
-from app.payments.refunds import refund_split_for
+from app.payments.refunds import apply_refund_result, refund_split_for
 from app.repos.payments import PaymentEvents, PaymentRefunds
 from app.repos.providers import Providers
 from app.repos.visits import Visits
@@ -73,7 +80,15 @@ async def handle(db: Db, s: Settings, event: Json) -> bool:
             outcome, note = "ignored", "live-mode event while DEMO_MODE is on"
         else:
             outcome, note = await dispatch(db, s, event, obj, session)
-        await events.set_outcome(record.id, outcome, note, session=session)
+        deferred = outcome == "deferred"
+        await events.set_outcome(
+            record.id,
+            outcome,
+            note,
+            payment_intent=ref_id(obj.get("payment_intent")) if deferred else None,
+            payload=obj if deferred else None,
+            session=session,
+        )
         return False
 
     duplicate = await transaction(db, apply)
@@ -88,6 +103,8 @@ async def dispatch(db: Db, s: Settings, event: Json, obj: Json, session: DbSessi
     match kind:
         case "charge.refunded":
             return await charge_refunded(db, s, obj, session)
+        case "refund.updated" | "refund.failed" | "charge.refund.updated":
+            return await refund_updated(db, s, obj, session)
         case "account.updated":
             return await account_updated(db, obj, session)
         case "payout.paid":
@@ -111,11 +128,16 @@ async def payment_intent(db: Db, s: Settings, pi: Json, session: DbSession) -> O
 
 
 async def charge_refunded(db: Db, s: Settings, ch: Json, session: DbSession) -> Outcome:
-    """Refunds made in the admin console are recorded as they're made; this confirms them and
-    records any made elsewhere (the Stripe dashboard) so the ledger matches Stripe."""
+    """Refunds made in the admin console are recorded as they're confirmed; this confirms them and
+    records any made elsewhere (the Stripe dashboard) so the ledger matches Stripe. If the charge
+    itself isn't recorded yet (events can arrive in any order), the event waits for it."""
     visits = Visits(db)
-    visit = await visits.find_one({"charge.charge_id": ch.get("id")}, session=session)
-    if visit is None:
+    pi = ref_id(ch.get("payment_intent"))
+    match = [{"charge.charge_id": ch.get("id")}] + ([{"charge.payment_intent_id": pi}] if pi else [])
+    visit = await visits.find_one({"$or": match}, session=session)
+    if visit is None or visit.charge.status not in ("succeeded", "partially_refunded", "refunded"):
+        if pi:
+            return "deferred", "the charge isn't recorded yet; replayed when it is"
         return "no_match", "no visit charge with that id"
     charge = visit.charge
     unsettled = await PaymentRefunds(db).unsettled_pence(visit.id, session=session)
@@ -123,7 +145,7 @@ async def charge_refunded(db: Db, s: Settings, ch: Json, session: DbSession) -> 
     extra = min(int(ch.get("amount_refunded") or 0), charge.amount_pence) - known
     if extra <= 0:
         return "ignored", "refunds already recorded"
-    split = refund_split_for(charging.charged_split(visit, charge, "visit", s), known, extra)
+    split = refund_split_for(charging.charged_split(visit, charge, "visit", s), charge.refunded_pence, extra)
     refunded = charge.refunded_pence + extra
     ref = f"{ch['id']}:external:{ch.get('amount_refunded')}"
     await visits.update(
@@ -149,6 +171,44 @@ async def charge_refunded(db: Db, s: Settings, ch: Json, session: DbSession) -> 
         session=session,
     )
     return "applied", f"external refund of {extra}p"
+
+
+async def replay_deferred(db: Db, s: Settings, payment_intent: str, *, session: DbSession) -> None:
+    """Called in the transaction that records a charge's success: apply the refund events that
+    arrived before it."""
+    events = PaymentEvents(db)
+    for ev in await events.deferred_for(payment_intent, session=session):
+        outcome, note = await charge_refunded(db, s, ev.payload or {}, session)
+        if outcome != "deferred":
+            await events.set_outcome(ev.id, outcome, f"replayed: {note}", session=session)
+
+
+async def refund_updated(db: Db, s: Settings, re: Json, session: DbSession) -> Outcome:
+    """A refund we asked for moved on at Stripe: record it when it succeeds (our fee goes back
+    to the provider afterwards, from the settle task: no Stripe call here), release the amount
+    if it failed."""
+    refunds = PaymentRefunds(db)
+    intent = await refunds.by_refund_id(re.get("id", ""), session=session)
+    meta_intent = (re.get("metadata") or {}).get("intent")
+    if intent is None and meta_intent:
+        intent = await refunds.get(meta_intent, session=session)
+    if intent is None:
+        return "ignored", "not a refund we asked for (charge.refunded covers it)"
+    state = refund_state(re)
+    if intent.status in ("succeeded", "fee_pending") and state.status == "failed":
+        await audit(
+            db,
+            SYSTEM,
+            "payment.refund_failed_after_recording",
+            Related(visit_id=intent.visit_id, dispute_id=intent.dispute_id),
+            after={"intent_id": intent.id, "refund_id": re.get("id"), "amount_pence": intent.amount_pence},
+            note="Stripe reports this refund failed after it had succeeded. Check it in Stripe and adjust by hand.",
+            session=session,
+        )
+        return "applied", "failed after recording: needs a look"
+    before = intent.status
+    after = await apply_refund_result(db, s, intent.id, state, SYSTEM, session=session)
+    return ("applied", f"{before} -> {after.status}") if after and after.status != before else ("ignored", "no change")
 
 
 async def _provider_for_account(db: Db, account_id: str | None, session: DbSession):

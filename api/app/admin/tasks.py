@@ -9,36 +9,32 @@ from app.core.db import Db
 from app.core.tasks import periodic
 from app.core.timeutil import utcnow
 from app.payments import charging, refunds
-from app.repos.payments import PaymentRefunds
 from app.repos.visits import Visits
-from app.services.audit import SYSTEM
 
 log = logging.getLogger("oqj.payments.tasks")
 
-# Leave the request that started an attempt time to finish it, and stop before Stripe forgets
-# the idempotency key (24 hours), after which repeating a call could charge again.
+# Leave the request that started a payment time to finish it. Repeats that could move money
+# stop before Stripe forgets the idempotency key (24 hours), counted from when each attempt or
+# refund first began (immutable), never from the record's last update.
 SETTLE_AFTER = timedelta(minutes=5)
-SETTLE_UNTIL = timedelta(hours=23)
+LOOK_BACK = timedelta(days=7)
 
 
 @periodic("settle_pending_payments", every_seconds=300)
 async def settle_pending_payments(db: Db, s: Settings) -> None:
-    """Charges and refunds whose outcome we didn't hear (an interrupted call, Stripe unreachable):
-    ask again with the same idempotency key, which can't move money twice."""
+    """Charges and refunds whose outcome we didn't hear (an interrupted call, Stripe unreachable,
+    a refund still processing, our fee still to return): ask again, safely."""
     gateway = make_payment_gateway(s, db)
     now = utcnow()
-    window = {"$lte": now - SETTLE_AFTER, "$gte": now - SETTLE_UNTIL}
     for purpose in ("visit", "tip"):
         field = charging.field_for(purpose)
-        for visit in await Visits(db).find({f"{field}.status": "pending", "updated_at": window}, limit=50):
+        for visit in await Visits(db).find(
+            {f"{field}.status": "pending", "updated_at": {"$lte": now - SETTLE_AFTER, "$gte": now - LOOK_BACK}},
+            limit=50,
+        ):
             try:
+                # Reading a payment's state is always safe; repeating the call only within the key's life.
                 await charging.settle_unknown(db, s, gateway, visit, purpose)
             except Exception:
                 log.exception("couldn't settle the %s charge of visit %s", purpose, visit.id)
-    for intent in await PaymentRefunds(db).find(
-        {"status": {"$in": ["pending", "fee_pending"]}, "updated_at": window}, limit=50
-    ):
-        try:
-            await refunds.send_refund(db, s, gateway, intent, SYSTEM)
-        except Exception:
-            log.exception("couldn't settle refund %s", intent.id)
+    await refunds.settle_open_refunds(db, s, gateway, older_than=SETTLE_AFTER)

@@ -73,6 +73,7 @@ class PaymentIssue(BaseModel):
     status: str
     failure_reason: str | None
     since: datetime
+    kind: Literal["charge", "refund"] = "charge"
 
 
 class Overview(BaseModel):

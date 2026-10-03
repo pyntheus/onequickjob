@@ -3,10 +3,9 @@ the admin messages both, proposes a fix (a free return visit, or a partial refun
 provider) and closes the dispute, refunding through the gateway (app.payments.refunds) first
 when the outcome is a refund, then closing in one transaction with the messages."""
 
-from datetime import timedelta
 from typing import Literal
 
-from fastapi import status
+from fastapi import HTTPException, status
 
 from app.adapters.payments.base import PaymentGateway
 from app.admin.schemas import CloseIn, DisputeMessageIn, DisputeView, ProposeIn
@@ -16,7 +15,7 @@ from app.core.db import Db, DbSession, transaction
 from app.core.errors import fail, not_found
 from app.core.timeutil import utcnow
 from app.models.common import Actor, Related
-from app.models.disputes import DISPUTE_STAGES, Dispute, DisputeEvent, Resolution
+from app.models.disputes import DISPUTE_STAGES, Dispute, DisputeClosing, DisputeEvent, Resolution
 from app.models.messages import MessageThread, Participant
 from app.models.users import User
 from app.payments import refunds
@@ -27,7 +26,6 @@ from app.services.audit import audit
 from app.services.notify import link, notify, recipient_for
 
 type Party = Literal["customer", "provider"]
-REUSE_REFUND_WITHIN = timedelta(minutes=30)
 
 
 async def _get(db: Db, ref: str, session: DbSession | None = None) -> Dispute:
@@ -233,35 +231,76 @@ def outcome_text(kind: str, amount: int | None, provider_first: str) -> tuple[st
     return "We've closed it without further action.", "Closed: no further action"
 
 
+async def _claim(db: Db, ref: str, body: CloseIn, refundable: int, admin: Actor) -> DisputeClosing:
+    """Claim the close before any money moves, in one transaction: a second close at the same time
+    (or a retry after a failure) with the same outcome resumes this one; a different one waits."""
+    amount = refundable if body.outcome == "full_refund" else body.amount_pence
+    if body.outcome not in ("partial_refund", "full_refund"):
+        amount = None
+    elif not amount:
+        if body.outcome == "full_refund":
+            fail(status.HTTP_409_CONFLICT, "nothing_to_refund", "There's nothing left to refund.")
+        fail(status.HTTP_422_UNPROCESSABLE_CONTENT, "amount_needed", "Say how much to refund.")
+
+    async def claim(session: DbSession) -> DisputeClosing:
+        d = await _get(db, ref, session)
+        if d.stage == 3:
+            fail(status.HTTP_409_CONFLICT, "closed", "This dispute is already closed.")
+        if d.closing is not None:
+            same = d.closing.outcome == body.outcome and (
+                body.outcome == "full_refund" or d.closing.amount_pence == amount
+            )
+            if not same:
+                fail(
+                    status.HTTP_409_CONFLICT,
+                    "closing",
+                    "Someone is already closing this dispute another way. Have another look in a minute.",
+                )
+            return d.closing
+        closing = DisputeClosing(
+            outcome=body.outcome,
+            amount_pence=amount,
+            attempt=d.close_attempts + 1,
+            by_user_id=admin.user_id,
+            at=utcnow(),
+        )
+        if (
+            await Disputes(db).update(
+                d.id,
+                {"closing": closing.model_dump(mode="python"), "close_attempts": closing.attempt},
+                extra_filter={"stage": {"$ne": 3}, "closing": None},
+                session=session,
+            )
+            is None
+        ):  # pragma: no cover - the transaction makes a concurrent claim a write conflict
+            fail(status.HTTP_409_CONFLICT, "closing", "This dispute is being closed. Have another look in a minute.")
+        return closing
+
+    return await transaction(db, claim)
+
+
+async def _release(db: Db, d: Dispute, closing: DisputeClosing) -> None:
+    """A refund that definitely failed: let the dispute be closed again (with a new refund key)."""
+
+    async def release(session: DbSession) -> None:
+        await Disputes(db).update(
+            d.id, {"closing": None}, extra_filter={"closing.attempt": closing.attempt}, session=session
+        )
+
+    await transaction(db, release)
+
+
 async def close(db: Db, s: Settings, gateway: PaymentGateway, ref: str, body: CloseIn, admin: Actor) -> DisputeView:
     d = await _get(db, ref)
     if d.stage == 3:
         fail(status.HTTP_409_CONFLICT, "closed", "This dispute is already closed.")
     current = await view(db, d)
-    amount: int | None = None
+    closing = await _claim(db, ref, body, current.refundable_pence, admin)
+    amount = closing.amount_pence
     refund_id: str | None = None
-    if body.outcome in ("partial_refund", "full_refund"):
-        # A refund this dispute already made (a double click, or a close that failed after
-        # refunding) is reused rather than made twice.
-        recent = [
-            r
-            for r in await PaymentRefunds(db).find({"dispute_id": d.id, "status": {"$ne": "failed"}})
-            if utcnow() - r.created_at < REUSE_REFUND_WITHIN
-        ]
-        if recent:
-            amount, refund_id = recent[-1].amount_pence, recent[-1].refund_id or recent[-1].id
-        else:
-            amount = current.refundable_pence if body.outcome == "full_refund" else body.amount_pence
-            if not amount:
-                fail(
-                    status.HTTP_409_CONFLICT
-                    if body.outcome == "full_refund"
-                    else status.HTTP_422_UNPROCESSABLE_CONTENT,
-                    "amount_needed" if body.outcome == "partial_refund" else "nothing_to_refund",
-                    "Say how much to refund."
-                    if body.outcome == "partial_refund"
-                    else "There's nothing left to refund.",
-                )
+    if amount:
+        try:
+            # One refund per close attempt, always under the same key, however often it's resumed.
             out = await refunds.refund_visit(
                 db,
                 s,
@@ -271,8 +310,22 @@ async def close(db: Db, s: Settings, gateway: PaymentGateway, ref: str, body: Cl
                 f"Dispute {d.ref}: {d.title}" + (f". {body.note}" if body.note else ""),
                 admin,
                 dispute_id=d.id,
+                intent_id=f"dispute-{d.id}-close-{closing.attempt}",
             )
-            refund_id = out.refund_id
+        except HTTPException as e:
+            if e.status_code == status.HTTP_502_BAD_GATEWAY or (
+                e.status_code == status.HTTP_409_CONFLICT and e.detail.get("code") in ("more_than_paid", "not_paid")
+            ):
+                await _release(db, d, closing)  # it definitely didn't happen
+            raise
+        if out.refund_id is None:
+            fail(
+                status.HTTP_502_BAD_GATEWAY,
+                "refund_unconfirmed",
+                "We couldn't confirm the refund with the payment provider yet. Try closing again in a minute: "
+                "it won't refund twice.",
+            )
+        refund_id = out.refund_id
     told, status_text = outcome_text(body.outcome, amount, current.provider_first)
 
     async def apply(session: DbSession) -> Dispute:
@@ -296,6 +349,7 @@ async def close(db: Db, s: Settings, gateway: PaymentGateway, ref: str, body: Cl
                 "status_text": status_text,
                 "resolution": resolution.model_dump(mode="python"),
                 "closed_at": now,
+                "closing": None,
             },
             extra_filter={"stage": {"$ne": 3}},
             push={"events": {"$each": [e.model_dump(mode="python") for e in events]}},

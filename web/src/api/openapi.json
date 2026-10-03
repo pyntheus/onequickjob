@@ -5027,6 +5027,15 @@
             ],
             "title": "Failure Reason"
           },
+          "kind": {
+            "default": "charge",
+            "enum": [
+              "charge",
+              "refund"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
           "local_date": {
             "format": "date",
             "title": "Local Date",

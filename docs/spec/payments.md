@@ -93,7 +93,8 @@ through after all), then starts the next one.
 
 Outcomes we can't see (Stripe unreachable, a concurrent request with the same key) leave the
 charge `pending`; the webhook settles it, and the `settle_pending_payments` task (every 5
-minutes, between 5 minutes and 23 hours old) repeats the call with the same key.
+minutes) reads the payment if we know its id, or repeats the call with the same key, but only
+within 23 hours of when that attempt began (`payment_attempts`, never the visit's last update).
 
 Failures that aren't the card (`ChargeResult.failure_code` starting `platform:`, e.g. the
 provider has no payment account) never tell the customer to check their card; they show in the
@@ -107,24 +108,41 @@ state. Its messages use the idempotency keys `charge:<visit id>:visit:paid:<temp
 
 ### Refunds (`app.payments.refunds`)
 
-1. **Intent** (`payment_refunds`), in a transaction that also writes the visit, so two refunds of
-   one visit at once conflict and the retry sees the other: it must fit in what's left
-   (`charge.amount - charge.refunded - refunds still pending`).
+1. **Intent** (`payment_refunds`). One refund of a visit at a time: a new one is refused
+   (`refund_in_progress`) until the last is confirmed, and it must fit in what's left. The intent
+   writes the visit too, so two refunds asked for at once conflict and the retry sees the other.
 2. **Call** `PaymentGateway.refund(charge, amount, fee, idempotency_key=<intent id>)`: Stripe
-   `refunds.create(reverse_transfer=true, refund_application_fee=false)` then
-   `application_fees.refunds.create(amount=fee)` (key `<intent id>:fee`).
-3. **Result**, one transaction: the visit's `charge.refunded_pence` and status
-   (`partially_refunded` / `refunded`), a negative ledger `refund` entry, `refund_issued` to the
-   customer, and an audit entry (`payment.refunded`, `funded_by: provider`).
+   `refunds.create(reverse_transfer=true, refund_application_fee=false, metadata.intent)`.
+3. **Result**, one transaction. Nothing moves until the **customer's refund has succeeded**:
+   then the visit's `charge.refunded_pence` and status (`partially_refunded` / `refunded`), a
+   negative ledger `refund` entry, `refund_issued` to the customer and an audit entry
+   (`payment.refunded`, `funded_by: provider`). Our fee goes back to the provider after that,
+   with `application_fees.refunds.create(amount=fee)` (key `<intent id>:fee`); until it has, the
+   intent is `fee_pending`.
 
-The fee is **cumulative proportional**: each refund returns
+Intent states: `pending` (not confirmed: Stripe is processing it, or we couldn't learn the
+outcome; the amount stays reserved and nothing is recorded), `fee_pending`, `succeeded`,
+`failed` (definitely not made; the amount is released). Stripe's `refund.updated` /
+`refund.failed` webhooks move a pending intent on (recording it on success, releasing it on
+failure; the fee step then runs from the task, never inside the webhook's transaction). Once a
+refund's id is known it is only ever **read** (`refund_status`), never created again. An
+unknown outcome is repeated with the same key, but not within a minute of the first request (it
+may still be in flight), and not after 23 hours from when the intent was **created** (Stripe
+forgets keys after 24): after that it shows in the overview for a check in the dashboard. The
+`settle_pending_payments` task does the same every 5 minutes. A refund that fails after it had
+succeeded is audit-logged (`payment.refund_failed_after_recording`) for a manual adjustment.
+
+The fee is **cumulative proportional** over confirmed refunds: each refund returns
 `refund_split(total refunded after) - refund_split(total refunded before)`. One refund is exactly
 `money.refund_split`; several always add up to what one refund of their total would return, and a
-full refund returns exactly the fee. If the fee part fails after the customer's refund, the
-intent is `fee_pending` and the settle task retries it with the same keys.
+full refund returns exactly the fee. Serialising refunds keeps this exact even when one fails.
 
-Disputes close with a refund through the same path (`dispute_id` on the intent); a repeated close
-reuses the refund already made rather than making another.
+**Disputes** claim the close first (`disputes.closing`, in a transaction): a second close at the
+same time, or a retry, resumes the same close and its refund intent
+(`dispute-<id>-close-<attempt>`, always the same key); a different outcome waits. A refund that
+definitely failed releases the claim; one Stripe hasn't confirmed asks the admin to close again
+in a minute (it can't refund twice). A close with a refund Stripe is still processing closes
+with that refund's id.
 
 ### Payouts
 
@@ -143,9 +161,12 @@ account's payouts and balance (`Stripe-Account` header). `payout.paid` sends `pa
 - Order doesn't matter: a payment event applies only to the attempt named in its metadata
   (`idempotency_key`), and nothing undoes a success.
 - Handled: `payment_intent.succeeded | payment_failed | requires_action | processing | canceled`,
-  `charge.refunded` (confirms our refunds; one made in the Stripe dashboard is recorded in the
-  ledger with our usual split and audit-logged as `payment.refund_external`), `account.updated`,
-  `payout.paid`, `payout.failed`. Anything else is acknowledged and logged.
+  `refund.updated | refund.failed` (and `charge.refund.updated`), `charge.refunded` (confirms our
+  refunds; one made in the Stripe dashboard is recorded in the ledger with our usual split and
+  audit-logged as `payment.refund_external`), `account.updated`, `payout.paid`, `payout.failed`.
+  Anything else is acknowledged and logged.
+- A `charge.refunded` that arrives before its charge is recorded is kept with its payload
+  (`outcome: deferred`) and applied in the same transaction that records the charge's success.
 - Live-mode events are ignored while `DEMO_MODE` is on.
 
 ## Testing with Stripe (test mode)
@@ -224,7 +245,8 @@ With the fake gateway, a customer whose name contains "decline" is declined and 
 |---|---|---|
 | `payment_events` | One per verified webhook, `_id` = Stripe event id: type, account, object id, outcome (`applied`, `ignored`, `no_match`), received at | the webhook only |
 | `payment_refunds` | One per refund: visit, charge, dispute, amount, our fee, provider's share, reason, who asked, status (`pending`, `fee_pending`, `succeeded`, `failed`), refund id | `app.payments.refunds` |
+| `payment_attempts` | When each charge attempt (idempotency key) began, so repeats stop before Stripe forgets the key | `app.payments.charging` |
 | `fake_gateway` | The fake's own records (accounts, setups, charges, refunds) | the fake only |
 
-Both new collections and their indexes are created at start-up by the payments router; folding
+The new collections and their indexes are created at start-up by the payments router; folding
 them into `app.repos.ALL` and `domain.md` is a contract change (`contract-changes/L3.md`).

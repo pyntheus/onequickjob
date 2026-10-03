@@ -50,6 +50,7 @@ from app.repos import (
     Providers,
     Visits,
 )
+from app.repos.payments import PaymentRefunds
 from app.services.audit import audit
 from app.services.marketplace import scaled_first_price
 from app.services.notify import link
@@ -57,6 +58,7 @@ from app.services.notify import link
 WAITING_AFTER = timedelta(hours=1)  # newer requests are still being answered in the usual way
 STALLED_AFTER = timedelta(days=3)
 PAYMENT_PENDING_AFTER = timedelta(minutes=10)
+REFUND_STUCK_AFTER = timedelta(minutes=15)
 
 
 def week_label(start: date) -> str:
@@ -292,11 +294,42 @@ async def payment_issues(db: Db, cats: dict[str, Category]) -> list[PaymentIssue
         sort=[("updated_at", -1)],
         limit=50,
     )
-    customers = {c.id: c for c in await Customers(db).find({"_id": {"$in": list({v.customer_id for v in visits})}})}
-    return [
+    open_refunds = await PaymentRefunds(db).find(
+        {"status": {"$in": ["pending", "fee_pending"]}, "created_at": {"$lte": utcnow() - REFUND_STUCK_AFTER}},
+        sort=[("created_at", -1)],
+        limit=50,
+    )
+    refunded = {v.id: v for v in await Visits(db).find({"_id": {"$in": [r.visit_id for r in open_refunds]}})}
+    customers = {
+        c.id: c
+        for c in await Customers(db).find(
+            {"_id": {"$in": list({v.customer_id for v in [*visits, *refunded.values()]})}}
+        )
+    }
+
+    def who(v) -> str:
+        return short_name(customers[v.customer_id].name) if v.customer_id in customers else "A customer"
+
+    refund_issues = [
+        PaymentIssue(
+            visit_id=r.visit_id,
+            customer_name=who(v),
+            provider_short=v.performer.name,
+            category_name=cats[v.category_id].name if v.category_id in cats else v.category_id,
+            local_date=v.local_date,
+            amount_pence=r.amount_pence,
+            status="refund_" + r.status,
+            failure_reason=r.failure_reason,
+            since=r.created_at,
+            kind="refund",
+        )
+        for r in open_refunds
+        if (v := refunded.get(r.visit_id)) is not None
+    ]
+    return refund_issues + [
         PaymentIssue(
             visit_id=v.id,
-            customer_name=short_name(customers[v.customer_id].name) if v.customer_id in customers else "A customer",
+            customer_name=who(v),
             provider_short=v.performer.name,
             category_name=cats[v.category_id].name if v.category_id in cats else v.category_id,
             local_date=v.local_date,

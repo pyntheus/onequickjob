@@ -26,6 +26,16 @@ class Resolution(Model):
     note: str = ""
 
 
+class DisputeClosing(Model):
+    """A close in progress (L3): claimed before any refund, so two closes can't both refund."""
+
+    outcome: Literal["return_visit", "partial_refund", "full_refund", "none"]
+    amount_pence: Pence | None = None
+    attempt: int
+    by_user_id: str | None = None
+    at: datetime
+
+
 class Dispute(Timestamped):
     """We mediate; we don't guarantee. Refunds are provider-funded (decisions.md)."""
 
@@ -48,3 +58,5 @@ class Dispute(Timestamped):
     thread_id: str | None = None
     events: list[DisputeEvent] = Field(default_factory=list)
     closed_at: datetime | None = None
+    closing: DisputeClosing | None = Field(default=None, description="A close in progress (L3)")
+    close_attempts: int = Field(default=0, description="Closes started, for each one's refund key (L3)")

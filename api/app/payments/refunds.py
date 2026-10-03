@@ -1,20 +1,27 @@
 """Refunding a visit's charge: provider-funded, through the gateway (decisions.md R16).
 
-Like charging, three steps and no gateway call inside a transaction:
+Like charging, no gateway call inside a transaction:
 
-1. record the refund intent (payment_refunds), checking in the same transaction that it fits
-   in what's left to refund (concurrent refunds of one visit conflict, so one re-checks);
-2. call PaymentGateway.refund with the intent's id as the idempotency key;
-3. record the result in one transaction: the visit's charge, the ledger refund entry (negative
-   amounts, gross == fee + net), the customer's message and the audit entry.
+1. record the refund intent (payment_refunds). One refund of a visit at a time: a new one waits
+   until the last is confirmed, and it must fit in what's left. The intent writes the visit too,
+   so two refunds asked for at once conflict and the second sees the first.
+2. call PaymentGateway.refund with the intent's id as the idempotency key.
+3. record the result in one transaction. Only once the customer's refund has SUCCEEDED does
+   anything move: the visit's charge, the ledger refund entry (negative amounts,
+   gross == fee + net), the customer's message and the audit entry. A refund the gateway is
+   still processing, or whose outcome we couldn't learn, stays pending and reserved; the
+   refund webhook, a repeat (same key, only while the refund id is unknown) or the settle task
+   finishes it. Our fee goes back to the provider after the customer's refund succeeds (status
+   fee_pending until it has).
 
-The split comes from money.refund_split, used cumulatively: a refund returns the fee for
-everything refunded so far less the fee already returned. One refund is exactly
-money.refund_split; several partial ones add up to what a single refund of their total would
+The split comes from money.refund_split, used cumulatively over CONFIRMED refunds: a refund
+returns the fee for everything refunded so far less the fee already returned. One refund is
+exactly money.refund_split; several add up to what a single refund of their total would
 return, so a full refund always returns exactly the fee and the provider's share.
 """
 
 import logging
+from datetime import timedelta
 from typing import Literal
 
 from fastapi import status
@@ -34,11 +41,17 @@ from app.payments.charging import charged_split, get_visit
 from app.repos.payments import PaymentRefunds
 from app.repos.visits import Visits
 from app.services import ledger, wording
-from app.services.audit import audit
+from app.services.audit import SYSTEM, audit
 
 log = logging.getLogger("oqj.payments")
 
 REFUNDABLE = ("succeeded", "partially_refunded")
+# Stripe keeps idempotency keys for 24 hours; repeats that could move money stop before then.
+RETRY_WINDOW = timedelta(hours=23)
+IN_FLIGHT = timedelta(seconds=60)
+BY_HAND = (
+    "This refund was asked for over a day ago and isn't finished. Check it in the Stripe dashboard before trying again."
+)
 
 
 def refund_split_for(original: money.Split, already_pence: int, amount_pence: int) -> money.Split:
@@ -64,7 +77,10 @@ def _target(visit: Visit, dispute_id: str | None) -> Related:
     )
 
 
-def _out(intent: RefundIntent, status_: Literal["succeeded", "pending", "failed"]) -> RefundOut:
+def _out(intent: RefundIntent) -> RefundOut:
+    status_: Literal["succeeded", "pending", "failed"] = (
+        "succeeded" if intent.status == "succeeded" else "failed" if intent.status == "failed" else "pending"
+    )
     return RefundOut(
         visit_id=intent.visit_id,
         status=status_,
@@ -79,6 +95,11 @@ def refundable_left(visit: Visit, unsettled_pence: int) -> int:
     return max(visit.charge.amount_pence - visit.charge.refunded_pence - unsettled_pence, 0)
 
 
+def within_retry_window(intent: RefundIntent) -> bool:
+    """created_at never changes, so retries can't keep themselves alive past the key's life."""
+    return utcnow() - intent.created_at < RETRY_WINDOW
+
+
 async def refund_visit(
     db: Db,
     s: Settings,
@@ -89,7 +110,13 @@ async def refund_visit(
     actor: Actor,
     *,
     dispute_id: str | None = None,
+    intent_id: str | None = None,
 ) -> RefundOut:
+    """Refund part or all of a visit's charge. With intent_id (a dispute's close), the same id
+    always means the same refund: a repeat resumes it instead of refunding again."""
+    refunds = PaymentRefunds(db)
+    if intent_id and (existing := await refunds.get(intent_id)) is not None:
+        return await resume(db, s, gateway, existing, actor)
     visit = await get_visit(db, visit_id)
     if visit.charge.status not in REFUNDABLE or not visit.charge.charge_id:
         fail(status.HTTP_409_CONFLICT, "not_paid", "Only a visit that's been paid can be refunded.")
@@ -102,12 +129,19 @@ async def refund_visit(
         )
     original = charged_split(visit, visit.charge, "visit", s)
 
-    async def record_intent(session: DbSession) -> RefundIntent:
+    async def record_intent(session: DbSession) -> tuple[RefundIntent, bool]:
+        if intent_id and (same := await refunds.get(intent_id, session=session)) is not None:
+            return same, False
         v = await get_visit(db, visit_id, session)
         if v.charge.status not in REFUNDABLE or v.charge.charge_id != visit.charge.charge_id:
             fail(status.HTTP_409_CONFLICT, "charge_changed", "This payment has just changed. Have another look.")
-        unsettled = await PaymentRefunds(db).unsettled_pence(visit_id, session=session)
-        left = refundable_left(v, unsettled)
+        if await refunds.unsettled(visit_id, session=session):
+            fail(
+                status.HTTP_409_CONFLICT,
+                "refund_in_progress",
+                "A refund of this visit is still being processed. Try again once it has gone through.",
+            )
+        left = refundable_left(v, 0)
         if amount_pence > left:
             fail(
                 status.HTTP_409_CONFLICT,
@@ -115,7 +149,7 @@ async def refund_visit(
                 f"That's more than is left to refund ({wording.money(left)}).",
                 left_pence=left,
             )
-        split = refund_split_for(original, v.charge.refunded_pence + unsettled, amount_pence)
+        split = refund_split_for(original, v.charge.refunded_pence, amount_pence)
         intent = RefundIntent(
             visit_id=visit_id,
             charge_id=v.charge.charge_id or "",
@@ -127,116 +161,201 @@ async def refund_visit(
             reason=reason,
             requested_by=actor.user_id,
         )
-        await PaymentRefunds(db).insert(intent, session=session)
+        if intent_id:
+            intent.id = intent_id
+        await refunds.insert(intent, session=session)
         # Writing the visit makes two refunds of it at once conflict: the driver re-runs one,
-        # which then sees the other's intent in what's left.
+        # which then sees the other's intent.
         await Visits(db).update(visit_id, {}, session=session)
-        return intent
+        return intent, True
 
-    intent = await transaction(db, record_intent)
+    intent, new = await transaction(db, record_intent)
+    if not new:
+        return await resume(db, s, gateway, intent, actor)
     return await send_refund(db, s, gateway, intent, actor)
 
 
 async def send_refund(db: Db, s: Settings, gateway: PaymentGateway, intent: RefundIntent, actor: Actor) -> RefundOut:
-    """Steps 2 and 3. Safe to repeat for an unsettled intent: the gateway sees the same key."""
+    """Ask the gateway to make the refund. Only for an intent whose refund id is unknown, within
+    the key's life: the key makes a repeat return the refund already made."""
     try:
         result = await gateway.refund(
             intent.charge_id, intent.amount_pence, intent.fee_pence, reason=intent.reason, idempotency_key=intent.id
         )
     except Exception:
-        log.exception("refund %s for visit %s failed unexpectedly", intent.id, intent.visit_id)
-        return _out(intent, "pending")
-    return await record_refund_result(db, s, intent, result, actor)
-
-
-async def record_refund_result(
-    db: Db, s: Settings, intent: RefundIntent, result: RefundResult, actor: Actor
-) -> RefundOut:
-    refunds = PaymentRefunds(db)
-
-    async def record(session: DbSession) -> RefundIntent:
-        current = await refunds.get(intent.id, session=session)
-        assert current is not None
-        if current.status in ("succeeded", "failed"):
-            return current
-        visit = await get_visit(db, intent.visit_id, session)
-        target = _target(visit, intent.dispute_id)
-        if result.status == "failed":
-            settled = await refunds.settle(
-                intent.id, "failed", refund_id=result.refund_id, failure_reason=result.failure_reason, session=session
-            )
-            await audit(
-                db,
-                actor,
-                "payment.refund_failed",
-                target,
-                after={"amount_pence": intent.amount_pence, "intent_id": intent.id},
-                note=result.failure_reason or "",
-                session=session,
-            )
-            return settled or current
-        fee_done = intent.fee_pence == 0 or result.fee_refunded_pence >= intent.fee_pence
-        settled = await refunds.settle(
-            intent.id,
-            "succeeded" if fee_done else "fee_pending",
-            refund_id=result.refund_id,
-            failure_reason=None if fee_done else result.failure_reason,
-            session=session,
+        log.exception("refund %s for visit %s: outcome unknown", intent.id, intent.visit_id)
+        result = RefundResult(
+            status="pending",
+            amount_pence=intent.amount_pence,
+            fee_refunded_pence=0,
+            failure_reason="We couldn't get an answer from the payment provider.",
         )
-        if current.status == "pending":  # the customer's money moved: record it once
-            charge = visit.charge
-            refunded = charge.refunded_pence + intent.amount_pence
-            await Visits(db).update(
-                visit.id,
-                {
-                    "charge.refunded_pence": refunded,
-                    "charge.status": "refunded" if refunded >= charge.amount_pence else "partially_refunded",
-                    "charge.refund_ids": [*charge.refund_ids, result.refund_id or intent.id],
-                },
-                session=session,
-            )
-            await ledger.record_refund(
-                db,
-                visit,
-                intent_split(visit, intent, s),
-                at=utcnow(),
-                gateway=intent.gateway,
-                refund_id=result.refund_id,
-                session=session,
-            )
-            await notices.refunded(
-                db,
-                s,
-                visit,
-                intent.amount_pence,
-                key=f"refund:{intent.id}",
-                session=session,
-                dispute_id=intent.dispute_id,
-            )
-            await audit(
-                db,
-                actor,
-                "payment.refunded",
-                target,
-                before={"refunded_pence": charge.refunded_pence, "status": charge.status},
-                after={
-                    "refunded_pence": refunded,
-                    "amount_pence": intent.amount_pence,
-                    "fee_pence": intent.fee_pence,
-                    "provider_pence": intent.provider_pence,
-                    "refund_id": result.refund_id,
-                    "funded_by": "provider",
-                },
-                note=intent.reason,
-                session=session,
-            )
-        return settled or current
+    return await record_refund_result(db, s, intent.id, result, actor)
 
-    final = await transaction(db, record)
-    if final.status == "failed":
+
+async def resume(db: Db, s: Settings, gateway: PaymentGateway, intent: RefundIntent, actor: Actor) -> RefundOut:
+    """Carry an unfinished refund forward without ever making a second one."""
+    if intent.status in ("succeeded", "failed"):
+        return _finish(intent)
+    can_move = within_retry_window(intent)  # repeats that could move money: only while the key lives
+    if intent.status == "fee_pending":
+        if not can_move:
+            fail(status.HTTP_409_CONFLICT, "check_by_hand", BY_HAND)
+        fee = await gateway.refund_fee(intent.charge_id, intent.fee_pence, idempotency_key=f"{intent.id}:fee")
+        return await record_refund_result(db, s, intent.id, _fee_step(intent, fee), actor)
+    if intent.refund_id:  # made, not yet confirmed: read it, never make it again
+        result = await gateway.refund_status(intent.refund_id)
+        if result.status == "succeeded" and intent.fee_pence > 0 and can_move:
+            fee = await gateway.refund_fee(intent.charge_id, intent.fee_pence, idempotency_key=f"{intent.id}:fee")
+            result = result.model_copy(
+                update={"fee_refunded_pence": fee.fee_refunded_pence, "failure_reason": fee.failure_reason}
+            )
+        return await record_refund_result(db, s, intent.id, result, actor)
+    if not can_move:
+        fail(status.HTTP_409_CONFLICT, "check_by_hand", BY_HAND)
+    if utcnow() - intent.created_at < IN_FLIGHT:
+        return _out(intent)  # its first request is probably still going: don't race it
+    return await send_refund(db, s, gateway, intent, actor)
+
+
+def _fee_step(intent: RefundIntent, fee: RefundResult) -> RefundResult:
+    """The fee step's result, as a result for an intent whose customer refund succeeded."""
+    return RefundResult(
+        status="succeeded",
+        refund_id=intent.refund_id,
+        amount_pence=intent.amount_pence,
+        fee_refunded_pence=fee.fee_refunded_pence if fee.status == "succeeded" else 0,
+        failure_reason=fee.failure_reason,
+    )
+
+
+def _finish(intent: RefundIntent) -> RefundOut:
+    if intent.status == "failed":
         fail(
             status.HTTP_502_BAD_GATEWAY,
             "refund_failed",
-            f"The refund didn't go through: {final.failure_reason or 'the payment provider refused it.'}",
+            f"The refund didn't go through: {intent.failure_reason or 'the payment provider refused it.'}",
         )
-    return _out(final, "succeeded" if final.status == "succeeded" else "pending")
+    return _out(intent)
+
+
+async def apply_refund_result(
+    db: Db, s: Settings, intent_id: str, result: RefundResult, actor: Actor, *, session: DbSession
+) -> RefundIntent | None:
+    """Inside a transaction: move an intent to the gateway's answer. The money is recorded when,
+    and only when, the customer's refund first shows as succeeded."""
+    refunds = PaymentRefunds(db)
+    current = await refunds.get(intent_id, session=session)
+    if current is None or current.status in ("succeeded", "failed"):
+        return current
+    visit = await get_visit(db, current.visit_id, session)
+    target = _target(visit, current.dispute_id)
+    if result.status == "pending":
+        if current.status == "pending":
+            return await refunds.note_pending(
+                intent_id, refund_id=result.refund_id, failure_reason=result.failure_reason, session=session
+            )
+        return current
+    if result.status == "failed":
+        if current.status == "fee_pending":  # the customer has their money; only our fee is stuck
+            return current
+        settled = await refunds.settle(
+            intent_id, "failed", refund_id=result.refund_id or current.refund_id, failure_reason=result.failure_reason,
+            session=session,
+        )  # fmt: skip
+        await audit(
+            db,
+            actor,
+            "payment.refund_failed",
+            target,
+            after={"amount_pence": current.amount_pence, "intent_id": intent_id, "refund_id": result.refund_id},
+            note=result.failure_reason or "",
+            session=session,
+        )
+        return settled
+    fee_done = current.fee_pence == 0 or result.fee_refunded_pence >= current.fee_pence
+    settled = await refunds.settle(
+        intent_id,
+        "succeeded" if fee_done else "fee_pending",
+        refund_id=result.refund_id or current.refund_id,
+        failure_reason=None if fee_done else result.failure_reason,
+        session=session,
+    )
+    if current.status == "pending":  # the customer's money moved: record it once
+        charge = visit.charge
+        refunded = charge.refunded_pence + current.amount_pence
+        refund_id = result.refund_id or current.refund_id
+        await Visits(db).update(
+            visit.id,
+            {
+                "charge.refunded_pence": refunded,
+                "charge.status": "refunded" if refunded >= charge.amount_pence else "partially_refunded",
+                "charge.refund_ids": [*charge.refund_ids, refund_id or intent_id],
+            },
+            session=session,
+        )
+        await ledger.record_refund(
+            db,
+            visit,
+            intent_split(visit, current, s),
+            at=utcnow(),
+            gateway=current.gateway,
+            refund_id=refund_id,
+            session=session,
+        )
+        await notices.refunded(
+            db,
+            s,
+            visit,
+            current.amount_pence,
+            key=f"refund:{intent_id}",
+            session=session,
+            dispute_id=current.dispute_id,
+        )
+        await audit(
+            db,
+            actor,
+            "payment.refunded",
+            target,
+            before={"refunded_pence": charge.refunded_pence, "status": charge.status},
+            after={
+                "refunded_pence": refunded,
+                "amount_pence": current.amount_pence,
+                "fee_pence": current.fee_pence,
+                "provider_pence": current.provider_pence,
+                "refund_id": refund_id,
+                "funded_by": "provider",
+            },
+            note=current.reason,
+            session=session,
+        )
+    return settled
+
+
+async def record_refund_result(db: Db, s: Settings, intent_id: str, result: RefundResult, actor: Actor) -> RefundOut:
+    async def record(session: DbSession) -> RefundIntent | None:
+        return await apply_refund_result(db, s, intent_id, result, actor, session=session)
+
+    final = await transaction(db, record)
+    assert final is not None
+    return _finish(final)
+
+
+async def settle_open_refunds(db: Db, s: Settings, gateway: PaymentGateway, *, older_than: timedelta) -> int:
+    """For the periodic task: carry forward refunds left unfinished (pending at the gateway, an
+    unknown outcome, our fee still to return), within the key's life. Returns how many it tried."""
+    now = utcnow()
+    tried = 0
+    for intent in await PaymentRefunds(db).find(
+        {
+            "status": {"$in": ["pending", "fee_pending"]},
+            "created_at": {"$lte": now - older_than, "$gte": now - RETRY_WINDOW},
+        },
+        limit=50,
+    ):
+        tried += 1
+        try:
+            await resume(db, s, gateway, intent, SYSTEM)
+        except Exception:
+            log.exception("couldn't settle refund %s", intent.id)
+    return tried

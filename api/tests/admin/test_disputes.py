@@ -103,3 +103,36 @@ async def test_a_repeated_close_never_refunds_twice(jo, db, catalogue):
     second = await jo.post(f"/api/admin/disputes/{d.ref}/close", json=body)
     assert first.status_code == 200 and second.status_code == 409
     assert len(await LedgerEntries(db).find({"visit_id": d.visit_id, "kind": "refund"})) == 1
+
+
+async def test_concurrent_closes_refund_once(jo, sam, db, catalogue):
+    import asyncio
+
+    d = await a_dispute(db, 3000)
+    body = {"outcome": "partial_refund", "amount_pence": 1000}
+    results = await asyncio.gather(
+        jo.post(f"/api/admin/disputes/{d.ref}/close", json=body),
+        sam.post(f"/api/admin/disputes/{d.ref}/close", json=body),
+        jo.post(f"/api/admin/disputes/{d.ref}/close", json=body),
+    )
+    assert sorted(r.status_code for r in results)[0] == 200
+    assert len(await LedgerEntries(db).find({"visit_id": d.visit_id, "kind": "refund"})) == 1
+    assert await db["fake_gateway"].count_documents({"kind": "refund"}) == 1
+    closed = await Disputes(db).by_ref(d.ref)
+    assert closed and closed.stage == 3 and closed.closing is None
+
+
+async def test_a_close_another_way_waits_for_the_first(jo, db, catalogue):
+    d = await a_dispute(db)
+    await Disputes(db).update(
+        d.id,
+        {
+            "closing": {"outcome": "partial_refund", "amount_pence": 500, "attempt": 1, "at": utcnow()},
+            "close_attempts": 1,
+        },
+    )
+    r = await jo.post(f"/api/admin/disputes/{d.ref}/close", json={"outcome": "none"})
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "closing"
+    # The same close resumes (its refund key is the attempt's), and finishes.
+    v = ok(await jo.post(f"/api/admin/disputes/{d.ref}/close", json={"outcome": "partial_refund", "amount_pence": 500}))
+    assert v["stage"] == 3 and v["refunded_pence"] == 500

@@ -95,6 +95,10 @@ PLATFORM_FAILURE = "platform:"
 
 
 class RefundResult(BaseModel):
+    """status is the customer's refund: succeeded; pending (the gateway is still processing it, or
+    we couldn't tell, with refund_id None: repeat with the same key); failed (definitely not made).
+    fee_refunded_pence is how much of our fee went back to the provider with it (L3)."""
+
     status: Literal["succeeded", "pending", "failed"]
     refund_id: str | None = None
     amount_pence: int
@@ -153,9 +157,19 @@ class PaymentGateway(Protocol):
         reason: str,
         idempotency_key: str | None = None,
     ) -> RefundResult:
-        """Refund part or all of a charge, reversing the transfer and refunding the
-        application fee by exactly fee_refund_pence (from money.refund_split). With an
-        idempotency_key, repeating the call returns the same refund (L3 addition)."""
+        """Refund part or all of a charge, reversing the transfer (the provider funds it), and once
+        the customer's refund has succeeded return exactly fee_refund_pence of our fee (from
+        money.refund_split). With an idempotency_key, repeating the call returns the same refund
+        (L3 addition); never repeat it once the refund id is known: use refund_status."""
+        ...
+
+    async def refund_status(self, refund_id: str) -> RefundResult:
+        """Where a refund stands now (fee_refunded_pence 0: the fee is a separate step) (L3 addition)."""
+        ...
+
+    async def refund_fee(self, charge_id: str, fee_refund_pence: int, *, idempotency_key: str) -> RefundResult:
+        """Return fee_refund_pence of our fee on a charge to the provider: the fee part of a refund
+        whose customer refund has succeeded. status is this step's (L3 addition)."""
         ...
 
     async def charge_status(self, payment_intent_id: str) -> ChargeResult:

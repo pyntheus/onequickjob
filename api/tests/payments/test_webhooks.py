@@ -180,3 +180,77 @@ async def test_live_events_are_ignored_in_demo_mode(client, db, catalogue, webho
     await post(client, e)
     assert (await Visits(db).get(v.id)).charge.status == "requires_action"  # type: ignore[union-attr]
     assert (await db["payment_events"].find_one({"_id": e["id"]}))["outcome"] == "ignored"  # type: ignore[index]
+
+
+async def test_a_refund_event_before_the_charge_is_recorded_waits_for_it(client, db, catalogue, webhook_secret):
+    v, key = await waiting_visit(db, status="pending", pi=None)  # type: ignore[arg-type]
+    ch = {"id": "ch_1", "object": "charge", "amount": 3000, "amount_refunded": 1000, "payment_intent": "pi_1"}
+    early = event("charge.refunded", ch)
+    await post(client, early)
+    rec = await db["payment_events"].find_one({"_id": early["id"]})
+    assert rec and rec["outcome"] == "deferred" and rec["payment_intent"] == "pi_1" and rec["payload"]["id"] == "ch_1"
+    assert (await post(client, early)).json()["duplicate"] is True  # Stripe's retry changes nothing
+    await post(client, pi_event("payment_intent.succeeded", v.id, key, "succeeded"))
+    charge = (await Visits(db).get(v.id)).charge  # type: ignore[union-attr]
+    assert (charge.status, charge.refunded_pence) == ("partially_refunded", 1000)
+    kinds = sorted(e.kind for e in await LedgerEntries(db).find({"visit_id": v.id}))
+    assert kinds == ["charge", "refund"]
+    rec = await db["payment_events"].find_one({"_id": early["id"]})
+    assert rec and rec["outcome"] == "applied" and rec["payload"] is None
+
+
+async def refund_waiting(db, *, refund_id: str = "re_1"):
+    """A Stripe-charged visit with a £15 refund asked for and still processing."""
+    from app.models.payments import RefundIntent
+    from app.repos.payments import PaymentRefunds
+
+    v, _ = await waiting_visit(db)
+    await Visits(db).update(v.id, {"charge.status": "succeeded", "charge.charge_id": "ch_1"})
+    intent = RefundIntent(
+        visit_id=v.id,
+        charge_id="ch_1",
+        gateway="stripe",
+        amount_pence=1500,
+        fee_pence=225,
+        provider_pence=1275,
+        reason="Half",
+        refund_id=refund_id,
+    )
+    await PaymentRefunds(db).insert(intent)
+    return v, intent
+
+
+async def test_a_refund_that_succeeds_later_is_recorded_then_its_fee_returned(client, db, catalogue, webhook_secret):
+    from app.repos.payments import PaymentRefunds
+
+    v, intent = await refund_waiting(db)
+    re = {"id": "re_1", "object": "refund", "status": "succeeded", "amount": 1500, "metadata": {"intent": intent.id}}
+    await post(client, event("refund.updated", re))
+    after = await PaymentRefunds(db).get(intent.id)
+    assert after and after.status == "fee_pending"  # the settle task returns our fee (a Stripe call)
+    charge = (await Visits(db).get(v.id)).charge  # type: ignore[union-attr]
+    assert (charge.status, charge.refunded_pence) == ("partially_refunded", 1500)
+    [entry] = await LedgerEntries(db).find({"visit_id": v.id, "kind": "refund"})
+    assert (entry.gross_pence, entry.fee_pence, entry.net_pence) == (-1500, -225, -1275)
+    # Stripe's charge.refunded for the same refund adds nothing.
+    ch = {"id": "ch_1", "object": "charge", "amount": 3000, "amount_refunded": 1500, "payment_intent": "pi_1"}
+    await post(client, event("charge.refunded", ch))
+    assert len(await LedgerEntries(db).find({"visit_id": v.id, "kind": "refund"})) == 1
+
+
+async def test_a_refund_that_fails_releases_its_amount(client, db, catalogue, webhook_secret):
+    from app.repos.payments import PaymentRefunds
+
+    v, intent = await refund_waiting(db, refund_id="re_9")
+    re = {
+        "id": "re_9",
+        "object": "refund",
+        "status": "failed",
+        "amount": 1500,
+        "failure_reason": "expired_or_canceled_card",
+    }
+    await post(client, event("refund.failed", re))
+    after = await PaymentRefunds(db).get(intent.id)
+    assert after and (after.status, after.failure_reason) == ("failed", "expired_or_canceled_card")
+    assert await PaymentRefunds(db).unsettled_pence(v.id) == 0
+    assert not await LedgerEntries(db).find({"visit_id": v.id, "kind": "refund"})

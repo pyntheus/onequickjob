@@ -318,7 +318,7 @@ async def test_a_refund_reverses_the_transfer_and_returns_exactly_our_share_of_t
     assert (res.status, res.refund_id, res.fee_refunded_pence) == ("succeeded", "re_1", 225)
 
 
-async def test_a_refund_whose_fee_part_fails_is_pending():
+async def test_a_refund_whose_fee_part_fails_still_reports_the_customers_refund():
     mock = (
         MockStripe()
         .on("POST", "/v1/refunds", {"id": "re_1", "status": "succeeded"})
@@ -326,7 +326,44 @@ async def test_a_refund_whose_fee_part_fails_is_pending():
         .on("POST", "/v1/application_fees/fee_1/refunds", lambda c: (500, {"error": {"type": "api_error"}}))
     )
     res = await gateway(mock).refund("ch_1", 1500, 225, reason="x", idempotency_key="rf1")
+    assert (res.status, res.refund_id, res.fee_refunded_pence) == ("succeeded", "re_1", 0)
+    assert res.failure_reason and "needs another try" in res.failure_reason
+
+
+async def test_a_refund_stripe_is_still_processing_returns_no_fee_yet():
+    mock = MockStripe().on("POST", "/v1/refunds", {"id": "re_1", "status": "pending", "amount": 1500})
+    res = await gateway(mock).refund("ch_1", 1500, 225, reason="x", idempotency_key="rf1")
     assert (res.status, res.refund_id, res.fee_refunded_pence) == ("pending", "re_1", 0)
+    assert not mock.find("POST", "/v1/application_fees/.*")  # our fee goes back once it succeeds
+    assert mock.one("POST", "/v1/refunds").params["metadata[intent]"] == "rf1"
+
+
+@pytest.mark.parametrize("status", [500, 429])
+async def test_an_unknown_refund_outcome_is_pending_without_an_id(status):
+    mock = MockStripe().on("POST", "/v1/refunds", lambda c: (status, {"error": {"type": "api_error", "message": "x"}}))
+    res = await gateway(mock).refund("ch_1", 1500, 225, reason="x", idempotency_key="rf1")
+    assert (res.status, res.refund_id) == ("pending", None)  # never "failed": Stripe may have made it
+
+
+async def test_refund_status_and_the_fee_step():
+    mock = (
+        MockStripe()
+        .on("GET", "/v1/refunds/re_1", {"id": "re_1", "status": "succeeded", "amount": 1500})
+        .on(
+            "GET",
+            "/v1/refunds/re_2",
+            {"id": "re_2", "status": "failed", "amount": 1500, "failure_reason": "lost_or_stolen_card"},
+        )
+        .on("GET", "/v1/charges/ch_1", {"id": "ch_1", "application_fee": "fee_1"})
+        .on("POST", "/v1/application_fees/fee_1/refunds", {"id": "fr_1", "amount": 225})
+    )
+    gw = gateway(mock)
+    assert (await gw.refund_status("re_1")).status == "succeeded"
+    failed = await gw.refund_status("re_2")
+    assert (failed.status, failed.failure_reason) == ("failed", "lost_or_stolen_card")
+    fee = await gw.refund_fee("ch_1", 225, idempotency_key="rf1:fee")
+    assert (fee.status, fee.fee_refunded_pence) == ("succeeded", 225)
+    assert mock.one("POST", "/v1/application_fees/fee_1/refunds").idempotency_key == "rf1:fee"
 
 
 async def test_a_refused_refund_fails():

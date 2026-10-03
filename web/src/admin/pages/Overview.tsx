@@ -201,6 +201,8 @@ const CHARGE_WORDS: Record<string, string> = {
   failed: "Card declined",
   requires_action: "Waiting for the customer to confirm",
   pending: "Not confirmed yet",
+  refund_pending: "Refund not confirmed yet",
+  refund_fee_pending: "Refund made; our fee still to return to the provider",
 };
 
 function Payments({ d }: { d: OverviewData }) {
@@ -217,7 +219,7 @@ function Payments({ d }: { d: OverviewData }) {
         <span className="badge danger">{plural(payments.length, "visit")}</span>
       </div>
       {payments.map((p) => (
-        <div key={p.visit_id} className="list-row">
+        <div key={p.kind + p.visit_id + p.status} className="list-row">
           <div className="grow stack" style={gap("2px")}>
             <span className="small">
               <b>{fmt(p.amount_pence)}</b> {p.category_name}, {p.customer_name} with {p.provider_short}
@@ -227,6 +229,11 @@ function Payments({ d }: { d: OverviewData }) {
               {p.failure_reason ? `: ${p.failure_reason}` : ""}
             </span>
           </div>
+          {p.kind === "refund" ? (
+            <span className="xs muted" style={{ maxWidth: 150 }}>
+              Checked again every few minutes
+            </span>
+          ) : (
           <button
             type="button"
             className="btn btn-ghost btn-sm"
@@ -242,6 +249,7 @@ function Payments({ d }: { d: OverviewData }) {
           >
             Retry charge
           </button>
+          )}
         </div>
       ))}
     </div>

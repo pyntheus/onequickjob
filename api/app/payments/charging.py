@@ -17,6 +17,7 @@ old one (a declined attempt's key would return the same decline for 24 hours).
 
 import logging
 import re
+from datetime import timedelta
 from typing import Literal
 
 from fastapi import status
@@ -28,8 +29,10 @@ from app.core.db import Db, DbSession, transaction
 from app.core.errors import fail, not_found
 from app.core.timeutil import utcnow
 from app.models.common import Actor, Related
+from app.models.payments import ChargeAttempt
 from app.models.visits import Charge, Visit
 from app.payments import notices
+from app.repos.payments import ChargeAttempts
 from app.repos.visits import Visits
 from app.services import ledger, wording
 from app.services.audit import audit
@@ -42,6 +45,7 @@ RETRYABLE = ("failed", "requires_action")
 OPEN = ("pending", *RETRYABLE)
 UNKNOWN = "We couldn't reach the payment provider, so this payment is waiting to be checked."
 RETRY = re.compile(r":retry(\d+)$")
+KEY_LIFE = timedelta(hours=23)  # Stripe keeps idempotency keys for 24 hours
 
 
 def field_for(purpose: Purpose) -> str:
@@ -167,6 +171,11 @@ async def apply_result(
                 db, updated, split, at=at, gateway=gateway, charge_id=new.charge_id, session=session
             )
             await notices.charged(db, s, updated, new, session)
+            if new.payment_intent_id:
+                # Refund events that arrived before this success was recorded apply now.
+                from app.payments.webhooks import replay_deferred
+
+                await replay_deferred(db, s, new.payment_intent_id, session=session)
         else:
             await ledger.record_tip(
                 db, updated, new.amount_pence, at=at, gateway=gateway, charge_id=new.charge_id, session=session
@@ -231,6 +240,12 @@ async def _record_intent(
                 "charge_in_progress",
                 "This payment changed while you were looking at it. Have another look.",
             )
+        # When this key was first used: automatic repeats stop before the gateway forgets it.
+        await ChargeAttempts(db).insert_once(
+            ChargeAttempt(id=key, visit_id=visit.id, purpose=purpose, created_at=utcnow()),
+            {"_id": key},
+            session=session,
+        )
         if actor is not None:
             await audit(
                 db,
@@ -312,13 +327,17 @@ async def charge_visit(
 
 
 async def settle_unknown(db: Db, s: Settings, gateway: PaymentGateway, visit: Visit, purpose: Purpose) -> Visit:
-    """A pending attempt whose outcome we don't know: ask the gateway (or repeat the call with
-    the same key, which can't charge twice) and record what it says."""
+    """A pending attempt whose outcome we don't know: ask the gateway about its payment (always
+    safe), or, if we never heard which payment it made, repeat the call with the same key, which
+    can't charge twice, but only while the gateway still remembers the key."""
     charge = charge_of(visit, purpose)
     assert charge is not None and charge.status == "pending" and charge.idempotency_key
     if charge.payment_intent_id:
         result = await gateway.charge_status(charge.payment_intent_id)
         return await record_result(db, s, visit.id, purpose, charge.idempotency_key, result)
+    attempt = await ChargeAttempts(db).get(charge.idempotency_key)
+    if attempt is None or utcnow() - attempt.created_at >= KEY_LIFE:
+        return visit  # too old (or not ours) to repeat safely: the overview shows it for a check by hand
     return await _attempt(
         db, s, gateway, visit, purpose, charged_split(visit, charge, purpose, s), charge.idempotency_key
     )

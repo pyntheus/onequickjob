@@ -8,10 +8,12 @@ Refunds behave like Stripe's with reverse_transfer: the provider's share comes b
 their next payout, and exactly fee_refund_pence of our fee is returned.
 """
 
+import hashlib
 from datetime import date, timedelta
 from typing import Literal
 
 from pymongo.asynchronous.database import AsyncDatabase
+from pymongo.errors import DuplicateKeyError
 
 from app.adapters.payments.base import (
     CardSetup,
@@ -31,6 +33,11 @@ from app.core.timeutil import london_today, to_london, utcnow
 
 COLL = "fake_gateway"
 CARD = SavedCardInfo(brand="visa", last4="4242", exp_month=12, exp_year=2028)
+
+
+def keyed(prefix: str, key: str) -> str:
+    """A gateway id that follows from an idempotency key, so a key can't make two of anything."""
+    return prefix + hashlib.sha256(key.encode()).hexdigest()[:12]
 
 
 def next_friday(d: date) -> date:
@@ -115,7 +122,7 @@ class FakeGateway:
         cust = await self.coll.find_one({"_id": visit.gateway_customer_id}) or {}
         name = (cust.get("name") or "").lower()
         status = "failed" if "decline" in name else "requires_action" if "3ds" in name else "succeeded"
-        ch = f"ch_fake_{new_id()[-12:]}"
+        ch = keyed("ch_fake_", key)  # one charge per key, even for concurrent calls (like Stripe)
         result = ChargeResult(
             status=status,
             charge_id=ch if status == "succeeded" else None,
@@ -130,18 +137,22 @@ class FakeGateway:
             }.get(status),
             failure_code={"failed": "card_declined", "requires_action": "authentication_required"}.get(status),
         )
-        await self.coll.insert_one(
-            {
-                "_id": ch,
-                "kind": "charge",
-                "idempotency_key": key,
-                "account": provider_account,
-                "visit_id": visit.visit_id,
-                "net_pence": price_pence - fee_pence,
-                "refunded_pence": 0,
-                "result": result.model_dump(mode="python"),
-            }
-        )
+        try:
+            await self.coll.insert_one(
+                {
+                    "_id": ch,
+                    "kind": "charge",
+                    "idempotency_key": key,
+                    "account": provider_account,
+                    "visit_id": visit.visit_id,
+                    "net_pence": price_pence - fee_pence,
+                    "refunded_pence": 0,
+                    "result": result.model_dump(mode="python"),
+                }
+            )
+        except DuplicateKeyError:  # a concurrent call with this key got there first
+            first = await self.coll.find_one({"_id": ch})
+            return ChargeResult.model_validate(first["result"]) if first else result
         return result
 
     async def charge_status(self, payment_intent_id: str) -> ChargeResult:
@@ -186,26 +197,40 @@ class FakeGateway:
                 fee_refunded_pence=0,
                 failure_reason="That's more than is left to refund",
             )
-        re_id = f"re_fake_{new_id()[-12:]}"
+        re_id = keyed("re_fake_", idempotency_key) if idempotency_key else f"re_fake_{new_id()[-12:]}"
+        result = RefundResult(
+            status="succeeded", refund_id=re_id, amount_pence=amount_pence, fee_refunded_pence=fee_refund_pence
+        )
+        try:  # record the refund first: one per key, even for concurrent calls (like Stripe)
+            await self.coll.insert_one(
+                {
+                    "_id": re_id,
+                    "kind": "refund",
+                    "charge": charge_id,
+                    "idempotency_key": idempotency_key,
+                    "reason": reason,
+                    "result": result.model_dump(mode="python"),
+                    "created_at": utcnow(),
+                }
+            )
+        except DuplicateKeyError:
+            first = await self.coll.find_one({"_id": re_id})
+            return RefundResult.model_validate(first["result"]) if first else result
         await self.coll.update_one(
             {"_id": charge_id},
             {"$inc": {"refunded_pence": amount_pence, "net_pence": -(amount_pence - fee_refund_pence)}},
         )
-        result = RefundResult(
-            status="succeeded", refund_id=re_id, amount_pence=amount_pence, fee_refunded_pence=fee_refund_pence
-        )
-        await self.coll.insert_one(
-            {
-                "_id": re_id,
-                "kind": "refund",
-                "charge": charge_id,
-                "idempotency_key": idempotency_key,
-                "reason": reason,
-                "result": result.model_dump(mode="python"),
-                "created_at": utcnow(),
-            }
-        )
         return result
+
+    async def refund_status(self, refund_id: str) -> RefundResult:
+        doc = await self.coll.find_one({"_id": refund_id, "kind": "refund"})
+        if doc is None:
+            raise LookupError(f"no fake refund {refund_id}")
+        return RefundResult.model_validate(doc["result"]).model_copy(update={"fee_refunded_pence": 0})
+
+    async def refund_fee(self, charge_id: str, fee_refund_pence: int, *, idempotency_key: str) -> RefundResult:
+        """The fake returns the fee with the refund itself, so there's never a fee part left to do."""
+        return RefundResult(status="succeeded", amount_pence=0, fee_refunded_pence=fee_refund_pence)
 
     async def payout_summary(self, provider_account: str, *, limit: int = 8) -> PayoutSummary:
         """Charges are paid out the Friday after they're made (Friday's own go next week)."""

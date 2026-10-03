@@ -47,6 +47,8 @@ log = logging.getLogger("oqj.payments.stripe")
 CURRENCY = "gbp"
 AUTH_REQUIRED = "authentication_required"
 UNREACHABLE = "We couldn't reach Stripe, so we don't know yet whether the payment went through."
+UNREACHABLE_REFUND = "We couldn't reach Stripe, so we don't know yet whether the refund was made."
+FEE_RETRY = "The customer's refund went through; returning our fee to the provider needs another try."
 
 type Json = dict[str, Any]
 
@@ -127,6 +129,25 @@ def charge_result_from_intent(pi: Json, *, idempotency_key: str | None = None) -
         failure_reason=reason,
         failure_code=(error.get("decline_code") or error.get("code") or None) if status != "succeeded" else None,
         created_at=datetime.fromtimestamp(created, UTC) if created else utcnow(),
+    )
+
+
+def refund_state(re: Json) -> RefundResult:
+    """A Stripe Refund as our RefundResult (the customer's refund only)."""
+    status = re.get("status")
+    mapped: Literal["succeeded", "pending", "failed"] = (
+        "succeeded" if status == "succeeded" else "failed" if status in ("failed", "canceled") else "pending"
+    )
+    return RefundResult(
+        status=mapped,
+        refund_id=re.get("id"),
+        amount_pence=int(re.get("amount") or 0),
+        fee_refunded_pence=0,
+        failure_reason=(re.get("failure_reason") or "The refund failed.")
+        if mapped == "failed"
+        else "Stripe is still processing the refund."
+        if mapped == "pending"
+        else None,
     )
 
 
@@ -358,6 +379,11 @@ class StripeGateway:
         reason: str,
         idempotency_key: str | None = None,
     ) -> RefundResult:
+        def result(status: Literal["succeeded", "pending", "failed"], reason_: str | None, re_id: str | None = None):
+            return RefundResult(
+                status=status, refund_id=re_id, amount_pence=amount_pence, fee_refunded_pence=0, failure_reason=reason_
+            )
+
         opts: Any = {"idempotency_key": idempotency_key} if idempotency_key else {}
         try:
             re = as_dict(
@@ -365,54 +391,62 @@ class StripeGateway:
                     {
                         "charge": charge_id,
                         "amount": amount_pence,
-                        "reverse_transfer": True,
-                        "refund_application_fee": False,
-                        "metadata": {"reason": reason[:500], "fee_refund_pence": str(fee_refund_pence)},
+                        "reverse_transfer": True,  # the provider funds the refund
+                        "refund_application_fee": False,  # our fee goes back exactly, below
+                        "metadata": {
+                            "reason": reason[:500],
+                            "fee_refund_pence": str(fee_refund_pence),
+                            "intent": idempotency_key or "",
+                        },
                     },
                     opts,
                 )
             )
+        except stripe.APIConnectionError, stripe.APIError, stripe.RateLimitError, stripe.IdempotencyError:
+            # Stripe may have made the refund: repeat with the same key (or wait for the webhook).
+            log.warning("refund of %s: outcome unknown", charge_id)
+            return result("pending", UNREACHABLE_REFUND)
         except stripe.StripeError as e:
-            return RefundResult(
-                status="failed",
-                amount_pence=amount_pence,
-                fee_refunded_pence=0,
-                failure_reason=e.user_message or "Stripe couldn't make this refund.",
-            )
-        if re.get("status") in ("failed", "canceled"):
-            return RefundResult(
-                status="failed",
-                refund_id=re.get("id"),
-                amount_pence=amount_pence,
-                fee_refunded_pence=0,
-                failure_reason=re.get("failure_reason") or "The refund failed.",
-            )
-        status: Literal["succeeded", "pending"] = "succeeded" if re.get("status") == "succeeded" else "pending"
-        fee_done = 0
-        if fee_refund_pence > 0:
-            try:
-                fee_id = ref_id(as_dict(await self.c.charges.retrieve_async(charge_id)).get("application_fee"))
-                if fee_id:
-                    fee_opts: Any = {"idempotency_key": f"{idempotency_key}:fee"} if idempotency_key else {}
-                    await self.c.application_fees.refunds.create_async(
-                        fee_id,
-                        {"amount": fee_refund_pence, "metadata": {"refund_id": re.get("id", "")}},
-                        fee_opts,
-                    )
-                    fee_done = fee_refund_pence
-            except stripe.StripeError as e:
-                # The customer's refund stands; the fee part is retried with the same key.
-                log.warning("application fee refund for %s failed: %s", charge_id, e.code)
-                return RefundResult(
-                    status="pending",
-                    refund_id=re.get("id"),
-                    amount_pence=amount_pence,
-                    fee_refunded_pence=0,
-                    failure_reason="The refund went through, but returning our fee to the provider needs a retry.",
-                )
-        return RefundResult(
-            status=status, refund_id=re.get("id"), amount_pence=amount_pence, fee_refunded_pence=fee_done
+            return result("failed", e.user_message or "Stripe couldn't make this refund.")
+        state = refund_state(re)
+        if state.status != "succeeded":
+            # Our fee goes back once the customer's refund has gone through (refund.updated).
+            return state.model_copy(update={"amount_pence": amount_pence})
+        if fee_refund_pence <= 0:
+            return state.model_copy(update={"amount_pence": amount_pence})
+        fee = await self.refund_fee(
+            charge_id, fee_refund_pence, idempotency_key=f"{idempotency_key}:fee" if idempotency_key else ""
         )
+        return state.model_copy(
+            update={
+                "amount_pence": amount_pence,
+                "fee_refunded_pence": fee.fee_refunded_pence,
+                "failure_reason": None if fee.status == "succeeded" else fee.failure_reason,
+            }
+        )
+
+    async def refund_status(self, refund_id: str) -> RefundResult:
+        return refund_state(as_dict(await self.c.refunds.retrieve_async(refund_id)))
+
+    async def refund_fee(self, charge_id: str, fee_refund_pence: int, *, idempotency_key: str) -> RefundResult:
+        def result(status: Literal["succeeded", "pending", "failed"], done: int, reason: str | None = None):
+            return RefundResult(status=status, amount_pence=0, fee_refunded_pence=done, failure_reason=reason)
+
+        opts: Any = {"idempotency_key": idempotency_key} if idempotency_key else {}
+        try:
+            fee_id = ref_id(as_dict(await self.c.charges.retrieve_async(charge_id)).get("application_fee"))
+            if not fee_id:
+                return result("succeeded", 0)  # no fee on this charge (a tip)
+            await self.c.application_fees.refunds.create_async(
+                fee_id, {"amount": fee_refund_pence, "metadata": {"intent": idempotency_key}}, opts
+            )
+        except stripe.APIConnectionError, stripe.APIError, stripe.RateLimitError, stripe.IdempotencyError:
+            log.warning("application fee refund for %s: outcome unknown", charge_id)
+            return result("pending", 0, FEE_RETRY)
+        except stripe.StripeError as e:
+            log.error("application fee refund for %s refused: %s", charge_id, e.code)
+            return result("failed", 0, FEE_RETRY + " Stripe said: " + (e.user_message or str(e.code)))
+        return result("succeeded", fee_refund_pence)
 
     # ------------------------------------------------------------------ payouts
     async def payout_summary(self, provider_account: str, *, limit: int = 8) -> PayoutSummary:

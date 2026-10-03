@@ -149,3 +149,28 @@ async def test_a_tip_is_charged_without_a_fee(db, catalogue):
     assert tipped.tip_charge and (tipped.tip_charge.status, tipped.tip_charge.fee_pence) == ("succeeded", 0)
     [entry] = await LedgerEntries(db).find({"visit_id": v.id, "kind": "tip"})
     assert (entry.gross_pence, entry.fee_pence, entry.net_pence) == (500, 0, 500)
+
+
+async def test_an_unknown_attempt_isnt_repeated_after_its_key_expires(db, catalogue):
+    from datetime import timedelta
+
+    from app.core.timeutil import utcnow
+
+    customer, provider = await card_customer(db), await payable_provider(db)
+    v = await finished_visit(db, customer, provider)
+    calls = []
+
+    class Lost(FakeGateway):
+        async def charge_visit(self, *a, **kw):
+            calls.append(kw.get("idempotency_key"))
+            raise ConnectionError("the answer is lost")
+
+    pending = await charging.charge_visit(db, S, Lost(db), v.id)
+    assert pending.charge.status == "pending" and calls == [f"visit:{v.id}:visit"]
+    attempt = {"_id": f"visit:{v.id}:visit"}
+    await db["payment_attempts"].update_one(attempt, {"$set": {"created_at": utcnow() - timedelta(hours=25)}})
+    still = await charging.settle_unknown(db, S, Lost(db), pending, "visit")
+    assert still.charge.status == "pending" and len(calls) == 1  # not repeated: Stripe may have forgotten the key
+    await db["payment_attempts"].update_one(attempt, {"$set": {"created_at": utcnow()}})
+    done = await charging.settle_unknown(db, S, fake(db), pending, "visit")
+    assert done.charge.status == "succeeded"
