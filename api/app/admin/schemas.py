@@ -61,6 +61,21 @@ class AttentionItem(BaseModel):
     action: Literal["Send reminder", "Chase", "Ring them"]
 
 
+class PaymentIssue(BaseModel):
+    """A visit whose charge failed, waits for the customer, or hasn't been confirmed (L3 addition)."""
+
+    visit_id: str
+    customer_name: str
+    provider_short: str
+    category_name: str
+    local_date: date
+    amount_pence: int
+    status: str
+    failure_reason: str | None
+    since: datetime
+    kind: Literal["charge", "refund"] = "charge"
+
+
 class Overview(BaseModel):
     week_label: str
     season_note: str | None
@@ -69,6 +84,7 @@ class Overview(BaseModel):
     districts: list[DistrictTile]
     own_customers: OwnCustomersCard
     attention: list[AttentionItem]
+    payments: list[PaymentIssue] = Field(default_factory=list, description="Charges needing a look (L3 addition)")
 
 
 class RaiseGuideIn(In):
@@ -135,6 +151,18 @@ class ProviderDetail(ProviderRow):
     ratings: list[RecentRating]
     helpers: list[str]
     payout_account_status: Literal["none", "pending", "enabled", "restricted"]
+    payout_account_id: str | None = Field(default=None, description="L3 addition")
+    payout_account_gateway: Literal["fake", "stripe"] | None = Field(default=None, description="L3 addition")
+    status_reason: str | None = Field(default=None, description="Why they're suspended, if they are (L3 addition)")
+    issues: list[str] = Field(default_factory=list, description="What needs attention, in words (L3 addition)")
+
+
+class OnboardingLinkOut(BaseModel):
+    """The payment provider's hosted onboarding for a provider's account (L3 addition)."""
+
+    account_id: str
+    url: str
+    status: Literal["pending", "enabled", "restricted"]
 
 
 class VerifyDocIn(In):
@@ -247,6 +275,16 @@ class DisputeView(BaseModel):
     resolution: Resolution | None
     events: list[DisputeEvent]
     thread_id: str | None
+    visit_id: str = ""
+    provider_first: str = ""
+    charge_status: str = Field(default="none", description="The disputed visit's charge (L3 addition)")
+    charged_pence: int = 0
+    refunded_pence: int = 0
+    refundable_pence: int = Field(default=0, description="What's left to refund, less refunds in flight")
+    closing_outcome: Literal["return_visit", "partial_refund", "full_refund", "none"] | None = Field(
+        default=None, description="A close in progress, waiting for its refund to be confirmed (L3 addition)"
+    )
+    closing_amount_pence: int | None = None
 
 
 class DisputeMessageIn(In):

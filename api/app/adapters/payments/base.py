@@ -82,14 +82,37 @@ class ChargeResult(BaseModel):
     fee_pence: int
     idempotency_key: str
     failure_reason: str | None = None
+    failure_code: str | None = Field(
+        default=None,
+        description="The card network's or gateway's code, e.g. card_declined or authentication_required. "
+        "Codes starting \"platform:\" mean the problem is ours or the provider's account, not the customer's "
+        "card (L3 addition)",
+    )
     created_at: datetime
 
 
+PLATFORM_FAILURE = "platform:"
+
+
 class RefundResult(BaseModel):
+    """status is the customer's refund: succeeded; pending (the gateway is still processing it, or
+    we couldn't tell, with refund_id None: repeat with the same key); failed (definitely not made).
+    fee_refunded_pence is how much of our fee went back to the provider with it (L3)."""
+
     status: Literal["succeeded", "pending", "failed"]
     refund_id: str | None = None
     amount_pence: int
     fee_refunded_pence: int
+    failure_reason: str | None = None
+
+
+class TransferResult(BaseModel):
+    """Money sent back to a provider's account (L3 addition): status succeeded; pending (unknown:
+    repeat with the same key); failed."""
+
+    status: Literal["succeeded", "pending", "failed"]
+    transfer_id: str | None = None
+    amount_pence: int
     failure_reason: str | None = None
 
 
@@ -135,9 +158,49 @@ class PaymentGateway(Protocol):
         The idempotency key defaults to f"visit:{visit_id}:{purpose}"."""
         ...
 
-    async def refund(self, charge_id: str, amount_pence: int, fee_refund_pence: int, *, reason: str) -> RefundResult:
-        """Refund part or all of a charge, reversing the transfer and refunding the
-        application fee by fee_refund_pence (from money.refund_split)."""
+    async def refund(
+        self,
+        charge_id: str,
+        amount_pence: int,
+        fee_refund_pence: int,
+        *,
+        reason: str,
+        idempotency_key: str | None = None,
+    ) -> RefundResult:
+        """Refund part or all of a charge, reversing the transfer (the provider funds it), and once
+        the customer's refund has succeeded return exactly fee_refund_pence of our fee (from
+        money.refund_split). With an idempotency_key, repeating the call returns the same refund
+        (L3 addition); never repeat it once the refund id is known: use refund_status."""
+        ...
+
+    async def refund_status(self, refund_id: str) -> RefundResult:
+        """Where a refund stands now (fee_refunded_pence 0: the fee is a separate step) (L3 addition)."""
+        ...
+
+    async def refund_fee(self, charge_id: str, fee_refund_pence: int, *, idempotency_key: str) -> RefundResult:
+        """Return fee_refund_pence of our fee on a charge to the provider: the fee part of a refund
+        whose customer refund has succeeded. status is this step's (L3 addition)."""
+        ...
+
+    async def charge_status(self, payment_intent_id: str) -> ChargeResult:
+        """Where a charge attempt stands now, e.g. before retrying it (L3 addition)."""
+        ...
+
+    async def find_charge(self, idempotency_key: str, gateway_customer_id: str) -> ChargeResult | None:
+        """The payment an attempt made, looked up by its idempotency key, or None if the request
+        never reached the gateway. A read: recovering an unknown outcome never repeats a charge
+        (L3 addition)."""
+        ...
+
+    async def cancel_charge(self, payment_intent_id: str) -> ChargeResult:
+        """Cancel an attempt that hasn't succeeded (one waiting for the customer to confirm),
+        so a retry can't leave two payments open. Returns the attempt's state afterwards:
+        succeeded if it had already gone through (L3 addition)."""
+        ...
+
+    async def restore_transfer(self, charge_id: str, amount_pence: int, *, idempotency_key: str) -> TransferResult:
+        """Give a provider back what a failed refund's transfer reversal took (a failed refund's
+        money returns to the platform, not the provider) (L3 addition)."""
         ...
 
     async def payout_summary(self, provider_account: str, *, limit: int = 8) -> PayoutSummary: ...

@@ -103,7 +103,7 @@ export interface paths {
             cookie?: never;
         };
         /** Disputes */
-        get: operations["disputes_api_admin_disputes_get"];
+        get: operations["disputes__api_admin_disputes_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -229,7 +229,7 @@ export interface paths {
             cookie?: never;
         };
         /** Overview */
-        get: operations["overview_api_admin_overview_get"];
+        get: operations["overview__api_admin_overview_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -318,7 +318,7 @@ export interface paths {
             cookie?: never;
         };
         /** Providers */
-        get: operations["providers_api_admin_providers_get"];
+        get: operations["providers__api_admin_providers_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -393,6 +393,47 @@ export interface paths {
         put?: never;
         /** Nudge Provider */
         post: operations["nudge_provider_api_admin_providers__provider_id__nudge_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/providers/{provider_id}/payment-account": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Provider Payment Account
+         * @description Create the provider's payment account if needed and return the payment provider's hosted
+         *     onboarding link (L3 addition: lets admin support a provider through Stripe onboarding).
+         */
+        post: operations["provider_payment_account_api_admin_providers__provider_id__payment_account_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/providers/{provider_id}/payment-account/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sync Provider Payment Account
+         * @description Read the account's state from the payment provider now (webhooks do it too; L3 addition).
+         */
+        post: operations["sync_provider_payment_account_api_admin_providers__provider_id__payment_account_sync_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2876,6 +2917,24 @@ export interface components {
             area: string;
             /** Category Id */
             category_id: string;
+            /**
+             * Charge Status
+             * @description The disputed visit's charge (L3 addition)
+             * @default none
+             */
+            charge_status: string;
+            /**
+             * Charged Pence
+             * @default 0
+             */
+            charged_pence: number;
+            /** Closing Amount Pence */
+            closing_amount_pence?: number | null;
+            /**
+             * Closing Outcome
+             * @description A close in progress, waiting for its refund to be confirmed (L3 addition)
+             */
+            closing_outcome?: ("return_visit" | "partial_refund" | "full_refund" | "none") | null;
             /** Customer Name */
             customer_name: string;
             /** Events */
@@ -2893,10 +2952,26 @@ export interface components {
              */
             opened_text: string;
             proposed: components["schemas"]["Resolution"] | null;
+            /**
+             * Provider First
+             * @default
+             */
+            provider_first: string;
             /** Provider Short */
             provider_short: string;
             /** Ref */
             ref: string;
+            /**
+             * Refundable Pence
+             * @description What's left to refund, less refunds in flight
+             * @default 0
+             */
+            refundable_pence: number;
+            /**
+             * Refunded Pence
+             * @default 0
+             */
+            refunded_pence: number;
             resolution: components["schemas"]["Resolution"] | null;
             /** Stage */
             stage: number;
@@ -2908,6 +2983,11 @@ export interface components {
             thread_id: string | null;
             /** Title */
             title: string;
+            /**
+             * Visit Id
+             * @default
+             */
+            visit_id: string;
         };
         /** DistrictTile */
         DistrictTile: {
@@ -3858,6 +3938,21 @@ export interface components {
             /** Url */
             url: string;
         };
+        /**
+         * OnboardingLinkOut
+         * @description The payment provider's hosted onboarding for a provider's account (L3 addition).
+         */
+        OnboardingLinkOut: {
+            /** Account Id */
+            account_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "enabled" | "restricted";
+            /** Url */
+            url: string;
+        };
         /** OutboxItem */
         OutboxItem: {
             /** Body */
@@ -3902,6 +3997,11 @@ export interface components {
             /** Kpis */
             kpis: components["schemas"]["Kpi"][];
             own_customers: components["schemas"]["OwnCustomersCard"];
+            /**
+             * Payments
+             * @description Charges needing a look (L3 addition)
+             */
+            payments?: components["schemas"]["PaymentIssue"][];
             /** Season Note */
             season_note: string | null;
             /** Waiting */
@@ -3963,6 +4063,42 @@ export interface components {
              * @description Dotted path inside that category's params, e.g. growth.overgrown
              */
             path: string;
+        };
+        /**
+         * PaymentIssue
+         * @description A visit whose charge failed, waits for the customer, or hasn't been confirmed (L3 addition).
+         */
+        PaymentIssue: {
+            /** Amount Pence */
+            amount_pence: number;
+            /** Category Name */
+            category_name: string;
+            /** Customer Name */
+            customer_name: string;
+            /** Failure Reason */
+            failure_reason: string | null;
+            /**
+             * Kind
+             * @default charge
+             * @enum {string}
+             */
+            kind: "charge" | "refund";
+            /**
+             * Local Date
+             * Format: date
+             */
+            local_date: string;
+            /** Provider Short */
+            provider_short: string;
+            /**
+             * Since
+             * Format: date-time
+             */
+            since: string;
+            /** Status */
+            status: string;
+            /** Visit Id */
+            visit_id: string;
         };
         /** PaymentsConfig */
         PaymentsConfig: {
@@ -4244,6 +4380,11 @@ export interface components {
             /** Initials */
             initials: string;
             insurance: components["schemas"]["InsuranceState"];
+            /**
+             * Issues
+             * @description What needs attention, in words (L3 addition)
+             */
+            issues?: string[];
             /** Jobs 30D */
             jobs_30d: number;
             /**
@@ -4253,6 +4394,16 @@ export interface components {
             ledger: components["schemas"]["LedgerEntry"][];
             /** Name */
             name: string;
+            /**
+             * Payout Account Gateway
+             * @description L3 addition
+             */
+            payout_account_gateway?: ("fake" | "stripe") | null;
+            /**
+             * Payout Account Id
+             * @description L3 addition
+             */
+            payout_account_id?: string | null;
             /**
              * Payout Account Status
              * @enum {string}
@@ -4275,6 +4426,11 @@ export interface components {
              * @enum {string}
              */
             status: "signing_up" | "active" | "payouts_paused" | "suspended";
+            /**
+             * Status Reason
+             * @description Why they're suspended, if they are (L3 addition)
+             */
+            status_reason?: string | null;
             /** Travel Radius Miles */
             travel_radius_miles: number;
             /** Working Days */
@@ -5753,7 +5909,7 @@ export interface operations {
             };
         };
     };
-    disputes_api_admin_disputes_get: {
+    disputes__api_admin_disputes_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -6355,7 +6511,7 @@ export interface operations {
             };
         };
     };
-    overview_api_admin_overview_get: {
+    overview__api_admin_overview_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -6834,7 +6990,7 @@ export interface operations {
             };
         };
     };
-    providers_api_admin_providers_get: {
+    providers__api_admin_providers_get: {
         parameters: {
             query?: {
                 filter?: string;
@@ -7206,6 +7362,176 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OutboxItem"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    provider_payment_account_api_admin_providers__provider_id__payment_account_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingLinkOut"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    sync_provider_payment_account_api_admin_providers__provider_id__payment_account_sync_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderDetail"];
                 };
             };
             /** @description Bad Request */
@@ -14871,6 +15197,15 @@ export interface operations {
             };
             /** @description Not Implemented */
             501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
