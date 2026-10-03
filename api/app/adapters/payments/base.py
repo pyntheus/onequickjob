@@ -82,7 +82,16 @@ class ChargeResult(BaseModel):
     fee_pence: int
     idempotency_key: str
     failure_reason: str | None = None
+    failure_code: str | None = Field(
+        default=None,
+        description="The card network's or gateway's code, e.g. card_declined or authentication_required. "
+        "Codes starting \"platform:\" mean the problem is ours or the provider's account, not the customer's "
+        "card (L3 addition)",
+    )
     created_at: datetime
+
+
+PLATFORM_FAILURE = "platform:"
 
 
 class RefundResult(BaseModel):
@@ -135,9 +144,28 @@ class PaymentGateway(Protocol):
         The idempotency key defaults to f"visit:{visit_id}:{purpose}"."""
         ...
 
-    async def refund(self, charge_id: str, amount_pence: int, fee_refund_pence: int, *, reason: str) -> RefundResult:
+    async def refund(
+        self,
+        charge_id: str,
+        amount_pence: int,
+        fee_refund_pence: int,
+        *,
+        reason: str,
+        idempotency_key: str | None = None,
+    ) -> RefundResult:
         """Refund part or all of a charge, reversing the transfer and refunding the
-        application fee by fee_refund_pence (from money.refund_split)."""
+        application fee by exactly fee_refund_pence (from money.refund_split). With an
+        idempotency_key, repeating the call returns the same refund (L3 addition)."""
+        ...
+
+    async def charge_status(self, payment_intent_id: str) -> ChargeResult:
+        """Where a charge attempt stands now, e.g. before retrying it (L3 addition)."""
+        ...
+
+    async def cancel_charge(self, payment_intent_id: str) -> ChargeResult:
+        """Cancel an attempt that hasn't succeeded (one waiting for the customer to confirm),
+        so a retry can't leave two payments open. Returns the attempt's state afterwards:
+        succeeded if it had already gone through (L3 addition)."""
         ...
 
     async def payout_summary(self, provider_account: str, *, limit: int = 8) -> PayoutSummary: ...

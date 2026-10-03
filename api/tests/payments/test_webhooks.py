@@ -1,0 +1,182 @@
+"""Stripe webhooks: signatures verified, every event applied once (by event id), stale or
+out-of-order events never undo a settled payment."""
+
+import asyncio
+
+import pytest
+
+from app.models.visits import Charge
+from app.repos import LedgerEntries, Providers, Visits
+from tests.conftest import make_settings
+from tests.payments.helpers import card_customer, event, finished_visit, payable_provider, signed
+from tests.payments.stripe_mock import payment_intent
+
+SECRET = "whsec_test_secret"
+URL = "/api/payments/stripe/webhook"
+
+
+@pytest.fixture
+def webhook_secret(app):
+    before = app.state.settings
+    app.state.settings = make_settings(stripe_webhook_secret=SECRET)
+    yield SECRET
+    app.state.settings = before
+
+
+async def post(client, e: dict, secret: str = SECRET):
+    body, headers = signed(e, secret)
+    return await client.post(URL, content=body, headers=headers)
+
+
+async def waiting_visit(db, status: str = "requires_action", key_suffix: str = "", pi: str = "pi_1"):
+    """A Stripe-charged visit whose attempt is waiting on Stripe."""
+    customer, provider = await card_customer(db), await payable_provider(db)
+    v = await finished_visit(db, customer, provider)
+    key = f"visit:{v.id}:visit{key_suffix}"
+    charge = Charge(
+        status=status,  # type: ignore[arg-type]
+        amount_pence=3000,
+        fee_pence=450,
+        provider_pence=2550,
+        gateway="stripe",
+        idempotency_key=key,
+        payment_intent_id=pi,
+    )
+    await Visits(db).update(v.id, {"charge": charge.model_dump(mode="python")})
+    return v, key
+
+
+def pi_event(kind: str, visit_id: str, key: str, status: str, pid: str = "pi_1", **kw) -> dict:
+    pi = payment_intent(pid, status, metadata={"visit_id": visit_id, "purpose": "visit", "idempotency_key": key}, **kw)
+    return event(kind, pi)
+
+
+async def test_unsigned_or_unconfigured_webhooks_are_refused(client, db, webhook_secret, app):
+    e = event("payment_intent.succeeded", payment_intent())
+    r = await post(client, e, secret="whsec_wrong")
+    assert r.status_code == 400 and r.json()["detail"]["code"] == "bad_signature"
+    r = await client.post(URL, content=b"{}", headers={"content-type": "application/json"})
+    assert r.status_code == 400
+    assert await db["payment_events"].count_documents({}) == 0
+    app.state.settings = make_settings(stripe_webhook_secret="")
+    r = await post(client, e)
+    assert r.status_code == 503 and r.json()["detail"]["code"] == "webhooks_not_configured"
+
+
+async def test_success_after_authentication_is_recorded_once(client, db, catalogue, webhook_secret):
+    v, key = await waiting_visit(db)
+    e = pi_event("payment_intent.succeeded", v.id, key, "succeeded")
+    r = await post(client, e)
+    assert r.status_code == 200 and r.json() == {"received": True, "duplicate": False}
+    charge = (await Visits(db).get(v.id)).charge  # type: ignore[union-attr]
+    assert (charge.status, charge.charge_id) == ("succeeded", "ch_1")
+    [entry] = await LedgerEntries(db).find({"visit_id": v.id})
+    assert (entry.gross_pence, entry.fee_pence, entry.net_pence, entry.gateway) == (3000, 450, 2550, "stripe")
+    sent = {m["template_id"] async for m in db["outbox"].find({"related.visit_id": v.id})}
+    assert sent == {"visit_done_customer", "receipt", "payment_on_its_way"}
+
+    r = await post(client, e)  # Stripe retries the same event
+    assert r.json() == {"received": True, "duplicate": True}
+    assert len(await LedgerEntries(db).find({"visit_id": v.id})) == 1
+    assert await db["outbox"].count_documents({"related.visit_id": v.id}) == 3
+    rec = await db["payment_events"].find_one({"_id": e["id"]})
+    assert rec and rec["outcome"] == "applied" and rec["type"] == "payment_intent.succeeded"
+
+
+async def test_concurrent_deliveries_apply_once(client, db, catalogue, webhook_secret):
+    v, key = await waiting_visit(db)
+    e = pi_event("payment_intent.succeeded", v.id, key, "succeeded")
+    results = await asyncio.gather(*(post(client, e) for _ in range(4)))
+    assert sorted(r.json()["duplicate"] for r in results) == [False, True, True, True]
+    assert len(await LedgerEntries(db).find({"visit_id": v.id})) == 1
+
+
+async def test_a_failure_never_undoes_a_success(client, db, catalogue, webhook_secret):
+    v, key = await waiting_visit(db)
+    await post(client, pi_event("payment_intent.succeeded", v.id, key, "succeeded"))
+    late = pi_event("payment_intent.payment_failed", v.id, key, "requires_payment_method")
+    r = await post(client, late)
+    assert r.status_code == 200
+    assert (await Visits(db).get(v.id)).charge.status == "succeeded"  # type: ignore[union-attr]
+    assert (await db["payment_events"].find_one({"_id": late["id"]}))["outcome"] == "ignored"  # type: ignore[index]
+
+
+async def test_events_for_an_earlier_attempt_are_ignored(client, db, catalogue, webhook_secret):
+    v, key = await waiting_visit(db, status="pending", key_suffix=":retry2", pi="pi_2")
+    old = pi_event("payment_intent.canceled", v.id, f"visit:{v.id}:visit", "canceled", pid="pi_1")
+    await post(client, old)
+    assert (await Visits(db).get(v.id)).charge.status == "pending"  # type: ignore[union-attr]
+    await post(client, pi_event("payment_intent.succeeded", v.id, key, "succeeded", pid="pi_2", latest_charge="ch_2"))
+    assert (await Visits(db).get(v.id)).charge.charge_id == "ch_2"  # type: ignore[union-attr]
+
+
+async def test_a_decline_tells_the_customer_and_provider(client, db, catalogue, webhook_secret):
+    v, key = await waiting_visit(db, status="pending", pi=None)  # type: ignore[arg-type]
+    e = pi_event(
+        "payment_intent.payment_failed",
+        v.id,
+        key,
+        "requires_payment_method",
+        last_payment_error={
+            "code": "card_declined",
+            "decline_code": "insufficient_funds",
+            "message": "Insufficient funds.",
+        },
+    )
+    await post(client, e)
+    charge = (await Visits(db).get(v.id)).charge  # type: ignore[union-attr]
+    assert (charge.status, charge.payment_intent_id, charge.failure_reason) == ("failed", "pi_1", "Insufficient funds.")
+    sent = sorted([m["template_id"] async for m in db["outbox"].find({"related.visit_id": v.id})])
+    assert sent == ["charge_failed_customer", "charge_failed_provider"]
+
+
+async def test_a_refund_made_in_the_stripe_dashboard_reaches_the_ledger(client, db, catalogue, webhook_secret):
+    v, key = await waiting_visit(db)
+    await post(client, pi_event("payment_intent.succeeded", v.id, key, "succeeded"))
+    ch = {"id": "ch_1", "object": "charge", "amount": 3000, "amount_refunded": 1000, "payment_intent": "pi_1"}
+    await post(client, event("charge.refunded", ch))
+    charge = (await Visits(db).get(v.id)).charge  # type: ignore[union-attr]
+    assert (charge.status, charge.refunded_pence) == ("partially_refunded", 1000)
+    [entry] = await LedgerEntries(db).find({"visit_id": v.id, "kind": "refund"})
+    assert (entry.gross_pence, entry.fee_pence, entry.net_pence) == (-1000, -150, -850)
+    assert await db["audit_log"].count_documents({"action": "payment.refund_external"}) == 1
+    # Another delivery of the same state (a new event id) adds nothing.
+    await post(client, event("charge.refunded", ch))
+    assert len(await LedgerEntries(db).find({"visit_id": v.id, "kind": "refund"})) == 1
+
+
+async def test_account_updates_sync_the_providers_payment_account(client, db, catalogue, webhook_secret):
+    provider = await payable_provider(db)
+    await Providers(db).patch(
+        provider.id, {"payment_account.status": "pending", "payment_account.payouts_enabled": False}
+    )
+    acct = {
+        "id": provider.payment_account.account_id,  # type: ignore[union-attr]
+        "object": "account",
+        "charges_enabled": True,
+        "payouts_enabled": True,
+        "external_accounts": {"data": [{"last4": "6789"}]},
+    }
+    await post(client, event("account.updated", acct))
+    pa = (await Providers(db).get(provider.id)).payment_account  # type: ignore[union-attr]
+    assert pa and (pa.status, pa.payouts_enabled, pa.bank_last4) == ("enabled", True, "6789")
+    assert await db["audit_log"].count_documents({"action": "provider.payment_account_synced"}) == 1
+
+
+async def test_a_payout_tells_the_provider_once(client, db, catalogue, webhook_secret):
+    provider = await payable_provider(db)
+    account = provider.payment_account.account_id  # type: ignore[union-attr]
+    po = {"id": "po_1", "object": "payout", "amount": 2550, "status": "paid", "destination": "ba_1"}
+    await post(client, event("payout.paid", po, account=account))
+    await post(client, event("payout.paid", po, account=account))  # re-sent under a new event id
+    msgs = [m async for m in db["outbox"].find({"template_id": "payout_sent"})]
+    assert len(msgs) == 1 and "£25.50" in msgs[0]["body"]
+
+
+async def test_live_events_are_ignored_in_demo_mode(client, db, catalogue, webhook_secret):
+    v, key = await waiting_visit(db)
+    e = pi_event("payment_intent.succeeded", v.id, key, "succeeded")
+    e["livemode"] = True
+    await post(client, e)
+    assert (await Visits(db).get(v.id)).charge.status == "requires_action"  # type: ignore[union-attr]
+    assert (await db["payment_events"].find_one({"_id": e["id"]}))["outcome"] == "ignored"  # type: ignore[index]

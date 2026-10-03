@@ -4,6 +4,8 @@
 Test card behaviour: every card is a Visa ending 4242 (12/28) and every charge succeeds,
 unless the customer name contains "decline" (charge fails) or "3ds" (requires_action),
 so failure paths can be demoed. Payouts are every Friday for charges up to the Tuesday.
+Refunds behave like Stripe's with reverse_transfer: the provider's share comes back out of
+their next payout, and exactly fee_refund_pence of our fee is returned.
 """
 
 from datetime import date, timedelta
@@ -126,6 +128,7 @@ class FakeGateway:
                 "failed": "Your card was declined.",
                 "requires_action": "The bank wants the customer to confirm.",
             }.get(status),
+            failure_code={"failed": "card_declined", "requires_action": "authentication_required"}.get(status),
         )
         await self.coll.insert_one(
             {
@@ -141,7 +144,36 @@ class FakeGateway:
         )
         return result
 
-    async def refund(self, charge_id: str, amount_pence: int, fee_refund_pence: int, *, reason: str) -> RefundResult:
+    async def charge_status(self, payment_intent_id: str) -> ChargeResult:
+        doc = await self.coll.find_one({"kind": "charge", "result.payment_intent_id": payment_intent_id})
+        if doc is None:
+            raise LookupError(f"no fake charge for {payment_intent_id}")
+        return ChargeResult.model_validate(doc["result"])
+
+    async def cancel_charge(self, payment_intent_id: str) -> ChargeResult:
+        """Like Stripe: a charge that went through stays succeeded; anything else is cancelled."""
+        current = await self.charge_status(payment_intent_id)
+        if current.status == "succeeded":
+            return current
+        cancelled = current.model_copy(update={"status": "failed", "failure_reason": "The payment was cancelled."})
+        await self.coll.update_one(
+            {"kind": "charge", "result.payment_intent_id": payment_intent_id},
+            {"$set": {"result": cancelled.model_dump(mode="python")}},
+        )
+        return cancelled
+
+    async def refund(
+        self,
+        charge_id: str,
+        amount_pence: int,
+        fee_refund_pence: int,
+        *,
+        reason: str,
+        idempotency_key: str | None = None,
+    ) -> RefundResult:
+        done = idempotency_key and await self.coll.find_one({"kind": "refund", "idempotency_key": idempotency_key})
+        if done:
+            return RefundResult.model_validate(done["result"])
         ch = await self.coll.find_one({"_id": charge_id, "kind": "charge"})
         if ch is None:
             return RefundResult(
@@ -159,9 +191,21 @@ class FakeGateway:
             {"_id": charge_id},
             {"$inc": {"refunded_pence": amount_pence, "net_pence": -(amount_pence - fee_refund_pence)}},
         )
-        return RefundResult(
+        result = RefundResult(
             status="succeeded", refund_id=re_id, amount_pence=amount_pence, fee_refunded_pence=fee_refund_pence
         )
+        await self.coll.insert_one(
+            {
+                "_id": re_id,
+                "kind": "refund",
+                "charge": charge_id,
+                "idempotency_key": idempotency_key,
+                "reason": reason,
+                "result": result.model_dump(mode="python"),
+                "created_at": utcnow(),
+            }
+        )
+        return result
 
     async def payout_summary(self, provider_account: str, *, limit: int = 8) -> PayoutSummary:
         """Charges are paid out the Friday after they're made (Friday's own go next week)."""
