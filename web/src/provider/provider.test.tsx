@@ -311,6 +311,60 @@ describe("a link that signs in someone else", () => {
   });
 });
 
+describe("a photo reply that arrives after someone else signed in", () => {
+  it("is dropped: the last user's visit never comes back into the cache", async () => {
+    let who: "dave" | "mike" = "dave";
+    const mike = { ...me, user_id: "u3", name: "Mike Reynolds", provider_id: "p3" };
+    const item = {
+      visit_id: "v1", start_time: "10:30", status: "in_progress", is_now: true, category_name: "Lawn mowing",
+      address_line: "12 Orchard Way, Hazlemere", area: "Hazlemere", customer_name: "Sarah W.", est_mins: 38,
+      minutes_actual: null, summary: "", note: "", miles_from_previous: 0.4, performer: "provider", category_id: "mowing",
+      performer_name: "Dave H.", cover_state: "none", cover_allowed: true, charge_status: "none", is_first: false,
+    };
+    const visit = (after: string[]) => ({
+      id: "v1", booking_id: "b1", category_id: "mowing", category_name: "Lawn mowing", customer_name: "Sarah W.",
+      address_line: "12 Orchard Way, Hazlemere, HP15 7QT", directions_url: "https://www.google.com/maps/dir/?api=1",
+      local_date: "2026-10-03", scheduled_start: "2026-10-03T09:30:00Z", status: "in_progress", est_mins: 38,
+      started_at: new Date().toISOString(), finished_at: null, minutes_actual: null, before_photos: [], after_photos: after,
+      note: "The dog's out.", thread_id: "t1", price_pence: 3000, provider_pence: 2550, charge_status: "none",
+      performer_name: "Dave H.", category_name_lower: "lawn mowing", customer_first: "Sarah", summary: "Side gate",
+      window_text: "", is_first: false, performer: "provider", elapsed_seconds: 0, can_start: false, start_note: null,
+      early_start_demo: false, flags: [], flags_none: false, minutes_from_timer: false, overrun: null, fee_percent: 15,
+    });
+    let release: (v: unknown) => void = () => undefined;
+    const photoSent = vi.fn();
+    mockApi({
+      "GET /api/config": () => config(false),
+      "GET /api/auth/me": () => (who === "dave" ? me : mike),
+      "GET /api/p/today": () => ({
+        local_date: "2026-10-03", day_text: "Saturday 3 October", items: who === "dave" ? [item] : [], helpers: [],
+        is_today: true, upcoming_days: [],
+      }),
+      "GET /api/p/visits/v1": () =>
+        who === "dave" ? visit([]) : jsonResponse(404, { detail: { code: "not_found", message: "That visit isn't on your round." } }),
+      "POST /api/files": () => ({ id: "f1", url: "/files/f1.png", kind: "visit_after", content_type: "image/png", size: 8 }),
+      "POST /api/p/visits/v1/photos": () => (photoSent(), new Promise((resolve) => (release = resolve))),
+      "POST /api/auth/magic": () => ((who = "mike"), { me: mike, next: "/p/today" }),
+    });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const router = createMemoryRouter(routes, { initialEntries: ["/p/today"] });
+    render(
+      <QueryClientProvider client={qc}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
+    await userEvent.upload(await screen.findByLabelText(/After photo/), new File(["png"], "after.png", { type: "image/png" }));
+    await waitFor(() => expect(photoSent).toHaveBeenCalled());
+    await act(() => router.navigate("/p/today?t=tok"));
+    expect(await screen.findByText(/Nothing booked today/)).toBeInTheDocument();
+    await act(async () => release(visit(["/files/f1.png"])));
+    await waitFor(() => expect(qc.isMutating()).toBe(0));
+    const cached = qc.getQueryData(["p", "visit", "v1"]) as { address_line?: string } | undefined;
+    expect(cached?.address_line).toBeUndefined();
+    expect(screen.queryByText(/12 Orchard Way/)).not.toBeInTheDocument();
+  });
+});
+
 describe("a plan change, answered in the provider app (A10)", () => {
   const change = {
     status: "pending", customer_first_name: "Sarah", provider_first_name: "Dave", category_name: "Lawn mowing",

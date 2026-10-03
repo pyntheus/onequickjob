@@ -53,11 +53,15 @@ function OnJob({ item, demo }: { item: RoundItem; demo: boolean }) {
       void refresh();
     },
   });
+  // Through useProviderMutation, like every other write: a reply that arrives after someone else
+  // has signed in is dropped, never written into their cache.
+  const attach = useProviderMutation({
+    mutationFn: ({ kind, fileId }: { kind: "before" | "after"; fileId: string }) =>
+      call(api.POST("/api/p/visits/{visit_id}/photos", { params: { path: { visit_id: item.visit_id } }, body: { kind, file_id: fileId } })),
+    onSuccess: (data) => qc.setQueryData(pKeys.visit(item.visit_id), data),
+  });
   const photo = async (kind: "before" | "after", fileId: string) => {
-    const data = await call(
-      api.POST("/api/p/visits/{visit_id}/photos", { params: { path: { visit_id: item.visit_id } }, body: { kind, file_id: fileId } }),
-    );
-    qc.setQueryData(pKeys.visit(item.visit_id), data);
+    await attach.mutateAsync({ kind, fileId });
   };
   if (error) return <ErrorNote error={error} />;
   if (!v) return <Loading />;
