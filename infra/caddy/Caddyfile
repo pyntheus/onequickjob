@@ -1,0 +1,39 @@
+# Private prototype: HTTPS (automatic, Let's Encrypt) and basic auth on EVERYTHING,
+# including /files. Credentials come from .env (BASIC_AUTH_USER, BASIC_AUTH_PASSWORD);
+# entrypoint.sh hashes the password at start-up.
+{
+	servers {
+		# HTTP/3 would need UDP 443, which the firewall doesn't open.
+		protocols h1 h2
+	}
+}
+
+{$SITE_HOST} {
+	encode zstd gzip
+
+	basic_auth {
+		{$BASIC_AUTH_USER} {$BASIC_AUTH_HASH}
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		X-Robots-Tag "noindex, nofollow"
+		-Server
+	}
+
+	# FileStore: photos and documents, straight from the volume.
+	handle /files/* {
+		root * /srv
+		file_server
+	}
+
+	handle /api/* {
+		reverse_proxy {$CADDY_API_UPSTREAM}
+	}
+
+	handle {
+		reverse_proxy {$CADDY_WEB_UPSTREAM}
+	}
+}

@@ -1,0 +1,48 @@
+[project]
+name = "oqj-api"
+version = "0.1.0"
+description = "OneQuickJob API"
+requires-python = ">=3.14,<3.15"
+dependencies = [
+    "fastapi>=0.142",
+    "pydantic>=2.13",
+    "pydantic-settings>=2.15",
+    "pymongo>=4.18",
+    "uvicorn[standard]>=0.54",
+    "httpx>=0.28",
+    "python-multipart>=0.0.32",
+    "cryptography>=50",
+    "tzdata>=2026.4",
+    "stripe>=16",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1",
+    "pytest-asyncio>=1.4",
+    "ruff>=0.16",
+]
+
+[tool.uv]
+package = false
+python-preference = "only-managed"
+
+[tool.ruff]
+line-length = 120
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "ASYNC", "S", "SIM", "RUF", "DTZ"]
+ignore = ["S101", "S105", "S106", "RUF001", "RUF002", "RUF003", "B008"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S311", "S106", "S105"]
+"app/seed/**" = ["S311"]
+"app/repos/**" = ["RUF012"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+addopts = "-q -p no:cacheprovider"

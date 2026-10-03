@@ -1,0 +1,188 @@
+{
+  "version": 1,
+  "notes": "Version 1: the prototype's PRICING_MODELS and pricingParams, with every constant that was hard-coded in a model function lifted into params so calibration can change it. Money values are integer pence (the prototype's pounds x 100); rates per hour, per metre and per m2 are pence too. Multipliers, minutes and spreads are plain numbers.",
+  "params": {
+    "mowing": {
+      "hourly_pence": 4500,
+      "min_pence": 2800,
+      "base_mins": 12,
+      "mins_per_m2": 0.11,
+      "growth": { "kept": 1, "long": 1.35, "overgrown": 1.9 },
+      "growth_default": 1,
+      "waste_mins": { "takeaway": 6 },
+      "disposal_pence": { "takeaway": 400 },
+      "discount": { "weekly": 0.12, "fortnightly": 0.08, "threeweekly": 0.05, "oneoff": 0 },
+      "spread": [0.9, 1.15],
+      "conf_note": "Based on the lawn size you chose, so most providers accept it as it is.",
+      "first_reason": "The grass needs extra time to get back under control."
+    },
+    "hedges": {
+      "hourly_pence": 4500,
+      "min_pence": 4000,
+      "base_mins": 10,
+      "per_m_mins": { "waist": 2, "head": 3.2, "above": 5.5 },
+      "per_m_default": 3.2,
+      "both_sides_mult": 1.8,
+      "disposal_base_pence": 800,
+      "disposal_per_m_pence": 60,
+      "spread": [0.85, 1.25],
+      "confidence": "medium",
+      "conf_note": "Hedges vary with thickness, so some providers adjust the price."
+    },
+    "clearance": {
+      "base_pence": { "bags": 6500, "boot": 11000, "smallvan": 19000, "large": 32000 },
+      "base_default_pence": 11000,
+      "mins": { "bags": 90, "boot": 150, "smallvan": 240, "large": 360 },
+      "mins_default": 150,
+      "bag_it_mult": 0.8,
+      "spread": [0.75, 1.4],
+      "confidence": "low"
+    },
+    "jetwash": {
+      "rates_pence": { "patio": 350, "driveway": 300, "decking": 400, "paths": 350 },
+      "rate_default_pence": 350,
+      "resand_pence": 150,
+      "min_pence": 6000,
+      "base_mins": 30,
+      "mins_per_m2": 1.6,
+      "resand_mins_mult": 1.3,
+      "spread": [0.85, 1.2],
+      "confidence": "medium"
+    },
+    "gutters": {
+      "base_key": "house",
+      "base_pence": { "bungalow": 5500, "semi": 7000, "detached": 9500, "three": 14000 },
+      "mins": { "bungalow": 45, "semi": 60, "detached": 90, "three": 150 },
+      "mins_default": 60,
+      "add_if": { "conservatory": { "pence": 2500, "mins": 20 }, "downpipes": { "pence": 1500, "mins": 15 } },
+      "extras": {},
+      "spread": [0.9, 1.2],
+      "confidence": "medium"
+    },
+    "windows": {
+      "base_pence": { "small": 1500, "semi": 2200, "detached": 3000, "large": 4200 },
+      "mins": { "small": 20, "semi": 30, "detached": 40, "large": 60 },
+      "both_sides_mult": 1.8,
+      "conservatory_pence": 1200,
+      "conservatory_mins": 20,
+      "first_mult": 1.5,
+      "spread": [0.9, 1.15],
+      "confidence": "high",
+      "first_reason": "First cleans take longer because of the build-up on the glass and frames."
+    },
+    "cleaning": {
+      "rate_pence": 2200,
+      "base_hours": 1,
+      "per_bed": 0.5,
+      "per_bath": 0.5,
+      "beds_default": 2,
+      "baths_default": 1,
+      "min_hours": 2,
+      "supplies_pence": 300,
+      "furnished_mult": 1,
+      "type_mult": {},
+      "extras_hours": { "oven": 1, "fridge": 0.5, "windows": 0.5, "ironing": 1 },
+      "first_hours_mult": 1.4,
+      "recurring_spread": [0.9, 1.15],
+      "recurring_confidence": "high",
+      "spread": [0.85, 1.2],
+      "confidence": "medium",
+      "first_reason": "The first clean takes longer while everything is brought up to standard."
+    },
+    "deepclean": {
+      "rate_pence": 2400,
+      "base_hours": 2,
+      "per_bed": 1.5,
+      "per_bath": 1.25,
+      "beds_default": 2,
+      "baths_default": 1,
+      "min_hours": 3,
+      "supplies_pence": 0,
+      "furnished_mult": 1.15,
+      "type_mult": { "deep": 1, "eot": 1.25, "builders": 1.45 },
+      "extras_hours": { "oven": 1.5, "fridge": 0.5, "cupboards": 1, "windows": 1 },
+      "first_hours_mult": 1.4,
+      "recurring_spread": [0.9, 1.15],
+      "recurring_confidence": "high",
+      "spread": [0.85, 1.2],
+      "confidence": "medium",
+      "first_reason": "The first clean takes longer while everything is brought up to standard."
+    },
+    "oven": {
+      "base_key": "ovenType",
+      "base_pence": { "single": 6000, "double": 8000, "range": 11000 },
+      "mins": { "single": 120, "double": 160, "range": 210 },
+      "mins_default": 60,
+      "add_if": {},
+      "extras": { "hob": { "pence": 1000, "mins": 15 }, "hood": { "pence": 1500, "mins": 20 }, "microwave": { "pence": 1000, "mins": 15 } },
+      "spread": [0.9, 1.2],
+      "confidence": "high"
+    },
+    "decorating": {
+      "rate_pence": 2600,
+      "size_hours": { "small": 3.5, "average": 5, "large": 7.5 },
+      "size_hours_default": 5,
+      "ceiling_mult": 0.35,
+      "woodwork_mult": 0.45,
+      "prep_mult": 1.25,
+      "spread": [0.85, 1.25],
+      "confidence": "medium",
+      "notes": {
+        "provider": "Paint isn't included. It's charged at cost, with the receipt.",
+        "mine": "Labour only. You buy the paint."
+      }
+    },
+    "flatpack": {
+      "min_pence": 3500,
+      "min_mins": 30,
+      "each": { "small": { "pence": 2000, "mins": 30 }, "medium": { "pence": 4000, "mins": 60 }, "large": { "pence": 7500, "mins": 120 } },
+      "add_if": { "anchor": { "pence": 1000, "mins": 15 }, "packaging": { "pence": 800, "mins": 10 } },
+      "unsure_key": null,
+      "spread": [0.9, 1.2],
+      "unsure_spread": [0.85, 1.3],
+      "confidence": "high",
+      "unsure_confidence": "medium",
+      "note": null
+    },
+    "mounting": {
+      "min_pence": 4000,
+      "min_mins": 30,
+      "each": { "tv": { "pence": 6000, "mins": 60 }, "shelves": { "pence": 2500, "mins": 30 }, "pictures": { "pence": 1200, "mins": 15 }, "curtains": { "pence": 3000, "mins": 40 } },
+      "add_if": {},
+      "unsure_key": "wall",
+      "spread": [0.9, 1.2],
+      "unsure_spread": [0.85, 1.3],
+      "confidence": "high",
+      "unsure_confidence": "medium",
+      "note": "We don't move sockets or run new wiring. That's electrical work."
+    },
+    "repairs": {
+      "key": "size",
+      "rate_pence": 3000,
+      "min_pence": 3500,
+      "hours": { "quick": 1, "couple": 2, "half": 4, "unsure": 2 },
+      "hours_default": 2,
+      "spread": [0.85, 1.25],
+      "unsure_spread": [0.7, 1.6],
+      "confidence": "medium"
+    },
+    "techhelp": {
+      "key": "length",
+      "rate_pence": 2500,
+      "min_pence": 2500,
+      "hours": { "one": 1, "two": 2 },
+      "hours_default": 2,
+      "spread": [0.85, 1.25],
+      "unsure_spread": [0.7, 1.6],
+      "confidence": "high"
+    },
+    "dogwalking": {
+      "base_pence": { "half": 1200, "hour": 1600 },
+      "extra_dog_pence": 500,
+      "mins": { "half": 30, "hour": 60 },
+      "mins_default": 60,
+      "spread": [0.9, 1.15],
+      "confidence": "high"
+    }
+  }
+}

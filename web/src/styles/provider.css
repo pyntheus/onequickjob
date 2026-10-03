@@ -1,0 +1,41 @@
+/* Provider surface (/p): a real phone-width app, not the prototype's device frame.
+   Base font 17px and every tap target at least 44px (older, casual providers).
+   L2 owns this file after F. */
+.p-app{min-height:100vh;min-height:100dvh;display:flex;justify-content:center;background:var(--bg)}
+.p-col{width:100%;max-width:480px;min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;background:var(--bg);position:relative}
+@media(min-width:520px){.p-col{border-left:1px solid var(--hair);border-right:1px solid var(--hair);box-shadow:0 0 40px -20px rgba(24,38,30,.25)}}
+.p-top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 18px;background:var(--surface);border-bottom:1px solid var(--hair);flex:none;position:sticky;top:0;z-index:5}
+.p-body{flex:1;padding:18px 16px 28px;font-size:17px;display:flex;flex-direction:column;gap:18px}
+.p-body .small{font-size:15.5px}
+.p-body .xs{font-size:14px}
+.p-body .label{font-size:16.5px}
+.p-nav{display:grid;grid-template-columns:repeat(4,1fr);background:var(--surface);border-top:1px solid var(--hair);padding:4px 4px calc(8px + env(safe-area-inset-bottom));flex:none;position:sticky;bottom:0;z-index:5}
+.p-nav a{background:none;border:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:60px;font-size:13.5px;font-weight:600;color:var(--muted);text-decoration:none;border-radius:var(--radius-sm)}
+.pt .p-nav a{color:var(--muted)}
+.pt .p-nav a.on{color:var(--primary)}
+
+/* Tap targets of at least 44px everywhere in the provider area. */
+.p-app .btn{min-height:48px}
+.p-app .btn-sm{min-height:44px;font-size:15px}
+.p-app .btn-link{min-height:44px;padding:0 4px}
+.p-app .chip,.p-app .chip.quiet{min-height:44px}
+.p-app .stepper.sm button{width:44px;height:44px}
+.p-app .star-btn{min-width:44px;min-height:44px}
+.p-app .icon-btn{width:48px;height:48px}
+.p-app .badge{font-size:13.5px}
+
+.offer-card{display:flex;flex-direction:column;gap:12px;text-align:left;width:100%;padding:16px;background:var(--surface);border:var(--bw) solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);cursor:pointer;color:var(--ink);text-decoration:none}
+.route-tag{display:inline-flex;align-items:center;gap:6px;background:var(--accent-soft);color:var(--ink);font-size:14px;font-weight:600;padding:6px 11px;border-radius:999px;align-self:flex-start}
+.facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;background:var(--hair);border-radius:var(--radius-sm);overflow:hidden;border:1px solid var(--hair);margin:0}
+.facts>div{background:var(--surface);padding:12px 14px}
+.facts dt{font-size:13.5px;color:var(--muted)}
+.facts dd{margin:2px 0 0;font-weight:600;font-size:16px}
+.timer{font-family:var(--font-head);font-weight:var(--head-weight);font-size:64px;letter-spacing:-.02em;line-height:1;font-variant-numeric:tabular-nums;text-align:center}
+.round-item{display:flex;gap:12px;position:relative;padding-bottom:16px}
+.round-item::before{content:"";position:absolute;left:22px;top:48px;bottom:4px;width:2px;background:var(--hair)}
+.round-item:last-child::before{display:none}
+.round-time{width:46px;height:46px;border-radius:12px;display:grid;place-items:center;background:var(--soft);font-weight:700;font-size:13.5px;flex:none}
+.round-item.done .round-time{background:var(--primary-soft);color:var(--primary)}
+.round-item.now .round-time{background:var(--primary);color:var(--on-primary)}
+.doc-row{display:flex;align-items:center;gap:12px;padding:13px 0;border-bottom:1px solid var(--hair)}
+.doc-row:last-child{border-bottom:0}

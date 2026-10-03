@@ -1,0 +1,37 @@
+import {
+  AppWindow,
+  CookingPot,
+  Dog,
+  Droplets,
+  Frame,
+  Home,
+  Package,
+  PaintRoller,
+  Scissors,
+  Sparkles,
+  SprayCan,
+  Sprout,
+  TabletSmartphone,
+  Trash2,
+  Wrench,
+  type LucideIcon,
+} from "lucide-react";
+
+/** Category records carry a lucide icon name (categories.icon); map it to the component. */
+export const CATEGORY_ICONS: Record<string, LucideIcon> = {
+  AppWindow,
+  CookingPot,
+  Dog,
+  Droplets,
+  Frame,
+  Home,
+  Package,
+  PaintRoller,
+  Scissors,
+  Sparkles,
+  SprayCan,
+  Sprout,
+  TabletSmartphone,
+  Trash2,
+  Wrench,
+};

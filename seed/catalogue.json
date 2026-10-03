@@ -1,0 +1,1400 @@
+{
+  "_source": "Ported from CATEGORIES, GROUPS, DOCS and EXCLUDED in docs/design/prototype.jsx (node scripts/prototype-extract.mjs catalogue). Photo answers hold uploaded file ids, so their default is [] rather than the prototype's mock count. Pricing params are in pricing_v1.json, not here.",
+  "category_groups": [
+    {
+      "_id": "outside",
+      "name": "Outside",
+      "tab": "Outside",
+      "sort": 0
+    },
+    {
+      "_id": "inside",
+      "name": "In the home",
+      "tab": "Indoors",
+      "sort": 1
+    },
+    {
+      "_id": "help",
+      "name": "Help at home",
+      "tab": "Help",
+      "sort": 2
+    }
+  ],
+  "document_types": [
+    {
+      "_id": "identity",
+      "label": "Identity",
+      "expires": false,
+      "note": "Checked with Stripe",
+      "sort": 0
+    },
+    {
+      "_id": "insurance",
+      "label": "Public liability insurance",
+      "expires": true,
+      "note": null,
+      "sort": 1
+    },
+    {
+      "_id": "waste_carrier",
+      "label": "Waste carrier registration",
+      "expires": true,
+      "note": null,
+      "sort": 2
+    },
+    {
+      "_id": "ladder_cover",
+      "label": "Insurance that covers ladder work",
+      "expires": true,
+      "note": null,
+      "sort": 3
+    },
+    {
+      "_id": "dbs_basic",
+      "label": "Basic DBS check",
+      "expires": true,
+      "note": "Valid for 12 months from the issue date",
+      "sort": 4,
+      "valid_months": 12
+    },
+    {
+      "_id": "pet_cover",
+      "label": "Insurance that covers pet care",
+      "expires": true,
+      "note": null,
+      "sort": 5
+    }
+  ],
+  "categories": [
+    {
+      "_id": "mowing",
+      "name": "Lawn mowing",
+      "short": "Mowing",
+      "group": "outside",
+      "status": "live",
+      "skill": "garden.mowing",
+      "pricing_model": "lawn_area_v1",
+      "measure": "lawn",
+      "recurring": true,
+      "from_price_pence": 2800,
+      "requires": [
+        "insurance"
+      ],
+      "intake": [
+        {
+          "key": "grassState",
+          "type": "choice",
+          "label": "How long is the grass right now?",
+          "default": "kept",
+          "options": [
+            {
+              "value": "kept",
+              "label": "Recently cut",
+              "hint": "Mown in the last three weeks or so"
+            },
+            {
+              "value": "long",
+              "label": "Getting long",
+              "hint": "About three to six weeks since the last cut"
+            },
+            {
+              "value": "overgrown",
+              "label": "Overgrown",
+              "hint": "Ankle-high or more"
+            }
+          ]
+        },
+        {
+          "key": "waste",
+          "type": "choice",
+          "label": "What should happen to the clippings?",
+          "default": "takeaway",
+          "options": [
+            {
+              "value": "takeaway",
+              "label": "Take them away",
+              "hint": "Adds a small disposal charge"
+            },
+            {
+              "value": "bin",
+              "label": "Put them in my garden waste bin"
+            },
+            {
+              "value": "compost",
+              "label": "Leave them on my compost heap"
+            }
+          ]
+        },
+        {
+          "key": "access",
+          "type": "chips",
+          "label": "How do they get to the back garden?",
+          "default": "gate",
+          "options": [
+            {
+              "value": "gate",
+              "label": "Side gate"
+            },
+            {
+              "value": "house",
+              "label": "Through the house"
+            },
+            {
+              "value": "lane",
+              "label": "Rear access"
+            }
+          ]
+        },
+        {
+          "key": "frequency",
+          "type": "chips",
+          "label": "How often?",
+          "default": "fortnightly",
+          "options": [
+            {
+              "value": "weekly",
+              "label": "Weekly"
+            },
+            {
+              "value": "fortnightly",
+              "label": "Every 2 weeks"
+            },
+            {
+              "value": "threeweekly",
+              "label": "Every 3 weeks"
+            },
+            {
+              "value": "oneoff",
+              "label": "Just once"
+            }
+          ]
+        }
+      ],
+      "icon": "Sprout",
+      "sort": 0
+    },
+    {
+      "_id": "hedges",
+      "name": "Hedge trimming",
+      "short": "Hedges",
+      "group": "outside",
+      "status": "live",
+      "skill": "garden.hedges",
+      "pricing_model": "hedge_length_v1",
+      "measure": null,
+      "recurring": false,
+      "from_price_pence": 4000,
+      "requires": [
+        "insurance"
+      ],
+      "intake": [
+        {
+          "key": "length",
+          "type": "number",
+          "label": "Roughly how much hedge is there?",
+          "hint": "A fence panel is about 1.8 m wide, if that helps.",
+          "unit": "m",
+          "min": 2,
+          "max": 80,
+          "step": 1,
+          "default": 15
+        },
+        {
+          "key": "height",
+          "type": "choice",
+          "label": "How tall is it?",
+          "default": "head",
+          "options": [
+            {
+              "value": "waist",
+              "label": "Below waist height"
+            },
+            {
+              "value": "head",
+              "label": "Around head height"
+            },
+            {
+              "value": "above",
+              "label": "Taller than a person",
+              "hint": "Needs a ladder or platform"
+            }
+          ]
+        },
+        {
+          "key": "sides",
+          "type": "chips",
+          "label": "Which parts need cutting?",
+          "default": "one",
+          "options": [
+            {
+              "value": "one",
+              "label": "My side only"
+            },
+            {
+              "value": "both",
+              "label": "Both sides and the top"
+            }
+          ]
+        },
+        {
+          "key": "waste",
+          "type": "chips",
+          "label": "Cuttings",
+          "default": "takeaway",
+          "options": [
+            {
+              "value": "takeaway",
+              "label": "Take it away"
+            },
+            {
+              "value": "bin",
+              "label": "Leave it in my bin or bags"
+            }
+          ]
+        }
+      ],
+      "icon": "Scissors",
+      "sort": 1
+    },
+    {
+      "_id": "clearance",
+      "name": "Garden clearance",
+      "short": "Clearance",
+      "group": "outside",
+      "status": "live",
+      "skill": "garden.clearance",
+      "pricing_model": "photo_review_v1",
+      "measure": null,
+      "recurring": false,
+      "from_price_pence": 6500,
+      "requires": [
+        "insurance",
+        "waste_carrier"
+      ],
+      "intake": [
+        {
+          "key": "photos",
+          "type": "photos",
+          "label": "Add a few photos of the area",
+          "hint": "For clearance, photos matter more than measurements. They're what providers price from.",
+          "default": [],
+          "max_photos": 4
+        },
+        {
+          "key": "volume",
+          "type": "choice",
+          "label": "Roughly how much needs to go?",
+          "default": "boot",
+          "options": [
+            {
+              "value": "bags",
+              "label": "A few bags",
+              "hint": "Up to five garden sacks"
+            },
+            {
+              "value": "boot",
+              "label": "A car boot's worth"
+            },
+            {
+              "value": "smallvan",
+              "label": "A small van load"
+            },
+            {
+              "value": "large",
+              "label": "More than that",
+              "hint": "A provider may want to see it first"
+            }
+          ]
+        },
+        {
+          "key": "waste",
+          "type": "chips",
+          "label": "Waste",
+          "default": "takeaway",
+          "options": [
+            {
+              "value": "takeaway",
+              "label": "Take it all away"
+            },
+            {
+              "value": "bags",
+              "label": "Bag it up and I'll dispose of it"
+            }
+          ]
+        }
+      ],
+      "icon": "Trash2",
+      "sort": 2
+    },
+    {
+      "_id": "jetwash",
+      "name": "Jet washing",
+      "short": "Jet wash",
+      "group": "outside",
+      "status": "live",
+      "skill": "exterior.jetwash",
+      "pricing_model": "area_rate_v1",
+      "measure": null,
+      "recurring": false,
+      "from_price_pence": 6000,
+      "requires": [
+        "insurance"
+      ],
+      "intake": [
+        {
+          "key": "surface",
+          "type": "chips",
+          "label": "What needs cleaning?",
+          "default": "patio",
+          "options": [
+            {
+              "value": "patio",
+              "label": "Patio"
+            },
+            {
+              "value": "driveway",
+              "label": "Driveway"
+            },
+            {
+              "value": "decking",
+              "label": "Decking"
+            },
+            {
+              "value": "paths",
+              "label": "Paths"
+            }
+          ]
+        },
+        {
+          "key": "area",
+          "type": "number",
+          "label": "Roughly how big is it?",
+          "hint": "A typical double driveway is about 30 m².",
+          "unit": "m²",
+          "min": 5,
+          "max": 300,
+          "step": 5,
+          "default": 25
+        },
+        {
+          "key": "resand",
+          "type": "chips",
+          "label": "Re-sand the joints afterwards?",
+          "hint": "Worth it for block paving.",
+          "default": "no",
+          "options": [
+            {
+              "value": "yes",
+              "label": "Yes please"
+            },
+            {
+              "value": "no",
+              "label": "No thanks"
+            }
+          ]
+        }
+      ],
+      "icon": "Droplets",
+      "sort": 3
+    },
+    {
+      "_id": "gutters",
+      "name": "Gutter clearing",
+      "short": "Gutters",
+      "group": "outside",
+      "status": "live",
+      "skill": "exterior.gutters",
+      "pricing_model": "size_base_v1",
+      "measure": null,
+      "recurring": false,
+      "from_price_pence": 5500,
+      "requires": [
+        "insurance",
+        "ladder_cover"
+      ],
+      "intake": [
+        {
+          "key": "house",
+          "type": "choice",
+          "label": "What kind of house is it?",
+          "default": "semi",
+          "options": [
+            {
+              "value": "bungalow",
+              "label": "Bungalow"
+            },
+            {
+              "value": "semi",
+              "label": "Two storeys, semi or terraced"
+            },
+            {
+              "value": "detached",
+              "label": "Two storeys, detached"
+            },
+            {
+              "value": "three",
+              "label": "Three storeys",
+              "hint": "Needs specialist equipment. A provider will check first."
+            }
+          ]
+        },
+        {
+          "key": "conservatory",
+          "type": "chips",
+          "label": "Conservatory gutters too?",
+          "default": "no",
+          "options": [
+            {
+              "value": "yes",
+              "label": "Yes"
+            },
+            {
+              "value": "no",
+              "label": "No"
+            }
+          ]
+        },
+        {
+          "key": "downpipes",
+          "type": "chips",
+          "label": "Check the downpipes are clear?",
+          "default": "yes",
+          "options": [
+            {
+              "value": "yes",
+              "label": "Yes"
+            },
+            {
+              "value": "no",
+              "label": "No"
+            }
+          ]
+        }
+      ],
+      "icon": "Home",
+      "sort": 4
+    },
+    {
+      "_id": "windows",
+      "name": "Window cleaning",
+      "short": "Windows",
+      "group": "outside",
+      "status": "live",
+      "skill": "exterior.windows",
+      "pricing_model": "window_round_v1",
+      "measure": null,
+      "recurring": true,
+      "from_price_pence": 1500,
+      "requires": [
+        "insurance",
+        "ladder_cover"
+      ],
+      "intake": [
+        {
+          "key": "size",
+          "type": "choice",
+          "label": "What size is the house?",
+          "default": "semi",
+          "options": [
+            {
+              "value": "small",
+              "label": "Flat or small terrace"
+            },
+            {
+              "value": "semi",
+              "label": "Three-bed semi"
+            },
+            {
+              "value": "detached",
+              "label": "Four-bed detached"
+            },
+            {
+              "value": "large",
+              "label": "Larger than that"
+            }
+          ]
+        },
+        {
+          "key": "sides",
+          "type": "chips",
+          "label": "Which sides?",
+          "default": "outside",
+          "options": [
+            {
+              "value": "outside",
+              "label": "Outside only"
+            },
+            {
+              "value": "both",
+              "label": "Inside and outside"
+            }
+          ]
+        },
+        {
+          "key": "conservatory",
+          "type": "chips",
+          "label": "Conservatory too?",
+          "default": "no",
+          "options": [
+            {
+              "value": "yes",
+              "label": "Yes"
+            },
+            {
+              "value": "no",
+              "label": "No"
+            }
+          ]
+        },
+        {
+          "key": "frequency",
+          "type": "chips",
+          "label": "How often?",
+          "default": "fourweekly",
+          "options": [
+            {
+              "value": "fourweekly",
+              "label": "Every 4 weeks"
+            },
+            {
+              "value": "eightweekly",
+              "label": "Every 8 weeks"
+            },
+            {
+              "value": "oneoff",
+              "label": "Just once"
+            }
+          ]
+        }
+      ],
+      "icon": "AppWindow",
+      "sort": 5
+    },
+    {
+      "_id": "cleaning",
+      "name": "Regular cleaning",
+      "short": "Cleaning",
+      "group": "inside",
+      "status": "live",
+      "skill": "home.cleaning",
+      "pricing_model": "rooms_hours_v1",
+      "measure": null,
+      "recurring": true,
+      "from_price_pence": 4400,
+      "requires": [
+        "insurance",
+        "dbs_basic"
+      ],
+      "intake": [
+        {
+          "key": "bedrooms",
+          "type": "number",
+          "label": "How many bedrooms?",
+          "unit": "bedrooms",
+          "unit1": "bedroom",
+          "min": 1,
+          "max": 6,
+          "step": 1,
+          "default": 3
+        },
+        {
+          "key": "bathrooms",
+          "type": "number",
+          "label": "And bathrooms?",
+          "hint": "Count toilets and en-suites too.",
+          "unit": "bathrooms",
+          "unit1": "bathroom",
+          "min": 1,
+          "max": 5,
+          "step": 1,
+          "default": 1
+        },
+        {
+          "key": "frequency",
+          "type": "chips",
+          "label": "How often?",
+          "default": "fortnightly",
+          "options": [
+            {
+              "value": "weekly",
+              "label": "Weekly"
+            },
+            {
+              "value": "fortnightly",
+              "label": "Every 2 weeks"
+            },
+            {
+              "value": "oneoff",
+              "label": "Just once"
+            }
+          ]
+        },
+        {
+          "key": "extras",
+          "type": "multi",
+          "label": "Anything extra?",
+          "default": [],
+          "options": [
+            {
+              "value": "oven",
+              "label": "Inside the oven"
+            },
+            {
+              "value": "fridge",
+              "label": "Inside the fridge"
+            },
+            {
+              "value": "windows",
+              "label": "Inside windows"
+            },
+            {
+              "value": "ironing",
+              "label": "An hour of ironing"
+            }
+          ]
+        },
+        {
+          "key": "supplies",
+          "type": "chips",
+          "label": "Cleaning products and equipment",
+          "default": "mine",
+          "options": [
+            {
+              "value": "mine",
+              "label": "Use mine"
+            },
+            {
+              "value": "bring",
+              "label": "Bring their own"
+            }
+          ]
+        }
+      ],
+      "icon": "Sparkles",
+      "sort": 6
+    },
+    {
+      "_id": "deepclean",
+      "name": "Deep clean",
+      "short": "Deep clean",
+      "group": "inside",
+      "status": "live",
+      "skill": "home.deepclean",
+      "pricing_model": "rooms_hours_v1",
+      "measure": null,
+      "recurring": false,
+      "from_price_pence": 7200,
+      "requires": [
+        "insurance",
+        "dbs_basic"
+      ],
+      "intake": [
+        {
+          "key": "type",
+          "type": "choice",
+          "label": "What kind of clean?",
+          "default": "deep",
+          "options": [
+            {
+              "value": "deep",
+              "label": "A top-to-bottom deep clean"
+            },
+            {
+              "value": "eot",
+              "label": "End of tenancy",
+              "hint": "Aimed at getting the deposit back"
+            },
+            {
+              "value": "builders",
+              "label": "After building or decorating work"
+            }
+          ]
+        },
+        {
+          "key": "bedrooms",
+          "type": "number",
+          "label": "How many bedrooms?",
+          "unit": "bedrooms",
+          "unit1": "bedroom",
+          "min": 1,
+          "max": 6,
+          "step": 1,
+          "default": 2
+        },
+        {
+          "key": "bathrooms",
+          "type": "number",
+          "label": "And bathrooms?",
+          "unit": "bathrooms",
+          "unit1": "bathroom",
+          "min": 1,
+          "max": 5,
+          "step": 1,
+          "default": 1
+        },
+        {
+          "key": "furnished",
+          "type": "chips",
+          "label": "Is the place furnished?",
+          "default": "furnished",
+          "options": [
+            {
+              "value": "furnished",
+              "label": "Furnished"
+            },
+            {
+              "value": "empty",
+              "label": "Empty"
+            }
+          ]
+        },
+        {
+          "key": "extras",
+          "type": "multi",
+          "label": "Anything extra?",
+          "default": [
+            "oven"
+          ],
+          "options": [
+            {
+              "value": "oven",
+              "label": "Oven"
+            },
+            {
+              "value": "fridge",
+              "label": "Fridge"
+            },
+            {
+              "value": "cupboards",
+              "label": "Inside cupboards"
+            },
+            {
+              "value": "windows",
+              "label": "Inside windows"
+            }
+          ]
+        }
+      ],
+      "icon": "SprayCan",
+      "sort": 7
+    },
+    {
+      "_id": "oven",
+      "name": "Oven cleaning",
+      "short": "Oven",
+      "group": "inside",
+      "status": "live",
+      "skill": "home.oven",
+      "pricing_model": "size_base_v1",
+      "measure": null,
+      "recurring": false,
+      "from_price_pence": 6000,
+      "requires": [
+        "insurance",
+        "dbs_basic"
+      ],
+      "intake": [
+        {
+          "key": "ovenType",
+          "type": "choice",
+          "label": "What kind of oven?",
+          "default": "single",
+          "options": [
+            {
+              "value": "single",
+              "label": "Single oven"
+            },
+            {
+              "value": "double",
+              "label": "Double oven"
+            },
+            {
+              "value": "range",
+              "label": "Range cooker"
+            }
+          ]
+        },
+        {
+          "key": "extras",
+          "type": "multi",
+          "label": "Anything else in the kitchen?",
+          "default": [
+            "hob"
+          ],
+          "options": [
+            {
+              "value": "hob",
+              "label": "Hob"
+            },
+            {
+              "value": "hood",
+              "label": "Extractor hood"
+            },
+            {
+              "value": "microwave",
+              "label": "Microwave"
+            }
+          ]
+        }
+      ],
+      "icon": "CookingPot",
+      "sort": 8
+    },
+    {
+      "_id": "decorating",
+      "name": "Painting and decorating",
+      "short": "Decorating",
+      "group": "inside",
+      "status": "live",
+      "skill": "home.decorating",
+      "pricing_model": "decorating_v1",
+      "measure": null,
+      "recurring": false,
+      "from_price_pence": 9000,
+      "requires": [
+        "insurance",
+        "dbs_basic"
+      ],
+      "intake": [
+        {
+          "key": "rooms",
+          "type": "number",
+          "label": "How many rooms?",
+          "unit": "rooms",
+          "unit1": "room",
+          "min": 1,
+          "max": 8,
+          "step": 1,
+          "default": 1
+        },
+        {
+          "key": "size",
+          "type": "choice",
+          "label": "How big is a typical room?",
+          "default": "average",
+          "options": [
+            {
+              "value": "small",
+              "label": "Small",
+              "hint": "A box room or small bathroom"
+            },
+            {
+              "value": "average",
+              "label": "Average",
+              "hint": "A double bedroom or living room"
+            },
+            {
+              "value": "large",
+              "label": "Large or open-plan"
+            }
+          ]
+        },
+        {
+          "key": "parts",
+          "type": "multi",
+          "label": "What needs painting?",
+          "default": [
+            "walls",
+            "ceiling"
+          ],
+          "options": [
+            {
+              "value": "walls",
+              "label": "Walls"
+            },
+            {
+              "value": "ceiling",
+              "label": "Ceiling"
+            },
+            {
+              "value": "woodwork",
+              "label": "Skirting, doors and frames"
+            }
+          ]
+        },
+        {
+          "key": "condition",
+          "type": "chips",
+          "label": "What state are the walls in?",
+          "default": "good",
+          "options": [
+            {
+              "value": "good",
+              "label": "Good, just tired"
+            },
+            {
+              "value": "prep",
+              "label": "Cracks or holes to fill"
+            }
+          ]
+        },
+        {
+          "key": "paint",
+          "type": "chips",
+          "label": "Paint",
+          "default": "mine",
+          "options": [
+            {
+              "value": "mine",
+              "label": "I'll buy it"
+            },
+            {
+              "value": "provider",
+              "label": "Provider buys it, charged at cost"
+            }
+          ]
+        }
+      ],
+      "icon": "PaintRoller",
+      "sort": 9
+    },
+    {
+      "_id": "flatpack",
+      "name": "Flat-pack assembly",
+      "short": "Flat-pack",
+      "group": "inside",
+      "status": "live",
+      "skill": "home.flatpack",
+      "pricing_model": "counts_v1",
+      "measure": null,
+      "recurring": false,
+      "from_price_pence": 3500,
+      "requires": [
+        "insurance",
+        "dbs_basic"
+      ],
+      "intake": [
+        {
+          "key": "items",
+          "type": "counts",
+          "label": "What needs putting together?",
+          "default": {
+            "small": 0,
+            "medium": 1,
+            "large": 1
+          },
+          "items": [
+            {
+              "key": "small",
+              "label": "Small",
+              "hint": "Bedside table, small shelf unit"
+            },
+            {
+              "key": "medium",
+              "label": "Medium",
+              "hint": "Chest of drawers, desk, bed"
+            },
+            {
+              "key": "large",
+              "label": "Large",
+              "hint": "Wardrobe, tall bookcase"
+            }
+          ]
+        },
+        {
+          "key": "anchor",
+          "type": "chips",
+          "label": "Fix tall furniture to the wall?",
+          "hint": "Recommended, especially with children at home.",
+          "default": "yes",
+          "options": [
+            {
+              "value": "yes",
+              "label": "Yes please"
+            },
+            {
+              "value": "no",
+              "label": "No thanks"
+            }
+          ]
+        },
+        {
+          "key": "packaging",
+          "type": "chips",
+          "label": "Take the packaging away?",
+          "default": "yes",
+          "options": [
+            {
+              "value": "yes",
+              "label": "Yes please"
+            },
+            {
+              "value": "no",
+              "label": "No, I'll recycle it"
+            }
+          ]
+        }
+      ],
+      "icon": "Package",
+      "sort": 10
+    },
+    {
+      "_id": "mounting",
+      "name": "Putting things up",
+      "short": "Putting up",
+      "group": "inside",
+      "status": "live",
+      "skill": "home.mounting",
+      "pricing_model": "counts_v1",
+      "measure": null,
+      "recurring": false,
+      "from_price_pence": 4000,
+      "requires": [
+        "insurance",
+        "dbs_basic"
+      ],
+      "intake": [
+        {
+          "key": "items",
+          "type": "counts",
+          "label": "What needs putting up?",
+          "default": {
+            "tv": 1,
+            "shelves": 2,
+            "pictures": 0,
+            "curtains": 0
+          },
+          "items": [
+            {
+              "key": "tv",
+              "label": "TV on a wall bracket",
+              "hint": "Up to 55 inches"
+            },
+            {
+              "key": "shelves",
+              "label": "Shelves"
+            },
+            {
+              "key": "pictures",
+              "label": "Pictures or mirrors"
+            },
+            {
+              "key": "curtains",
+              "label": "Curtain poles or blinds"
+            }
+          ]
+        },
+        {
+          "key": "wall",
+          "type": "chips",
+          "label": "What are the walls made of?",
+          "default": "unsure",
+          "options": [
+            {
+              "value": "plasterboard",
+              "label": "Plasterboard"
+            },
+            {
+              "value": "brick",
+              "label": "Brick or block"
+            },
+            {
+              "value": "unsure",
+              "label": "Not sure"
+            }
+          ]
+        }
+      ],
+      "icon": "Frame",
+      "sort": 11
+    },
+    {
+      "_id": "repairs",
+      "name": "Small repairs",
+      "short": "Repairs",
+      "group": "inside",
+      "status": "live",
+      "skill": "home.repairs",
+      "pricing_model": "hours_estimate_v1",
+      "measure": null,
+      "recurring": false,
+      "from_price_pence": 3500,
+      "requires": [
+        "insurance",
+        "dbs_basic"
+      ],
+      "intake": [
+        {
+          "key": "description",
+          "type": "text",
+          "label": "What needs fixing?",
+          "placeholder": "For example: a sticking back door, a dripping tap washer and a loose kitchen cupboard hinge.",
+          "default": ""
+        },
+        {
+          "key": "photos",
+          "type": "photos",
+          "label": "Add photos if you can",
+          "hint": "They help providers price it properly.",
+          "default": [],
+          "max_photos": 4
+        },
+        {
+          "key": "size",
+          "type": "choice",
+          "label": "How long do you think it'll take?",
+          "default": "couple",
+          "options": [
+            {
+              "value": "quick",
+              "label": "Under an hour"
+            },
+            {
+              "value": "couple",
+              "label": "An hour or two"
+            },
+            {
+              "value": "half",
+              "label": "About half a day"
+            },
+            {
+              "value": "unsure",
+              "label": "No idea"
+            }
+          ]
+        }
+      ],
+      "icon": "Wrench",
+      "sort": 12
+    },
+    {
+      "_id": "techhelp",
+      "name": "Tech help",
+      "short": "Tech help",
+      "group": "help",
+      "status": "live",
+      "skill": "help.tech",
+      "pricing_model": "hours_estimate_v1",
+      "measure": null,
+      "recurring": false,
+      "from_price_pence": 2500,
+      "requires": [
+        "insurance",
+        "dbs_basic"
+      ],
+      "intake": [
+        {
+          "key": "topics",
+          "type": "multi",
+          "label": "What would help?",
+          "default": [
+            "phone"
+          ],
+          "options": [
+            {
+              "value": "phone",
+              "label": "Setting up a phone or tablet"
+            },
+            {
+              "value": "calls",
+              "label": "Video calls with family"
+            },
+            {
+              "value": "wifi",
+              "label": "Wi-Fi or a printer"
+            },
+            {
+              "value": "scams",
+              "label": "Staying safe from scams"
+            },
+            {
+              "value": "tv",
+              "label": "A smart TV"
+            }
+          ]
+        },
+        {
+          "key": "length",
+          "type": "chips",
+          "label": "How long?",
+          "default": "one",
+          "options": [
+            {
+              "value": "one",
+              "label": "An hour"
+            },
+            {
+              "value": "two",
+              "label": "Two hours"
+            }
+          ]
+        },
+        {
+          "key": "forWhom",
+          "type": "chips",
+          "label": "Who is it for?",
+          "default": "me",
+          "options": [
+            {
+              "value": "me",
+              "label": "Me"
+            },
+            {
+              "value": "relative",
+              "label": "A relative"
+            }
+          ]
+        }
+      ],
+      "icon": "TabletSmartphone",
+      "sort": 13
+    },
+    {
+      "_id": "dogwalking",
+      "name": "Dog walking",
+      "short": "Dog walks",
+      "group": "help",
+      "status": "live",
+      "skill": "help.dogs",
+      "pricing_model": "per_visit_v1",
+      "measure": null,
+      "recurring": true,
+      "from_price_pence": 1200,
+      "requires": [
+        "insurance",
+        "dbs_basic",
+        "pet_cover"
+      ],
+      "intake": [
+        {
+          "key": "dogs",
+          "type": "number",
+          "label": "How many dogs?",
+          "unit": "dogs",
+          "unit1": "dog",
+          "min": 1,
+          "max": 3,
+          "step": 1,
+          "default": 1
+        },
+        {
+          "key": "length",
+          "type": "chips",
+          "label": "How long a walk?",
+          "default": "hour",
+          "options": [
+            {
+              "value": "half",
+              "label": "30 minutes"
+            },
+            {
+              "value": "hour",
+              "label": "An hour"
+            }
+          ]
+        },
+        {
+          "key": "frequency",
+          "type": "chips",
+          "label": "How often?",
+          "default": "weekdays",
+          "options": [
+            {
+              "value": "weekdays",
+              "label": "Every weekday"
+            },
+            {
+              "value": "someweekdays",
+              "label": "A few days a week"
+            },
+            {
+              "value": "oneoff",
+              "label": "Just once"
+            }
+          ]
+        },
+        {
+          "key": "keys",
+          "type": "chips",
+          "label": "Getting in",
+          "hint": "Anyone holding a key has a basic DBS check.",
+          "default": "home",
+          "options": [
+            {
+              "value": "home",
+              "label": "Someone will be in"
+            },
+            {
+              "value": "key",
+              "label": "They'll need a key"
+            }
+          ]
+        }
+      ],
+      "icon": "Dog",
+      "sort": 14
+    }
+  ],
+  "excluded_jobs": [
+    {
+      "_id": "gas_and_boilers",
+      "name": "Gas and boilers",
+      "instead": "a Gas Safe registered engineer",
+      "why": "Legally restricted to registered engineers",
+      "sort": 0
+    },
+    {
+      "_id": "electrics_beyond_bulbs_and_plugs",
+      "name": "Electrics beyond bulbs and plugs",
+      "instead": "a registered electrician, for example NICEIC or NAPIT",
+      "why": "Building Regulations and safety",
+      "sort": 1
+    },
+    {
+      "_id": "roofs_and_chimneys",
+      "name": "Roofs and chimneys",
+      "instead": "a roofer",
+      "why": "Work at height beyond ladder cover",
+      "sort": 2
+    },
+    {
+      "_id": "building_and_structural_work",
+      "name": "Building and structural work",
+      "instead": "a builder",
+      "why": "Building Regulations sign-off",
+      "sort": 3
+    },
+    {
+      "_id": "tree_felling_and_big_tree_work",
+      "name": "Tree felling and big tree work",
+      "instead": "a qualified tree surgeon",
+      "why": "Chainsaw and height risk",
+      "sort": 4
+    },
+    {
+      "_id": "anything_involving_asbestos",
+      "name": "Anything involving asbestos",
+      "instead": "a specialist asbestos contractor",
+      "why": "Regulated, serious health risk",
+      "sort": 5
+    },
+    {
+      "_id": "personal_care",
+      "name": "Personal care",
+      "instead": "a CQC-registered care provider",
+      "why": "CQC-regulated activity",
+      "sort": 6
+    },
+    {
+      "_id": "childcare_and_babysitting",
+      "name": "Childcare and babysitting",
+      "instead": "an Ofsted-registered childminder or nanny",
+      "why": "Safeguarding and registration",
+      "sort": 7
+    },
+    {
+      "_id": "lifts_and_driving_people",
+      "name": "Lifts and driving people",
+      "instead": "a licensed taxi or private hire firm",
+      "why": "Needs a private hire licence",
+      "sort": 8
+    },
+    {
+      "_id": "pest_control",
+      "name": "Pest control",
+      "instead": "a pest control professional",
+      "why": "Some products are restricted to certified users",
+      "sort": 9
+    }
+  ]
+}

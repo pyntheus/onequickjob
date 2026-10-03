@@ -1,0 +1,84 @@
+/*
+ * Design tokens: the prototype's "Village" version only (docs/design/prototype.jsx).
+ * Components reference var(--token) and never hard-code colours.
+ */
+@import "@fontsource/young-serif/400.css";
+@import "@fontsource/figtree/400.css";
+@import "@fontsource/figtree/500.css";
+@import "@fontsource/figtree/600.css";
+@import "@fontsource/figtree/700.css";
+
+:root {
+  /* shared */
+  --ok: #2c7549;
+  --ok-soft: #dff0e4;
+  --warn: #8f5b0c;
+  --warn-soft: #faeed5;
+  --danger: #a2352a;
+  --danger-soft: #f7e0dc;
+  --star: #de9e1f;
+  --press: 0px;
+
+  /* village */
+  --bg: #f2f4ee;
+  --surface: #ffffff;
+  --soft: #e7ebe1;
+  --ink: #18261e;
+  --muted: #56645b;
+  --line: #d3dacb;
+  /* Not in the prototype: input and stepper borders need 3:1 against white (WCAG 1.4.11). */
+  --line-strong: #7d8a80;
+  --hair: #e2e7db;
+  --primary: #1e4b38;
+  --on-primary: #ffffff;
+  --primary-soft: #dce8df;
+  --accent: #f2b233;
+  --on-accent: #18261e;
+  --accent-soft: #fcefcf;
+  --font-head: "Young Serif", Georgia, serif;
+  --font-body: "Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --head-weight: 400;
+  --head-track: -0.01em;
+  --radius: 24px;
+  --radius-sm: 14px;
+  --btn-radius: 999px;
+  --bw: 1px;
+  --btn-border: transparent;
+  --btn-shadow: none;
+  --shadow: 0 1px 2px rgba(24, 38, 30, 0.05), 0 14px 32px -18px rgba(24, 38, 30, 0.28);
+  --lawn-1: #5e995a;
+  --lawn-2: #74ae6b;
+  --hedge: #2e5d3e;
+  --house: #ffffff;
+  --roof: #1e4b38;
+  --path: #d6ddcc;
+  --sky: #e2e9d8;
+  --c1: #1e4b38;
+  --c2: #e3a21f;
+  --c3: #5f93bc;
+  --c4: #98a39a;
+
+  color-scheme: light;
+}
+
+html {
+  background: var(--bg);
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+}
+
+.pt {
+  font-family: var(--font-body);
+  color: var(--ink);
+  background: var(--bg);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+  min-height: 100dvh;
+  position: relative;
+}
