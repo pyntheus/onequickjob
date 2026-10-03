@@ -38,7 +38,7 @@ from app.payments.refunds import apply_refund_result, refund_split_for
 from app.repos.payments import PaymentEvents, PaymentRefunds
 from app.repos.providers import Providers
 from app.repos.visits import Visits
-from app.services import ledger
+from app.services import ledger, lifecycle
 from app.services.audit import SYSTEM, audit
 
 log = logging.getLogger("oqj.payments.webhooks")
@@ -108,7 +108,7 @@ async def dispatch(db: Db, s: Settings, event: Json, obj: Json, session: DbSessi
         case "refund.created" | "refund.updated" | "refund.failed" | "charge.refund.updated":
             return await refund_updated(db, s, obj, session)
         case "account.updated":
-            return await account_updated(db, obj, session)
+            return await account_updated(db, s, obj, session)
         case "payout.paid":
             return await payout_paid(db, s, event.get("account"), obj, session)
         case "payout.failed":
@@ -288,7 +288,7 @@ async def _provider_for_account(db: Db, account_id: str | None, session: DbSessi
     return await Providers(db).find_one({"payment_account.account_id": account_id}, session=session)
 
 
-async def account_updated(db: Db, acct: Json, session: DbSession) -> Outcome:
+async def account_updated(db: Db, s: Settings, acct: Json, session: DbSession) -> Outcome:
     provider = await _provider_for_account(db, acct.get("id"), session)
     if provider is None or provider.payment_account is None:
         return "no_match", "no provider with that account"
@@ -313,6 +313,7 @@ async def account_updated(db: Db, acct: Json, session: DbSession) -> Outcome:
         after=after.model_dump(mode="json"),
         session=session,
     )
+    await lifecycle.activate_if_ready(db, s, provider.id, actor=SYSTEM, session=session)
     return "applied", state.status
 
 

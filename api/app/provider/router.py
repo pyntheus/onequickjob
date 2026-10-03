@@ -273,8 +273,8 @@ async def get_profile(provider: Owner, db: DbDep) -> ProviderProfile:
 
 
 @router.patch("/profile")
-async def update_profile(body: ProfilePatch, provider: Owner, db: DbDep) -> ProviderProfile:
-    return await profile_mod.update_profile(db, provider, body)
+async def update_profile(body: ProfilePatch, provider: Owner, user: User, db: DbDep, s: SettingsDep) -> ProviderProfile:
+    return await profile_mod.update_profile(db, s, provider, body, user)
 
 
 @router.get("/documents")
@@ -364,8 +364,8 @@ async def post_message(thread_id: str, body: NewMessage, provider: Owner, db: Db
 
 # ---------------------------------------------------------------- sign-up (signed in, not yet a provider)
 @router.get("/signup")
-async def signup_checklist(user: User, db: DbDep, gateway: Gateway) -> SignupChecklist:
-    return await signup_mod.get_checklist(db, gateway, user)
+async def signup_checklist(user: User, db: DbDep, s: SettingsDep, gateway: Gateway) -> SignupChecklist:
+    return await signup_mod.get_checklist(db, s, gateway, user)
 
 
 @router.post("/signup/start", status_code=status.HTTP_201_CREATED)

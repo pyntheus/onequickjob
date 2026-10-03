@@ -129,6 +129,32 @@ async def reject_document(
     return await providers.detail(db, provider_id)
 
 
+@router.post("/providers/{provider_id}/helpers/{user_id}/documents/{doc_type}/verify")
+async def verify_helper_document(
+    provider_id: str, user_id: str, doc_type: DocType, body: VerifyDocIn, admin: Admin, db: DbDep, s: SettingsDep
+) -> ProviderDetail:
+    """A helper's document, checked as a provider's is; the helper is texted (Session S)."""
+    await providers.verify_helper_document(
+        db, s, provider_id, user_id, doc_type, body.issued_on, body.expires_on, actor(admin)
+    )
+    return await providers.detail(db, provider_id)
+
+
+@router.post("/providers/{provider_id}/helpers/{user_id}/documents/{doc_type}/reject")
+async def reject_helper_document(
+    provider_id: str, user_id: str, doc_type: DocType, body: RejectDocIn, admin: Admin, db: DbDep, s: SettingsDep
+) -> ProviderDetail:
+    await providers.reject_helper_document(db, s, provider_id, user_id, doc_type, body.reason, actor(admin))
+    return await providers.detail(db, provider_id)
+
+
+@router.post("/providers/{provider_id}/helpers/{user_id}/ready")
+async def mark_helper_ready(provider_id: str, user_id: str, admin: Admin, db: DbDep, s: SettingsDep) -> ProviderDetail:
+    """The helper can be sent to visits once their ID is checked; the provider is texted (Session S)."""
+    await providers.mark_helper_ready(db, s, provider_id, user_id, actor(admin))
+    return await providers.detail(db, provider_id)
+
+
 @router.post("/providers/{provider_id}/suspend")
 async def suspend_provider(
     provider_id: str, body: SuspendIn, admin: Admin, db: DbDep, s: SettingsDep
@@ -159,10 +185,12 @@ async def provider_payment_account(
 
 
 @router.post("/providers/{provider_id}/payment-account/sync")
-async def sync_provider_payment_account(provider_id: str, admin: Admin, db: DbDep, gateway: Gateway) -> ProviderDetail:
+async def sync_provider_payment_account(
+    provider_id: str, admin: Admin, db: DbDep, s: SettingsDep, gateway: Gateway
+) -> ProviderDetail:
     """Read the account's state from the payment provider now (webhooks do it too; L3 addition)."""
     async with gateway_errors():
-        await providers.sync_payment_account(db, gateway, provider_id, actor(admin))
+        await providers.sync_payment_account(db, s, gateway, provider_id, actor(admin))
     return await providers.detail(db, provider_id)
 
 

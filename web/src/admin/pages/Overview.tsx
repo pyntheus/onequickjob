@@ -171,9 +171,9 @@ function Attention({ d }: { d: OverviewData }) {
             {a.short}
           </Link>
           <span className="grow small">{a.issue}</span>
-          {a.action === "Ring them" ? (
+          {a.action === "Ring them" || a.action === "Check it" ? (
             <Link to={`/admin/providers/${a.provider_id}`} className="btn btn-ghost btn-sm">
-              Ring them
+              {a.action}
             </Link>
           ) : (
             <button

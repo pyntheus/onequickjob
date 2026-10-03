@@ -375,7 +375,7 @@ _t(
     lane="L3",
     audience="provider",
     channels=("sms",),
-    trigger="An admin verifies an uploaded document.",
+    trigger="An admin verifies an uploaded document (a provider's, or a helper's: then the helper is texted).",
     body="{brand}: we've checked your {document}. Thanks, you're all set{until_text}.",
 )
 _t(
@@ -383,7 +383,7 @@ _t(
     lane="L3",
     audience="provider",
     channels=("sms",),
-    trigger="An admin rejects an uploaded document.",
+    trigger="An admin rejects an uploaded document (a provider's, or a helper's: then the helper is texted).",
     body="{brand}: we couldn't accept your {document}: {reason} Please upload it again: {link}",
 )
 _t(
@@ -469,6 +469,26 @@ _t(
     channels=("sms",),
     trigger="An admin closes a dispute.",
     body="{brand}: {title} is now closed. {outcome}",
+)
+_t(
+    id="provider_activated",
+    lane="F",
+    audience="provider",
+    channels=("sms",),
+    trigger=(
+        "A provider signing up has every required check done (ID, insurance, tax details, a payout account, and a "
+        "basic DBS check if a chosen job needs one): they become active automatically (A19)."
+    ),
+    body="{brand}: you're all set, {first}. Your checks are done, so jobs near you will start coming through. {link}",
+)
+_t(
+    id="helper_ready",
+    lane="L3",
+    audience="provider",
+    channels=("sms",),
+    trigger="An admin marks a provider's helper ready, once their ID has been checked (Session S).",
+    body="{brand}: we've checked {helper}'s details, so you can send them to visits from Today. Each visit still "
+    "needs the documents its job asks for. {link}",
 )
 _t(
     id="account_suspended",

@@ -2,8 +2,9 @@
 
 Tax identifiers: the full NI number and date of birth are sealed (core.crypto.seal, the tax
 data keys) in tax_identities, read only by the HMRC export (L3); the provider record keeps
-masked copies for display (decisions.md R28). A new provider stays signing_up: an admin
-checks their documents before they take jobs.
+masked copies for display (decisions.md R28). A new provider stays signing_up until every
+required check is done (an admin checks their documents), then becomes active automatically
+(app.services.lifecycle, A19): giving tax details and finishing payout set-up can be the last.
 """
 
 import contextlib
@@ -36,6 +37,7 @@ from app.provider.schemas import (
 )
 from app.repos.providers import Providers, TaxIdentities
 from app.repos.users import Users
+from app.services.lifecycle import activate_if_ready
 from app.services.notify import link, notify
 
 STEPS: list[tuple[str, str, str]] = [
@@ -84,9 +86,11 @@ def checklist(provider: Provider | None) -> SignupChecklist:
     )
 
 
-async def _sync_account(db: Db, gateway: PaymentGateway, provider: Provider) -> Provider:
+async def _sync_account(
+    db: Db, s: Settings, gateway: PaymentGateway, provider: Provider, user: CurrentUser
+) -> Provider:
     """Back from onboarding: ask the gateway how the payout account stands (L3's webhooks also
-    keep it current with Stripe)."""
+    keep it current with Stripe). An enabled account can be the last check (A19)."""
     acct = provider.payment_account
     if acct is None or acct.status == "enabled":
         return provider
@@ -99,18 +103,27 @@ async def _sync_account(db: Db, gateway: PaymentGateway, provider: Provider) -> 
     )
     if synced == acct:
         return provider
-    updated = await Providers(db).update(
-        provider.id,
-        {"payment_account": synced.model_dump()},
-        extra_filter={"payment_account.account_id": acct.account_id},
-    )
-    return updated or provider
+
+    async def save(session: DbSession) -> Provider | None:
+        updated = await Providers(db).update(
+            provider.id,
+            {"payment_account": synced.model_dump()},
+            extra_filter={"payment_account.account_id": acct.account_id},
+            session=session,
+        )
+        if updated is not None:
+            updated = (
+                await activate_if_ready(db, s, provider.id, actor=user.actor("provider"), session=session) or updated
+            )
+        return updated
+
+    return await transaction(db, save) or provider
 
 
-async def get_checklist(db: Db, gateway: PaymentGateway, user: CurrentUser) -> SignupChecklist:
+async def get_checklist(db: Db, s: Settings, gateway: PaymentGateway, user: CurrentUser) -> SignupChecklist:
     provider = await Providers(db).by_user(user.id)
     if provider is not None:
-        provider = await _sync_account(db, gateway, provider)
+        provider = await _sync_account(db, s, gateway, provider, user)
     return checklist(provider)
 
 
@@ -200,6 +213,7 @@ async def save_tax(db: Db, s: Settings, user: CurrentUser, body: TaxDetailsIn) -
     async def save(session: DbSession) -> None:
         await TaxIdentities(db).upsert(provider.id, seal(ni, s), seal(dob, s), session=session)
         await Providers(db).update(provider.id, {"tax": details.model_dump()}, session=session)
+        await activate_if_ready(db, s, provider.id, actor=user.actor("provider"), session=session)
 
     await transaction(db, save)
     return TaxDetailsOut(complete=True, ni_masked=details.ni_masked or "", dob_masked=details.dob_masked or "")
@@ -221,10 +235,19 @@ async def payment_account(db: Db, s: Settings, gateway: PaymentGateway, user: Cu
             payouts_enabled=made.payouts_enabled,
             bank_last4=made.bank_last4,
         )
-        saved = await Providers(db).update(
-            provider.id, {"payment_account": acct.model_dump()}, extra_filter={"payment_account": None}
-        )
-        if saved is None:  # made twice at once: use the one that was saved
+
+        async def save(session: DbSession) -> Provider | None:
+            saved = await Providers(db).update(
+                provider.id,
+                {"payment_account": acct.model_dump()},
+                extra_filter={"payment_account": None},
+                session=session,
+            )
+            if saved is not None:  # the gateway may enable the account at once (A19)
+                await activate_if_ready(db, s, provider.id, actor=user.actor("provider"), session=session)
+            return saved
+
+        if await transaction(db, save) is None:  # made twice at once: use the one that was saved
             again = await Providers(db).get(provider.id)
             assert again is not None and again.payment_account is not None
             acct = again.payment_account

@@ -516,6 +516,33 @@ has tests.
   covers stays as tidying. (`test_documents.py`:
   `test_a_verdict_on_a_replaced_upload_answers_409_over_http`,
   `test_no_repository_raises_http_errors`.)
+- **A19. Providers become active automatically** (Hasan's brief to S). A provider moves from
+  `signing_up` to `active` the moment the last required check is done: identity and insurance
+  verified and in date, tax details given, a payout account the gateway has enabled (the fake
+  enables it when onboarding completes), and a basic DBS check verified and in date if any of
+  their chosen jobs needs one. `app.services.lifecycle.activate_if_ready` runs inside the
+  transaction that wrote the check, wherever that is: an admin verifying a document or syncing
+  the payout account, Stripe's `account.updated` webhook, the provider giving their tax details,
+  creating or returning from payout set-up, or dropping the only job that needed DBS. It's
+  guarded on `signing_up` (a suspended provider is never activated), texts `provider_activated`
+  and audit-logs `provider.activated`. Admins can still suspend and reinstate; the provider page
+  lists what's left ("Becomes active automatically once these are done: ..."). There was no way
+  to activate a provider before this. (`test_lifecycle.py`.)
+- **A20. Helpers' checks and renewals in admin** (contract-changes L2). Admins verify or reject
+  a helper's documents (`POST /api/admin/providers/{id}/helpers/{user_id}/documents/{type}/verify|reject`,
+  through `Providers.set_helper_document`, by the same rule as a provider's: a checked renewal
+  replaces the old copy, a rejected one replaces only itself; the helper is texted) and mark a
+  helper ready once their ID is checked (`.../helpers/{user_id}/ready`, `Providers.set_helper_status`;
+  the provider is texted `helper_ready`). Each is audit-logged. Readiness doesn't replace the
+  per-job rule: the round sends a helper only to visits whose documents they hold (A17). The
+  provider page has a Helpers card. While a renewal waits for a check, admin shows the copy that
+  counts: insurance "Until 12 Oct · Renewal waiting" rather than "Missing", the document row
+  "Renewal waiting, checked copy until ...", and the overview "Insurance renewal to check"
+  (Check it) instead of an expiry reminder. With no checked copy in date and an upload waiting,
+  insurance shows "Renewal waiting" ("Waiting for a check" while signing up), status `renewal`.
+  (`test_providers.py`: `test_a_renewal_waiting_shows_beside_the_checked_copy_not_as_missing`,
+  `test_admins_check_a_helpers_documents_and_mark_them_ready`,
+  `test_a_ready_helper_with_checked_documents_can_be_sent_to_a_visit`.)
 
 ## 3. Open questions (for Hasan)
 

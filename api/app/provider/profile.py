@@ -14,7 +14,9 @@ from datetime import date
 
 from fastapi import status
 
-from app.core.db import Db
+from app.core.config import Settings
+from app.core.db import Db, DbSession, transaction
+from app.core.deps import CurrentUser
 from app.core.errors import fail
 from app.core.timeutil import london_today, utcnow
 from app.models.categories import Category, DocumentType
@@ -28,6 +30,7 @@ from app.repos.categories import DocumentTypes
 from app.repos.files import Files
 from app.repos.providers import Providers
 from app.services.documents import DocumentDateError, due_for_reminder, expiry_for
+from app.services.lifecycle import activate_if_ready
 
 WEEK = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 HHMM = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
@@ -136,7 +139,9 @@ async def profile(db: Db, provider: Provider) -> ProviderProfile:
     )
 
 
-async def update_profile(db: Db, provider: Provider, body: ProfilePatch) -> ProviderProfile:
+async def update_profile(
+    db: Db, s: Settings, provider: Provider, body: ProfilePatch, user: CurrentUser
+) -> ProviderProfile:
     fields: dict = {}
     if body.skills is not None:
         live = {c.id for c in (await categories(db)).values() if c.status == "live"}
@@ -153,7 +158,18 @@ async def update_profile(db: Db, provider: Provider, body: ProfilePatch) -> Prov
         if not (HHMM.match(a.quiet_from) and HHMM.match(a.quiet_to)):
             fail(status.HTTP_422_UNPROCESSABLE_CONTENT, "bad_time", "Quiet hours need times like 20:00.")
         fields["alert_settings"] = a.model_dump()
-    updated = await Providers(db).patch(provider.id, fields) if fields else provider
+    if not fields:
+        return await profile(db, provider)
+
+    async def save(session: DbSession) -> Provider | None:
+        updated = await Providers(db).patch(provider.id, fields, session=session)
+        if "skills" in fields:  # dropping the only job that needed a DBS check can complete sign-up (A19)
+            updated = (
+                await activate_if_ready(db, s, provider.id, actor=user.actor("provider"), session=session) or updated
+            )
+        return updated
+
+    updated = await transaction(db, save)
     assert updated is not None
     return await profile(db, updated)
 

@@ -382,6 +382,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/providers/{provider_id}/helpers/{user_id}/documents/{doc_type}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reject Helper Document */
+        post: operations["reject_helper_document_api_admin_providers__provider_id__helpers__user_id__documents__doc_type__reject_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/providers/{provider_id}/helpers/{user_id}/documents/{doc_type}/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Verify Helper Document
+         * @description A helper's document, checked as a provider's is; the helper is texted (Session S).
+         */
+        post: operations["verify_helper_document_api_admin_providers__provider_id__helpers__user_id__documents__doc_type__verify_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/providers/{provider_id}/helpers/{user_id}/ready": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark Helper Ready
+         * @description The helper can be sent to visits once their ID is checked; the provider is texted (Session S).
+         */
+        post: operations["mark_helper_ready_api_admin_providers__provider_id__helpers__user_id__ready_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/providers/{provider_id}/nudge": {
         parameters: {
             query?: never;
@@ -2320,6 +2377,11 @@ export interface components {
         };
         /** AdminDocument */
         AdminDocument: {
+            /**
+             * Current Expires On
+             * @description When this is a renewal: when the checked copy it renews runs out
+             */
+            current_expires_on?: string | null;
             /** Expires On */
             expires_on: string | null;
             /** File Url */
@@ -2332,6 +2394,7 @@ export interface components {
             note: string | null;
             /**
              * Status
+             * @description Of the copy to check next (a waiting renewal comes first)
              * @enum {string}
              */
             status: "missing" | "pending" | "verified" | "rejected" | "expired";
@@ -2344,6 +2407,33 @@ export interface components {
             verified_at: string | null;
             /** Verified By */
             verified_by: string | null;
+        };
+        /**
+         * AdminHelper
+         * @description A provider's helper and their checks (Session S): admins verify their documents and mark
+         *     them ready to be sent to visits.
+         */
+        AdminHelper: {
+            /**
+             * Can Mark Ready
+             * @description Not ready yet, and their ID has been checked
+             */
+            can_mark_ready: boolean;
+            /** Documents */
+            documents: components["schemas"]["AdminDocument"][];
+            /** Name */
+            name: string;
+            /** Phone */
+            phone: string | null;
+            /** Relationship */
+            relationship: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "invited" | "checking" | "ready";
+            /** User Id */
+            user_id: string;
         };
         /** AffectedVisit */
         AffectedVisit: {
@@ -2498,7 +2588,7 @@ export interface components {
              * Action
              * @enum {string}
              */
-            action: "Send reminder" | "Chase" | "Ring them";
+            action: "Send reminder" | "Chase" | "Ring them" | "Check it";
             /** Issue */
             issue: string;
             /** Provider Id */
@@ -3719,10 +3809,17 @@ export interface components {
             /** Expires On */
             expires_on: string | null;
             /**
+             * Renewal Waiting
+             * @description A renewal is waiting for a check beside the checked copy
+             * @default false
+             */
+            renewal_waiting: boolean;
+            /**
              * Status
+             * @description From the copy that counts. renewal: no checked copy in date, but an upload is waiting for a check
              * @enum {string}
              */
-            status: "ok" | "warn" | "missing";
+            status: "ok" | "warn" | "missing" | "renewal";
         };
         /**
          * IntakeField
@@ -4507,7 +4604,8 @@ export interface components {
         };
         /**
          * PaymentIssue
-         * @description A visit whose charge failed, waits for the customer, or hasn't been confirmed (L3 addition).
+         * @description A visit whose charge failed, waits for the customer, hasn't been confirmed, or never started
+         *     (status not_started: finished, but no charge was recorded), or a refund that's stuck.
          */
         PaymentIssue: {
             /** Amount Pence */
@@ -4929,6 +5027,11 @@ export interface components {
             documents: components["schemas"]["AdminDocument"][];
             /** Email */
             email: string | null;
+            /**
+             * Helper Checks
+             * @description Each helper's documents and status
+             */
+            helper_checks?: components["schemas"]["AdminHelper"][];
             /** Helpers */
             helpers: string[];
             /** Hmrc Complete */
@@ -8022,6 +8125,274 @@ export interface operations {
                 "application/json": components["schemas"]["VerifyDocIn"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderDetail"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    reject_helper_document_api_admin_providers__provider_id__helpers__user_id__documents__doc_type__reject_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider_id: string;
+                user_id: string;
+                doc_type: "identity" | "insurance" | "waste_carrier" | "ladder_cover" | "dbs_basic" | "pet_cover";
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RejectDocIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderDetail"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    verify_helper_document_api_admin_providers__provider_id__helpers__user_id__documents__doc_type__verify_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider_id: string;
+                user_id: string;
+                doc_type: "identity" | "insurance" | "waste_carrier" | "ladder_cover" | "dbs_basic" | "pet_cover";
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VerifyDocIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderDetail"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    mark_helper_ready_api_admin_providers__provider_id__helpers__user_id__ready_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider_id: string;
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {

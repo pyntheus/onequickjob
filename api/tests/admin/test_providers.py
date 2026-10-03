@@ -22,7 +22,7 @@ async def test_the_table_and_its_filters(jo, db, catalogue):
     everyone = ok(await jo.get("/api/admin/providers"))
     assert [r["short"] for r in everyone] == ["Alan P.", "Jan K.", "Ken A."]
     by = {r["short"]: r for r in everyone}
-    assert by["Alan P."]["insurance"] == {"status": "warn", "expires_on": soon.isoformat()}
+    assert by["Alan P."]["insurance"] == {"status": "warn", "expires_on": soon.isoformat(), "renewal_waiting": False}
     assert by["Jan K."]["hmrc_complete"] is False and by["Jan K."]["insurance"]["status"] == "ok"
     attention = [r["short"] for r in ok(await jo.get("/api/admin/providers?filter=attention"))]
     assert attention == ["Alan P.", "Jan K."]
@@ -142,3 +142,121 @@ async def test_provider_page_and_payment_account(jo, db, catalogue):
 
 def test_add_months_matches_the_dbs_rule():
     assert add_months(date(2025, 10, 31), 12) == date(2026, 10, 31)
+
+
+async def test_a_renewal_waiting_shows_beside_the_checked_copy_not_as_missing(jo, db, catalogue):
+    """Session S, item 3c: with an in-date insurance copy and a renewal waiting for a check, the
+    table shows the in-date copy and "renewal waiting"; the page shows the renewal to check with
+    the checked copy's expiry; the overview asks for a check, not a reminder."""
+    alan = await make_provider(db, "Alan Pryce", "+447700900210", ["mowing"])
+    await Providers(db).patch(alan.id, {"tax": TaxDetails(complete=True).model_dump(mode="python")})
+    soon = london_today() + timedelta(days=9)
+    renewal = ProviderDocument(
+        type="insurance", status="pending", file_id="f-renewal", expires_on=soon + timedelta(days=365)
+    )
+    current = ProviderDocument(type="insurance", status="verified", file_id="f-current", expires_on=soon)
+    others = [d for d in alan.documents if d.type != "insurance"]
+    await Providers(db).patch(
+        alan.id, {"documents": [d.model_dump(mode="python") for d in [*others, renewal, current]]}
+    )
+
+    [row] = ok(await jo.get("/api/admin/providers"))
+    assert row["insurance"] == {"status": "warn", "expires_on": soon.isoformat(), "renewal_waiting": True}
+    assert [r["short"] for r in ok(await jo.get("/api/admin/providers?filter=attention"))] == ["Alan P."]
+    d = ok(await jo.get(f"/api/admin/providers/{alan.id}"))
+    ins = next(x for x in d["documents"] if x["type"] == "insurance")
+    assert ins["status"] == "pending" and ins["current_expires_on"] == soon.isoformat()
+    assert not any("Not yet checked" in i for i in d["issues"])
+    attention = [a for a in ok(await jo.get("/api/admin/overview"))["attention"] if a["short"] == "Alan P."]
+    assert [(a["issue"], a["action"]) for a in attention] == [("Insurance renewal to check", "Check it")]
+
+    # Checking the renewal replaces the old copy: in date for a year, nothing waiting.
+    d = ok(await jo.post(f"/api/admin/providers/{alan.id}/documents/insurance/verify", json={}))
+    assert d["insurance"] == {
+        "status": "ok",
+        "expires_on": (soon + timedelta(days=365)).isoformat(),
+        "renewal_waiting": False,
+    }
+    # No checked copy in date and an upload waiting: "renewal", not "missing".
+    lapsed = ProviderDocument(type="insurance", status="pending", file_id="f-late")
+    await Providers(db).patch(alan.id, {"documents": [d.model_dump(mode="python") for d in [*others, lapsed]]})
+    [row] = ok(await jo.get("/api/admin/providers"))
+    assert row["insurance"]["status"] == "renewal" and row["insurance"]["renewal_waiting"] is False
+
+
+async def _with_helper(db, docs: list[ProviderDocument], status: str = "checking"):
+    from app.models.providers import Helper
+    from app.models.users import User
+    from app.repos import Users
+
+    dave = await make_provider(db, "Dave Hughes", "+447700900201", ["mowing", "cleaning"])
+    tom = User(name="Tom Hughes", phone="+447700900220", roles=[], helper_of=dave.id)
+    await Users(db).insert(tom)
+    helper = Helper(user_id=tom.id, name="Tom Hughes", relationship="Son", status=status, documents=docs)  # type: ignore[arg-type]
+    await Providers(db).update(dave.id, {}, push={"helpers": helper.model_dump(mode="python")})
+    return dave, tom
+
+
+async def test_admins_check_a_helpers_documents_and_mark_them_ready(jo, db, catalogue):
+    """Session S, item 3b: a helper's documents are verified or rejected like a provider's (the
+    helper is texted), and an admin marks them ready once their ID is checked (the provider is
+    texted). Each step is audit-logged."""
+    upload = [
+        ProviderDocument(type="identity", status="pending", file_id="f-id"),
+        ProviderDocument(type="dbs_basic", status="pending", file_id="f-dbs"),
+    ]
+    dave, tom = await _with_helper(db, upload)
+    d = ok(await jo.get(f"/api/admin/providers/{dave.id}"))
+    [h] = d["helper_checks"]
+    assert (h["name"], h["status"], h["phone"], h["can_mark_ready"]) == (
+        "Tom Hughes",
+        "checking",
+        "07700 900220",
+        False,
+    )
+    assert {x["type"]: x["status"] for x in h["documents"]}["identity"] == "pending"
+    r = await jo.post(f"/api/admin/providers/{dave.id}/helpers/{tom.id}/ready")
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "identity_not_checked"
+
+    d = ok(await jo.post(f"/api/admin/providers/{dave.id}/helpers/{tom.id}/documents/identity/verify", json={}))
+    [h] = d["helper_checks"]
+    assert {x["type"]: x["status"] for x in h["documents"]}["identity"] == "verified" and h["can_mark_ready"]
+    msg = await db["outbox"].find_one({"template_id": "document_verified"})
+    assert msg["recipient"]["phone"] == "+447700900220" and "we've checked your identity" in msg["body"]
+    rejected = ok(
+        await jo.post(
+            f"/api/admin/providers/{dave.id}/helpers/{tom.id}/documents/dbs_basic/reject", json={"reason": "Too blurry"}
+        )
+    )
+    dbs = next(x for x in rejected["helper_checks"][0]["documents"] if x["type"] == "dbs_basic")
+    assert dbs["status"] == "rejected" and dbs["note"] == "Too blurry"
+    told = await db["outbox"].find_one({"template_id": "document_rejected"})
+    assert told["recipient"]["phone"] == "+447700900220" and "Too blurry." in told["body"]
+    assert (await Providers(db).get(dave.id)).documents == dave.documents, "Dave's own documents are untouched"
+
+    d = ok(await jo.post(f"/api/admin/providers/{dave.id}/helpers/{tom.id}/ready"))
+    assert d["helper_checks"][0]["status"] == "ready" and d["helper_checks"][0]["can_mark_ready"] is False
+    ready = await db["outbox"].find_one({"template_id": "helper_ready"})
+    assert ready["recipient"]["phone"] == "+447700900201" and "we've checked Tom's details" in ready["body"]
+    again = await jo.post(f"/api/admin/providers/{dave.id}/helpers/{tom.id}/ready")
+    assert again.status_code == 409 and again.json()["detail"]["code"] == "already_ready"
+    actions = {a["action"] async for a in db["audit_log"].find({"target.user_id": tom.id})}
+    assert actions == {
+        "provider.helper_document_verified",
+        "provider.helper_document_rejected",
+        "provider.helper_ready",
+    }
+    assert (await jo.post(f"/api/admin/providers/{dave.id}/helpers/nobody/ready")).status_code == 404
+
+
+async def test_a_ready_helper_with_checked_documents_can_be_sent_to_a_visit(jo, db, catalogue):
+    """What the admin's checks are for: the round sends a ready helper to a job whose documents
+    they hold (A17), and not to one whose documents they don't."""
+    from app.provider.helpers import helper_missing
+
+    dave, tom = await _with_helper(db, [ProviderDocument(type="identity", status="pending", file_id="f-id")])
+    ok(await jo.post(f"/api/admin/providers/{dave.id}/helpers/{tom.id}/documents/identity/verify", json={}))
+    ok(await jo.post(f"/api/admin/providers/{dave.id}/helpers/{tom.id}/ready"))
+    helper = (await Providers(db).get(dave.id)).helpers[0]
+    assert helper_missing(helper, catalogue["mowing"]) == ["insurance"]
+    assert helper_missing(helper, catalogue["cleaning"]) == ["insurance", "dbs_basic"]

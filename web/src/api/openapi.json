@@ -161,6 +161,19 @@
       },
       "AdminDocument": {
         "properties": {
+          "current_expires_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When this is a renewal: when the checked copy it renews runs out",
+            "title": "Current Expires On"
+          },
           "expires_on": {
             "anyOf": [
               {
@@ -212,6 +225,7 @@
             "title": "Note"
           },
           "status": {
+            "description": "Of the copy to check next (a waiting renewal comes first)",
             "enum": [
               "missing",
               "pending",
@@ -270,6 +284,66 @@
           "note"
         ],
         "title": "AdminDocument",
+        "type": "object"
+      },
+      "AdminHelper": {
+        "description": "A provider's helper and their checks (Session S): admins verify their documents and mark\nthem ready to be sent to visits.",
+        "properties": {
+          "can_mark_ready": {
+            "description": "Not ready yet, and their ID has been checked",
+            "title": "Can Mark Ready",
+            "type": "boolean"
+          },
+          "documents": {
+            "items": {
+              "$ref": "#/components/schemas/AdminDocument"
+            },
+            "title": "Documents",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "phone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone"
+          },
+          "relationship": {
+            "title": "Relationship",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "invited",
+              "checking",
+              "ready"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "name",
+          "relationship",
+          "status",
+          "phone",
+          "documents",
+          "can_mark_ready"
+        ],
+        "title": "AdminHelper",
         "type": "object"
       },
       "AffectedVisit": {
@@ -587,7 +661,8 @@
             "enum": [
               "Send reminder",
               "Chase",
-              "Ring them"
+              "Ring them",
+              "Check it"
             ],
             "title": "Action",
             "type": "string"
@@ -3562,11 +3637,19 @@
             ],
             "title": "Expires On"
           },
+          "renewal_waiting": {
+            "default": false,
+            "description": "A renewal is waiting for a check beside the checked copy",
+            "title": "Renewal Waiting",
+            "type": "boolean"
+          },
           "status": {
+            "description": "From the copy that counts. renewal: no checked copy in date, but an upload is waiting for a check",
             "enum": [
               "ok",
               "warn",
-              "missing"
+              "missing",
+              "renewal"
             ],
             "title": "Status",
             "type": "string"
@@ -5496,7 +5579,7 @@
         "type": "object"
       },
       "PaymentIssue": {
-        "description": "A visit whose charge failed, waits for the customer, or hasn't been confirmed (L3 addition).",
+        "description": "A visit whose charge failed, waits for the customer, hasn't been confirmed, or never started\n(status not_started: finished, but no charge was recorded), or a refund that's stuck.",
         "properties": {
           "amount_pence": {
             "title": "Amount Pence",
@@ -6596,6 +6679,14 @@
               }
             ],
             "title": "Email"
+          },
+          "helper_checks": {
+            "description": "Each helper's documents and status",
+            "items": {
+              "$ref": "#/components/schemas/AdminHelper"
+            },
+            "title": "Helper Checks",
+            "type": "array"
           },
           "helpers": {
             "items": {
@@ -12344,6 +12435,395 @@
           }
         },
         "summary": "Verify Document",
+        "tags": [
+          "L3 admin"
+        ]
+      }
+    },
+    "/api/admin/providers/{provider_id}/helpers/{user_id}/documents/{doc_type}/reject": {
+      "post": {
+        "operationId": "reject_helper_document_api_admin_providers__provider_id__helpers__user_id__documents__doc_type__reject_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider_id",
+            "required": true,
+            "schema": {
+              "title": "Provider Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "doc_type",
+            "required": true,
+            "schema": {
+              "enum": [
+                "identity",
+                "insurance",
+                "waste_carrier",
+                "ladder_cover",
+                "dbs_basic",
+                "pet_cover"
+              ],
+              "title": "Doc Type",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RejectDocIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          }
+        },
+        "summary": "Reject Helper Document",
+        "tags": [
+          "L3 admin"
+        ]
+      }
+    },
+    "/api/admin/providers/{provider_id}/helpers/{user_id}/documents/{doc_type}/verify": {
+      "post": {
+        "description": "A helper's document, checked as a provider's is; the helper is texted (Session S).",
+        "operationId": "verify_helper_document_api_admin_providers__provider_id__helpers__user_id__documents__doc_type__verify_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider_id",
+            "required": true,
+            "schema": {
+              "title": "Provider Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "doc_type",
+            "required": true,
+            "schema": {
+              "enum": [
+                "identity",
+                "insurance",
+                "waste_carrier",
+                "ladder_cover",
+                "dbs_basic",
+                "pet_cover"
+              ],
+              "title": "Doc Type",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifyDocIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          }
+        },
+        "summary": "Verify Helper Document",
+        "tags": [
+          "L3 admin"
+        ]
+      }
+    },
+    "/api/admin/providers/{provider_id}/helpers/{user_id}/ready": {
+      "post": {
+        "description": "The helper can be sent to visits once their ID is checked; the provider is texted (Session S).",
+        "operationId": "mark_helper_ready_api_admin_providers__provider_id__helpers__user_id__ready_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider_id",
+            "required": true,
+            "schema": {
+              "title": "Provider Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          }
+        },
+        "summary": "Mark Helper Ready",
         "tags": [
           "L3 admin"
         ]

@@ -25,6 +25,7 @@ from app.admin.views import (
     lower_first,
     money,
     plural,
+    renewal_waiting,
     request_where,
     short_name,
 )
@@ -254,8 +255,22 @@ def attention_for(p: Provider, labels: dict[str, str], today: date) -> list[Atte
                 )
             )
         return items
+    # A renewal waiting for a check: check it, rather than remind them about the old copy (Session S).
+    renewing = sorted({d.type for d in p.documents if renewal_waiting(p.documents, d.type)})
+    for t in renewing:
+        items.append(
+            AttentionItem(
+                provider_id=p.id,
+                short=p.short,
+                issue=f"{labels.get(t, t)} renewal to check",
+                tone="warn",
+                action="Check it",
+            )
+        )
     for d in p.documents:
         state = doc_state(d, today)
+        if d.type in renewing:
+            continue
         if state in ("warn", "expired") and d.expires_on:
             label = labels.get(d.type, d.type)
             verb = "expires" if state == "warn" else "expired"
