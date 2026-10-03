@@ -70,6 +70,7 @@ oqj-*-api ──> oqj-mongo (single-node replica set rs0; no published port; pri
 - Mongo runs as a single-node replica set (`rs0`, member `oqj-mongo:27017`) so writes that span
   collections can use transactions. Its healthcheck initiates the set the first time (and is a
   no-op afterwards), so `make dev` needs no extra step; a standalone data volume converts in place.
+  It allows 64000 open files and processes and caps its cache at 1.5 GB (`infra/compose.shared.yml`).
 - Source is bind-mounted, so code changes reload without rebuilding. Rebuild (`make dev`)
   after changing `api/pyproject.toml` or `web/package.json`.
 
