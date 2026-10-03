@@ -396,8 +396,10 @@ Decided by Hasan after reviewing the F report; each has tests.
   so the quote records its pricing version), keeping any counter in proportion: new price = new
   guide x agreed price / original guide, rounded half-up to whole pounds
   (`app.customer.plan_changes.scaled_price`). The original guide is the last accepted change's new
-  guide, else the request's guide, else (an own customer's plan, which has no request) the
-  engine's price at the current frequency. A dearer first visit doesn't apply to an existing plan
+  guide, else the guide the booking was agreed against (an accepted counter's own guide, so a raise
+  approved under A12 before the counter was accepted doesn't erase the premium; else the guide it
+  was booked at), else (an own customer's plan, which has no request) the engine's price at the
+  current frequency. A dearer first visit doesn't apply to an existing plan
   (an unstarted first visit keeps its agreed price). The provider is texted the new price
   (`plan_change_proposed`, with a single-use link to `/plan-change/{token}`) and accepts or
   declines; the customer is told at each step (`plan_change_requested`, `_accepted`, `_declined`,

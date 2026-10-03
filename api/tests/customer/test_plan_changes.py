@@ -278,3 +278,42 @@ async def test_the_provider_is_only_sent_the_price_the_customer_saw(client, db, 
     assert r.json()["detail"]["extra"]["price_pence"] == shown + 900
     assert await PlanChanges(db).count({}) == 0
     assert await db["outbox"].count_documents({"template_id": "plan_change_proposed"}) == 0
+
+
+async def test_a_counter_accepted_after_an_approved_raise_keeps_its_own_guide(client, db, catalogue):
+    """Codex third review (medium): A12 then A10. A £37 counter against the £31 guide, accepted
+    after the customer approved a raise: re-pricing scales from £31 (the counter's guide), not the
+    raised guide."""
+    from app.core.db import transaction
+    from app.customer import price_changes
+    from app.models.common import Actor
+    from app.repos import JobRequests, Users
+
+    dave = await make_provider(db, "Dave Hughes", "+447700900201", ["mowing"])
+    await signed_in_with_card(client, db)
+    detail = await make_request_via_api(client)
+    offer = await marketplace.make_counter(db, make_settings(), detail["ref"], dave, price_pence=3700, reasons=[])
+    req = await JobRequests(db).by_ref(detail["ref"])
+
+    async def raise_(session):
+        return await price_changes.propose(
+            db,
+            make_settings(),
+            req,
+            guide_pence=3700,
+            first_pence=None,
+            percent=20,
+            note="",
+            actor=Actor(),
+            session=session,
+        )
+
+    await transaction(db, raise_)
+    raised = await JobRequests(db).get(req.id)
+    customer_user = await Users(db).by_phone("+447700900123")
+    await price_changes.approve(db, make_settings(), raised, customer_user, raised.price_change.id)
+    assert (await JobRequests(db).get(req.id)).guide_pence == 3700
+    assert (await client.post(f"/api/c/offers/{offer.id}/accept")).status_code == 200
+    booking = await Bookings(db).find_one({})
+    weekly = await _engine_price(db, "weekly")
+    assert await _preview(client, booking.series_id, "weekly") == round_to_pound(weekly * 3700 / 3100)

@@ -27,12 +27,14 @@ from app.models.bookings import Booking, Series
 from app.models.categories import Category
 from app.models.common import Related
 from app.models.customers import Customer
+from app.models.job_requests import JobRequest
 from app.models.plan_changes import PlanChange
 from app.models.users import User
 from app.repos.bookings import Bookings
 from app.repos.categories import Categories
 from app.repos.customers import Customers
 from app.repos.job_requests import JobRequests
+from app.repos.offers import Offers
 from app.repos.plan_changes import PlanChanges
 from app.repos.providers import Providers
 from app.repos.series import SeriesRepo
@@ -74,6 +76,20 @@ async def _category(db: Db, category_id: str) -> Category:
     return cat
 
 
+async def _booked_guide(db: Db, req: JobRequest) -> int | None:
+    """The guide the booked price was agreed against: an accepted counter's own guide (offers keep
+    it, so a guide raised and approved later doesn't change it, A12), else the guide it was booked
+    at."""
+    b = req.booked
+    if b and b.via == "counter" and b.offer_id:
+        offer = await Offers(db).get(b.offer_id)
+        if offer is not None:
+            return offer.guide_pence
+    if b and b.via == "guide":
+        return b.price_pence
+    return req.guide_pence or None
+
+
 async def reprice(db: Db, s: Settings, series: Series, booking: Booking, frequency: str, user_id: str) -> Reprice:
     """The plan's price at another frequency."""
     if series.status == "cancelled":
@@ -113,8 +129,8 @@ async def reprice(db: Db, s: Settings, series: Series, booking: Booking, frequen
     reference_quote_id = None
     if last is not None:
         original = last.new_guide_pence
-    elif req is not None and req.guide_pence:
-        original = req.guide_pence
+    elif req is not None and (booked_guide := await _booked_guide(db, req)):
+        original = booked_guide
     else:
         original, reference_quote_id = await guide_at(series.frequency)
     if original <= 0:
