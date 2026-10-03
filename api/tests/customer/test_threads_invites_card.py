@@ -139,6 +139,20 @@ async def test_accepting_an_invite_makes_an_own_customer_booking_at_the_provider
     )
 
 
+async def test_an_invite_that_already_has_a_booking_is_a_409_not_a_500(client, db, catalogue):
+    """Seen after re-seeding: the invite was reset to invited, but its earlier booking remained."""
+    dave = await make_provider(db, "Dave Hughes", "+447700900201", ["mowing"])
+    token = await _invite(db, dave)
+    await signed_in_with_card(client, db, MARY, "Mary Bishop")
+    assert (
+        await client.post(f"/api/c/invites/{token}/accept", json={"agree_terms": True, "address": address()})
+    ).status_code == 201
+    await OwnCustomerInvites(db).coll.update_one({}, {"$set": {"status": "invited"}})
+    r = await client.post(f"/api/c/invites/{token}/accept", json={"agree_terms": True})
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "already_accepted"
+    assert await Bookings(db).count({}) == 1
+
+
 async def test_only_the_invited_number_can_accept(client, db, catalogue):
     dave = await make_provider(db, "Dave Hughes", "+447700900201", ["mowing"])
     token = await _invite(db, dave)

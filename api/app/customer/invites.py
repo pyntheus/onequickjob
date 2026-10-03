@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import NoReturn
 
 from fastapi import status
+from pymongo.errors import DuplicateKeyError
 
 from app.core import money
 from app.core.config import Settings
@@ -244,4 +245,7 @@ async def accept(db: Db, s: Settings, invite: OwnCustomerInvite, user: User, bod
             )
         return booking
 
-    return await transaction(db, accept_invite)
+    try:
+        return await transaction(db, accept_invite)
+    except DuplicateKeyError:  # a booking already exists for this invite (one per invite: unique index)
+        fail(status.HTTP_409_CONFLICT, "already_accepted", "This invite has already been accepted.")
