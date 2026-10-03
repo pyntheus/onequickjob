@@ -12,8 +12,20 @@ from tests.customer.helpers import book_at_guide, finish_visit, make_request_via
 from tests.factories import make_provider
 
 
+async def _payable(db, name: str, phone: str, skills: list[str]):
+    """A provider with a (fake) payment account, so tips can be charged to them."""
+    from app.models.providers import PaymentAccount
+
+    p = await make_provider(db, name, phone, skills)
+    account = PaymentAccount(
+        gateway="fake", account_id=f"acct_fake_{p.id[-8:]}", status="enabled", payouts_enabled=True
+    )
+    await Providers(db).patch(p.id, {"payment_account": account.model_dump(mode="python")})
+    return await Providers(db).get(p.id)
+
+
 async def _booked(client, db, category_id: str = "mowing", **over):
-    dave = await make_provider(db, "Dave Hughes", "+447700900201", [category_id])
+    dave = await _payable(db, "Dave Hughes", "+447700900201", [category_id])
     await signed_in_with_card(client, db)
     detail = await make_request_via_api(client, category_id, **over)
     out = await book_at_guide(db, detail["ref"], dave)
@@ -96,22 +108,26 @@ async def test_rating_with_a_tip_charges_it_without_a_fee(client, db, catalogue)
     assert visit.tip_pence == 500 and visit.tip_charge.status == "succeeded" and visit.tip_charge.fee_pence == 0
     (entry,) = await LedgerEntries(db).find({"visit_id": first.id})
     assert (entry.kind, entry.gross_pence, entry.fee_pence, entry.net_pence) == ("tip", 500, 0, 500)
+    assert visit.tip_charge.idempotency_key == f"visit:{first.id}:tip", "L3's charging path and key"
     msg = await db["outbox"].find_one({"template_id": "rating_received"})
-    assert "rated your lawn mowing 5 out of 5. They added a £5 tip." in msg["body"]
+    assert msg["body"].endswith("rated your lawn mowing 5 out of 5.")
+    tip = await db["outbox"].find_one({"template_id": "tip_received"})
+    assert "Sarah added a £5 tip for your lawn mowing. All of it goes to you, with no fee." in tip["body"]
     assert (await Providers(db).get(dave.id)).stats.rating_count == 1
     again = await client.post(f"/api/c/visits/{first.id}/rating", json={"stars": 4})
     assert again.status_code == 409 and again.json()["detail"]["code"] == "already_rated"
     assert (await client.get(f"/api/c/visits/{first.id}")).json()["rating_stars"] == 5
 
 
-async def test_a_tip_whose_outcome_is_unknown_stays_pending_and_is_settled_once(client, db, catalogue, monkeypatch):
-    """Codex (high): a gateway error after the rating is saved leaves the tip pending (not failed);
-    the reconcile task retries with the same idempotency key and records it exactly once."""
+async def test_a_tip_whose_outcome_is_unknown_is_settled_once_by_the_payments_path(client, db, catalogue, monkeypatch):
+    """The tip goes through the one charging path: a gateway error after the charge leaves it
+    pending; L3's settle step finds the payment by its idempotency key and records it once
+    (ledger entry and tip_received), never charging again."""
     from datetime import timedelta
 
     from app.adapters.payments.fake import FakeGateway
     from app.core.timeutil import utcnow
-    from app.customer import account
+    from app.payments import charging
     from tests.conftest import make_settings
 
     _dave, _booking, first = await _booked(client, db)
@@ -126,30 +142,27 @@ async def test_a_tip_whose_outcome_is_unknown_stays_pending_and_is_settled_once(
     r = await client.post(f"/api/c/visits/{first.id}/rating", json={"stars": 4, "tip_pence": 300})
     assert r.status_code == 201 and r.json()["tip_status"] == "pending"
     assert "still going through" in r.json()["tip_message"]
-    assert (await Visits(db).get(first.id)).tip_charge.status == "pending"
-    assert (
-        await LedgerEntries(db).count({}) == 0
-        and await db["outbox"].count_documents({"template_id": "rating_received"}) == 0
-    )
+    visit = await Visits(db).get(first.id)
+    assert visit.tip_charge.status == "pending" and await LedgerEntries(db).count({}) == 0
+    assert await db["outbox"].count_documents({"template_id": "rating_received"}) == 1, "the rating is in"
+    assert await db["outbox"].count_documents({"template_id": "tip_received"}) == 0
 
     monkeypatch.setattr(FakeGateway, "charge_visit", real)
-    gateway = FakeGateway(db)
-    assert await account.reconcile_tips(db, make_settings(), gateway) == 0, "too soon to retry"
-    await Visits(db).coll.update_one({"_id": first.id}, {"$set": {"updated_at": utcnow() - timedelta(minutes=10)}})
-    assert await account.reconcile_tips(db, make_settings(), gateway) == 1
-    assert await account.reconcile_tips(db, make_settings(), gateway) == 0
-    assert await account.settle_tip(db, make_settings(), gateway, first.id) == "charged"
-    visit = await Visits(db).get(first.id)
+    key = visit.tip_charge.idempotency_key
+    await db["payment_attempts"].update_one({"_id": key}, {"$set": {"created_at": utcnow() - timedelta(minutes=2)}})
+    s = make_settings()
+    visit = await charging.settle_unknown(db, s, FakeGateway(db), await Visits(db).get(first.id), "tip")
     assert visit.tip_charge.status == "succeeded"
-    assert await db["fake_gateway"].count_documents({"kind": "charge", "idempotency_key": f"visit:{first.id}:tip"}) == 1
+    again = await charging.charge_visit(db, s, FakeGateway(db), first.id, purpose="tip")  # a repeat changes nothing
+    assert again.tip_charge == visit.tip_charge
+    assert await db["fake_gateway"].count_documents({"kind": "charge", "idempotency_key": key}) == 1
     (entry,) = await LedgerEntries(db).find({"visit_id": first.id})
     assert (entry.kind, entry.gross_pence, entry.fee_pence) == ("tip", 300, 0)
-    msg = await db["outbox"].find_one({"template_id": "rating_received"})
-    assert "rated your lawn mowing 4 out of 5. They added a £3 tip." in msg["body"]
+    assert await db["outbox"].count_documents({"template_id": "tip_received"}) == 1
 
 
 async def test_a_declined_tip_keeps_the_rating(app, db, catalogue):
-    dave = await make_provider(db, "Dave Hughes", "+447700900201", ["mowing"])
+    dave = await _payable(db, "Dave Hughes", "+447700900201", ["mowing"])
     async with await new_client(app) as c:
         await signed_in_with_card(c, db, "+447700900150", "Pat Decline")  # the fake declines "decline"
         detail = await make_request_via_api(c, contact={"name": "Pat Decline", "email": None})
@@ -161,6 +174,7 @@ async def test_a_declined_tip_keeps_the_rating(app, db, catalogue):
     assert await LedgerEntries(db).count({}) == 0
     msg = await db["outbox"].find_one({"template_id": "rating_received"})
     assert "tip" not in msg["body"]
+    assert await db["outbox"].count_documents({"template_id": "tip_received"}) == 0
 
 
 async def test_reporting_a_problem_opens_a_dispute_within_48_hours(client, db, catalogue):
@@ -319,51 +333,6 @@ async def test_a_frequency_change_keeps_a_visit_later_today_as_the_anchor(client
         )
     ]
     assert scheduled[0] == london_today() and scheduled[1] == london_today() + timedelta(days=7), scheduled
-
-
-async def test_stuck_tips_cannot_starve_the_rest(client, db, catalogue, monkeypatch):
-    """Codex re-check (medium): 100 tips that keep failing ahead of one that can be settled."""
-    from app.adapters.payments.fake import FakeGateway
-    from app.core.ids import new_id
-    from app.core.timeutil import utcnow
-    from app.customer import account
-    from app.models.visits import Charge
-    from tests.conftest import make_settings
-
-    _dave, _booking, first = await _booked(client, db)
-    base = await Visits(db).get(first.id)
-    old = utcnow() - timedelta(hours=1)
-    stuck = set()
-    for i in range(101):
-        v = base.model_copy(
-            update={
-                "id": new_id(),
-                "series_id": None,
-                "is_first": False,
-                "status": "finished",
-                "tip_pence": 200,
-                "tip_charge": Charge(status="pending", amount_pence=200, idempotency_key=f"t{i}"),
-            }
-        )
-        await Visits(db).insert(v)
-        await Visits(db).coll.update_one({"_id": v.id}, {"$set": {"updated_at": old + timedelta(seconds=i)}})
-        if i < 100:
-            stuck.add(v.id)
-    last = v.id
-    real = FakeGateway.charge_visit
-
-    async def flaky(self, visit, *a, **kw):
-        if visit.visit_id in stuck:
-            raise TimeoutError("no answer")
-        return await real(self, visit, *a, **kw)
-
-    monkeypatch.setattr(FakeGateway, "charge_visit", flaky)
-    monkeypatch.setattr(account, "RECONCILE_BATCH", 10)
-    monkeypatch.setattr(account, "TIP_RETRY_AFTER", timedelta(0))
-    settled = 0
-    for _ in range(11):
-        settled += await account.reconcile_tips(db, make_settings(), FakeGateway(db))
-    assert settled == 1 and (await Visits(db).get(last)).tip_charge.status == "succeeded"
 
 
 async def test_cancelling_a_plan_cancels_future_visits_with_no_fee(client, db, catalogue):

@@ -324,13 +324,13 @@ async def rate_visit(
 ) -> RatingOut:
     """Stars, tags and an optional tip (charged with PaymentGateway.charge_visit, purpose tip, fee 0)."""
     visit = await account.own_visit(db, visit_id, customer)
-    rating, tip_status = await account.rate_visit(db, s, gateway, visit, customer, await _user(db, customer), body)
+    rating, after = await account.rate_visit(db, s, gateway, visit, customer, await _user(db, customer), body)
+    tip_status = account.tip_status(after)
     message = None
     if tip_status == "pending":
-        message = "Your rating is saved. The tip is still going through: we'll keep trying, and it's only taken once."
+        message = "Your rating is saved. The tip is still going through: we'll check it, and it's only taken once."
     elif tip_status == "failed":
-        stored = await Visits(db).get(visit.id)
-        reason = stored.tip_charge.failure_reason if stored and stored.tip_charge else None
+        reason = after.tip_charge.failure_reason if after.tip_charge else None
         message = f"Your rating is saved, but the tip didn't go through{': ' + reason if reason else '.'}"
     return RatingOut(
         id=rating.id,

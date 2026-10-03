@@ -3,13 +3,11 @@ same provider again. Every write that spans collections is one transaction (deci
 the tip is charged through the PaymentGateway outside any transaction, between two of them.
 """
 
-import logging
 from datetime import date, time, timedelta
 
 from fastapi import status
 
-from app.adapters.payments.base import PaymentGateway, VisitRef
-from app.core import money
+from app.adapters.payments.base import PaymentGateway
 from app.core.config import Settings
 from app.core.db import Db, DbSession, transaction
 from app.core.errors import fail, not_found
@@ -29,7 +27,8 @@ from app.models.messages import MessageThread, Participant
 from app.models.providers import Provider
 from app.models.ratings import Rating
 from app.models.users import User
-from app.models.visits import Charge, Performer, Visit
+from app.models.visits import Performer, Visit
+from app.payments import charging
 from app.repos.bookings import Bookings
 from app.repos.categories import Categories
 from app.repos.customers import Customers
@@ -42,7 +41,7 @@ from app.repos.ratings import Ratings
 from app.repos.series import SeriesRepo
 from app.repos.users import Users
 from app.repos.visits import Visits
-from app.services import ledger, schedule, wording
+from app.services import schedule, wording
 from app.services.notify import link, notify, recipient_for
 from app.services.quotes import live_version
 
@@ -186,17 +185,9 @@ def _tags(tags: list[str]) -> list[str]:
     return list(dict.fromkeys(out))
 
 
-TIP_RETRY_AFTER = timedelta(minutes=5)
-RECONCILE_BATCH = 100
-log = logging.getLogger("oqj.tips")
-
-
-def _tip_key(visit_id: str) -> str:
-    return f"visit:{visit_id}:tip"
-
-
-async def _rated_message(db: Db, s: Settings, visit: Visit, stars: int, tip_text: str, *, session: DbSession) -> None:
-    """rating_received to the provider: once per visit, with the tip if it went through."""
+async def _rated_message(db: Db, s: Settings, visit: Visit, stars: int, *, session: DbSession) -> None:
+    """rating_received to the provider, once per visit. A tip is announced separately when it's
+    charged (tip_received, from app.payments.charging), so this never claims one in advance."""
     customer = await Customers(db).get(visit.customer_id, session=session)
     provider, pu = await _provider_user(db, visit.provider_id, session)
     cat = await _category(db, visit.category_id, session)
@@ -212,19 +203,30 @@ async def _rated_message(db: Db, s: Settings, visit: Visit, stars: int, tip_text
                 "customer": wording.first_name(customer.name if customer else "") or "Your customer",
                 "category": wording.lower_name(cat),
                 "stars": stars,
-                "tip_text": tip_text,
+                "tip_text": "",
             },
             session=session,
         )
 
 
+def tip_status(visit: Visit) -> str:
+    """none, charged, failed, or pending (the outcome isn't known yet; L3's settle task finishes it)."""
+    charge = visit.tip_charge
+    if not visit.tip_pence:
+        return "none"
+    if charge is None or charge.status == "pending":
+        return "pending"
+    return "charged" if charge.status == "succeeded" else "failed"
+
+
 async def rate_visit(
     db: Db, s: Settings, gateway: PaymentGateway, visit: Visit, customer: Customer, user: User, body: RatingIn
-) -> tuple[Rating, str]:
-    """Stars and tags, then any tip. Returns the rating and the tip status (none, charged,
-    failed, pending). The tip has no fee (money.split(tip, "tip")) and all of it goes to the
-    provider. The rating and the tip's intent (pending, with its idempotency key) commit first;
-    the gateway is called after, outside any transaction (settle_tip)."""
+) -> tuple[Rating, Visit]:
+    """Stars and tags, then any tip. The rating and the tip amount commit first; the tip is then
+    charged through the one charging path (app.payments.charging.charge_visit, purpose "tip": the
+    intent recorded, the gateway called outside any transaction with the attempt's idempotency
+    key, the result recorded with its ledger entry and the provider's message). The tip has no
+    fee (money.split(tip, "tip")): all of it goes to the provider."""
     if visit.status != "finished":
         fail(status.HTTP_409_CONFLICT, "not_finished", "You can rate a visit once it's done.")
     if visit.rating_id:
@@ -248,120 +250,18 @@ async def rate_visit(
     async def save(session: DbSession) -> Rating:
         fields: dict = {"rating_id": rating.id}
         if tip:
-            intent = Charge(
-                status="pending", amount_pence=tip, gateway=gateway.name, idempotency_key=_tip_key(visit.id)
-            )
-            fields |= {"tip_pence": tip, "tip_charge": intent.model_dump()}
+            fields["tip_pence"] = tip
         if await Visits(db).update(visit.id, fields, extra_filter={"rating_id": None}, session=session) is None:
             fail(status.HTTP_409_CONFLICT, "already_rated", "You've already rated this visit.")
         await Ratings(db).insert(rating, session=session)
         await Providers(db).apply_rating(visit.provider_id, body.stars, session=session)
-        if not tip:
-            await _rated_message(db, s, visit, body.stars, "", session=session)
+        await _rated_message(db, s, visit, body.stars, session=session)
         return rating
 
     saved = await transaction(db, save)
     if not tip:
-        return saved, "none"
-    return saved, await settle_tip(db, s, gateway, visit.id)
-
-
-async def settle_tip(db: Db, s: Settings, gateway: PaymentGateway, visit_id: str) -> str:
-    """Charge a visit's pending tip and record the result: charged, failed, or pending when the
-    outcome isn't known (the gateway errored or is still processing). Safe to run again, by the
-    tip_reconcile task too: the gateway call reuses the tip's idempotency key, so a charge that
-    went through is returned rather than made twice, and the result is recorded (ledger entry
-    and the provider's message) only by the run that moves the tip off pending."""
-    visit = await Visits(db).get(visit_id)
-    if visit is None or visit.tip_charge is None:
-        return "none"
-    if visit.tip_charge.status != "pending":
-        return "charged" if visit.tip_charge.status == "succeeded" else "failed"
-    tip = visit.tip_charge.amount_pence
-    key = visit.tip_charge.idempotency_key or _tip_key(visit.id)
-    customer = await Customers(db).get(visit.customer_id)
-    provider, _ = await _provider_user(db, visit.provider_id)
-    cat = await _category(db, visit.category_id)
-    rating = await Ratings(db).get(visit.rating_id) if visit.rating_id else None
-    sp = money.split(tip, "tip", s)
-    try:
-        result = await gateway.charge_visit(
-            VisitRef(
-                visit_id=visit.id,
-                booking_id=visit.booking_id,
-                customer_id=visit.customer_id,
-                gateway_customer_id=(customer.payment.gateway_customer_id if customer and customer.payment else None)
-                or "",
-                description=f"Tip for {provider.short}, {cat.name}, {wording.day_text(visit.local_date)}",
-            ),
-            sp.price_pence,
-            sp.fee_pence,
-            provider.payment_account.account_id if provider.payment_account else "",
-            idempotency_key=key,
-            purpose="tip",
-        )
-    except Exception:  # outcome unknown: stays pending, and the same key is retried later
-        log.exception("tip charge for visit %s failed to complete", visit.id)
-        return await _still_pending(db, visit.id)
-    if result.status == "pending":
-        return await _still_pending(db, visit.id)
-    ok = result.status == "succeeded"
-    charge = Charge(
-        status="succeeded" if ok else "failed",
-        amount_pence=tip,
-        fee_pence=sp.fee_pence,
-        provider_pence=sp.provider_pence,
-        gateway=gateway.name,
-        charge_id=result.charge_id,
-        payment_intent_id=result.payment_intent_id,
-        idempotency_key=key,
-        charged_at=result.created_at if ok else None,
-        failure_reason=result.failure_reason,
-    )
-
-    async def record(session: DbSession) -> None:
-        settled = await Visits(db).update(
-            visit.id,
-            {"tip_charge": charge.model_dump()},
-            extra_filter={"tip_charge.status": "pending"},
-            session=session,
-        )
-        if settled is None:
-            return  # another run recorded it first
-        if ok:
-            at = charge.charged_at or utcnow()
-            await ledger.record_tip(
-                db, settled, tip, at=at, gateway=gateway.name, charge_id=charge.charge_id, session=session
-            )
-        tip_text = f" They added a {wording.money(tip)} tip." if ok else ""
-        await _rated_message(db, s, visit, rating.stars if rating else 5, tip_text, session=session)
-
-    await transaction(db, record)
-    stored = await Visits(db).get(visit.id)
-    return "charged" if stored and stored.tip_charge and stored.tip_charge.status == "succeeded" else "failed"
-
-
-async def _still_pending(db: Db, visit_id: str) -> str:
-    """Push the tip to the back of the retry queue (its updated_at), so tips that keep coming back
-    pending can't crowd out the rest."""
-    await Visits(db).update(visit_id, {}, extra_filter={"tip_charge.status": "pending"})
-    return "pending"
-
-
-async def reconcile_tips(db: Db, s: Settings, gateway: PaymentGateway) -> int:
-    """Tips still pending a few minutes after the rating (a crash or gateway error between the
-    two steps): settle them with the same idempotency key, longest-waiting first. Returns how many
-    settled."""
-    stale = await Visits(db).find(
-        {"tip_charge.status": "pending", "updated_at": {"$lt": utcnow() - TIP_RETRY_AFTER}},
-        sort=[("updated_at", 1)],
-        limit=RECONCILE_BATCH,
-    )
-    n = 0
-    for v in stale:
-        if await settle_tip(db, s, gateway, v.id) != "pending":
-            n += 1
-    return n
+        return saved, await charging.get_visit(db, visit.id)
+    return saved, await charging.charge_visit(db, s, gateway, visit.id, purpose="tip")
 
 
 # ------------------------------------------------------------------------------- problems
