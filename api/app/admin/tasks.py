@@ -8,7 +8,7 @@ from app.core.config import Settings
 from app.core.db import Db
 from app.core.tasks import periodic
 from app.core.timeutil import utcnow
-from app.payments import charging, refunds
+from app.payments import charging, refunds, webhooks
 from app.repos.visits import Visits
 
 log = logging.getLogger("oqj.payments.tasks")
@@ -38,3 +38,4 @@ async def settle_pending_payments(db: Db, s: Settings) -> None:
             except Exception:
                 log.exception("couldn't settle the %s charge of visit %s", purpose, visit.id)
     await refunds.settle_open_refunds(db, s, gateway, older_than=SETTLE_AFTER)
+    await webhooks.replay_all_deferred(db, s)

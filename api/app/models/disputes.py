@@ -32,8 +32,13 @@ class DisputeClosing(Model):
     outcome: Literal["return_visit", "partial_refund", "full_refund", "none"]
     amount_pence: Pence | None = None
     attempt: int
+    note: str = ""
     by_user_id: str | None = None
     at: datetime
+
+    def refund_intent_id(self, dispute_id: str) -> str:
+        """Each close attempt's one refund, always under the same key."""
+        return f"dispute-{dispute_id}-close-{self.attempt}"
 
 
 class Dispute(Timestamped):

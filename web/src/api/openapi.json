@@ -2242,6 +2242,35 @@
             "title": "Charged Pence",
             "type": "integer"
           },
+          "closing_amount_pence": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closing Amount Pence"
+          },
+          "closing_outcome": {
+            "anyOf": [
+              {
+                "enum": [
+                  "return_visit",
+                  "partial_refund",
+                  "full_refund",
+                  "none"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A close in progress, waiting for its refund to be confirmed (L3 addition)",
+            "title": "Closing Outcome"
+          },
           "customer_name": {
             "title": "Customer Name",
             "type": "string"

@@ -46,6 +46,7 @@ OPEN = ("pending", *RETRYABLE)
 UNKNOWN = "We couldn't reach the payment provider, so this payment is waiting to be checked."
 RETRY = re.compile(r":retry(\d+)$")
 KEY_LIFE = timedelta(hours=23)  # Stripe keeps idempotency keys for 24 hours
+IN_FLIGHT = timedelta(seconds=60)
 
 
 def field_for(purpose: Purpose) -> str:
@@ -307,7 +308,7 @@ async def charge_visit(
 ) -> Visit:
     """Charge a finished visit (or its tip) for the first time and return the visit with its
     charge state. Idempotent: a charge that has succeeded or failed is returned as it is (a
-    retry is the admin's), and one left pending by an interrupted call resumes with its key."""
+    retry is the admin's), and one left pending is settled the bounded way (settle_unknown)."""
     visit = await get_visit(db, visit_id)
     if purpose == "visit" and visit.status != "finished":
         fail(status.HTTP_409_CONFLICT, "not_finished", "A visit is charged once it's finished.")
@@ -317,9 +318,7 @@ async def charge_visit(
     if charge is not None and charge.status in (*SETTLED, *RETRYABLE):
         return visit
     if charge is not None and charge.status == "pending" and charge.idempotency_key:
-        return await _attempt(
-            db, s, gateway, visit, purpose, charged_split(visit, charge, purpose, s), charge.idempotency_key
-        )
+        return await settle_unknown(db, s, gateway, visit, purpose)  # bounded: never a blind repeat
     split = split_to_charge(visit, purpose, s)
     key = attempt_key(visit.id, purpose)
     visit = await _record_intent(db, visit, purpose, split, gateway.name, key, expect=charge)
@@ -338,6 +337,8 @@ async def settle_unknown(db: Db, s: Settings, gateway: PaymentGateway, visit: Vi
     attempt = await ChargeAttempts(db).get(charge.idempotency_key)
     if attempt is None or utcnow() - attempt.created_at >= KEY_LIFE:
         return visit  # too old (or not ours) to repeat safely: the overview shows it for a check by hand
+    if utcnow() - attempt.created_at < IN_FLIGHT:
+        return visit  # its first request is probably still going: don't race it
     return await _attempt(
         db, s, gateway, visit, purpose, charged_split(visit, charge, purpose, s), charge.idempotency_key
     )

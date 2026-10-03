@@ -92,9 +92,11 @@ declined attempt's result for 24 hours. **Retry charge** (overview, "Payments ne
 through after all), then starts the next one.
 
 Outcomes we can't see (Stripe unreachable, a concurrent request with the same key) leave the
-charge `pending`; the webhook settles it, and the `settle_pending_payments` task (every 5
-minutes) reads the payment if we know its id, or repeats the call with the same key, but only
-within 23 hours of when that attempt began (`payment_attempts`, never the visit's last update).
+charge `pending`; the webhook settles it. Whoever looks again (the `settle_pending_payments` task
+every 5 minutes, a repeated finish, an admin retry) reads the payment if we know its id, or
+repeats the call with the same key, but only between a minute (the first request may still be
+going) and 23 hours (Stripe forgets keys after 24) after that attempt began (`payment_attempts`,
+never the visit's last update). Older unknowns show in the overview for a check by hand.
 
 Failures that aren't the card (`ChargeResult.failure_code` starting `platform:`, e.g. the
 provider has no payment account) never tell the customer to check their card; they show in the
@@ -139,10 +141,12 @@ full refund returns exactly the fee. Serialising refunds keeps this exact even w
 
 **Disputes** claim the close first (`disputes.closing`, in a transaction): a second close at the
 same time, or a retry, resumes the same close and its refund intent
-(`dispute-<id>-close-<attempt>`, always the same key); a different outcome waits. A refund that
-definitely failed releases the claim; one Stripe hasn't confirmed asks the admin to close again
-in a minute (it can't refund twice). A close with a refund Stripe is still processing closes
-with that refund's id.
+(`dispute-<id>-close-<attempt>`, always the same key), even when nothing is left to refund
+because that refund has reserved it; a different outcome waits. With a refund, **the dispute
+closes when the customer's refund is confirmed**, in the same transaction that records it
+(straight away usually, or later from the refund webhook or the settle task); until then the
+admin screen shows the close in progress with "Check again". A refund that fails releases the
+claim, so the dispute can be closed again.
 
 ### Payouts
 
@@ -165,8 +169,11 @@ account's payouts and balance (`Stripe-Account` header). `payout.paid` sends `pa
   refunds; one made in the Stripe dashboard is recorded in the ledger with our usual split and
   audit-logged as `payment.refund_external`), `account.updated`, `payout.paid`, `payout.failed`.
   Anything else is acknowledged and logged.
-- A `charge.refunded` that arrives before its charge is recorded is kept with its payload
-  (`outcome: deferred`) and applied in the same transaction that records the charge's success.
+- A `charge.refunded` that can't be applied yet is kept with its payload (`outcome: deferred`):
+  one that arrives before its charge is recorded (applied in the transaction that records the
+  charge's success; deferring writes the visit, so the two can't miss each other), or one whose
+  total can't be attributed while a refund of ours is pending (a dashboard refund at the same
+  time). The settle task replays deferred events every 5 minutes.
 - Live-mode events are ignored while `DEMO_MODE` is on.
 
 ## Testing with Stripe (test mode)

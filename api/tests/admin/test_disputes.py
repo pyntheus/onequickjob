@@ -1,12 +1,16 @@
 """Disputes: message both parties, propose a fix, close with a provider-funded refund through
 the gateway, exactly once."""
 
+import pytest
+from fastapi import HTTPException
+
 from app.adapters.payments.fake import FakeGateway
 from app.core.ids import next_ref
 from app.core.timeutil import utcnow
 from app.models.disputes import Dispute, DisputeEvent
-from app.payments import charging
+from app.payments import charging, refunds
 from app.repos import Disputes, LedgerEntries, Messages, Visits
+from app.services.audit import SYSTEM
 from tests.admin.conftest import ok
 from tests.conftest import make_settings
 from tests.payments.helpers import card_customer, finished_visit, payable_provider
@@ -136,3 +140,59 @@ async def test_a_close_another_way_waits_for_the_first(jo, db, catalogue):
     # The same close resumes (its refund key is the attempt's), and finishes.
     v = ok(await jo.post(f"/api/admin/disputes/{d.ref}/close", json={"outcome": "partial_refund", "amount_pence": 500}))
     assert v["stage"] == 3 and v["refunded_pence"] == 500
+
+
+async def test_a_dispute_closes_only_once_its_refund_is_confirmed(jo, db, catalogue, monkeypatch):
+    from app.repos.payments import PaymentRefunds
+    from tests.payments.test_refunds import ProcessingGateway
+
+    d = await a_dispute(db, 3000)
+    gw = ProcessingGateway(db)
+    monkeypatch.setattr("app.adapters.payments.FakeGateway", lambda *a, **k: gw)
+    v = ok(
+        await jo.post(f"/api/admin/disputes/{d.ref}/close", json={"outcome": "partial_refund", "amount_pence": 1000})
+    )
+    assert v["stage"] < 3 and (v["closing_outcome"], v["closing_amount_pence"]) == ("partial_refund", 1000)
+    assert await db["outbox"].count_documents({"template_id": "dispute_closed"}) == 0  # nothing promised yet
+    r = await jo.post(f"/api/admin/disputes/{d.ref}/close", json={"outcome": "none"})
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "closing"
+    # Stripe confirms it: recording the refund closes the dispute in the same transaction.
+    [intent] = await PaymentRefunds(db).for_visit(d.visit_id)
+    assert intent.id == f"dispute-{d.id}-close-1"
+    await refunds.resume(db, make_settings(), gw, intent, SYSTEM)
+    closed = await Disputes(db).by_ref(d.ref)
+    assert closed and closed.stage == 3 and closed.closing is None and closed.resolution
+    assert closed.resolution.refund_id == "re_processing"
+    assert await db["outbox"].count_documents({"template_id": "dispute_closed"}) == 2
+    assert len(await LedgerEntries(db).find({"visit_id": d.visit_id, "kind": "refund"})) == 1
+
+
+async def test_a_refund_that_fails_lets_the_dispute_be_closed_again(jo, db, catalogue, monkeypatch):
+    from app.repos.payments import PaymentRefunds
+    from tests.payments.test_refunds import ProcessingGateway
+
+    d = await a_dispute(db, 3000)
+    gw = ProcessingGateway(db, outcome="failed")
+    monkeypatch.setattr("app.adapters.payments.FakeGateway", lambda *a, **k: gw)
+    ok(await jo.post(f"/api/admin/disputes/{d.ref}/close", json={"outcome": "full_refund"}))
+    [intent] = await PaymentRefunds(db).for_visit(d.visit_id)
+    with pytest.raises(HTTPException):  # a failed refund answers 502
+        await refunds.resume(db, make_settings(), gw, intent, SYSTEM)
+    released = await Disputes(db).by_ref(d.ref)
+    assert released and released.stage < 3 and released.closing is None
+    monkeypatch.undo()
+    v = ok(await jo.post(f"/api/admin/disputes/{d.ref}/close", json={"outcome": "none"}))
+    assert v["stage"] == 3
+
+
+async def test_a_full_refund_close_resumes_even_when_nothing_is_left_to_refund(jo, db, catalogue, monkeypatch):
+    from tests.payments.test_refunds import ProcessingGateway
+
+    d = await a_dispute(db, 3000)
+    gw = ProcessingGateway(db, outcome="pending")  # Stripe keeps processing it
+    monkeypatch.setattr("app.adapters.payments.FakeGateway", lambda *a, **k: gw)
+    ok(await jo.post(f"/api/admin/disputes/{d.ref}/close", json={"outcome": "full_refund"}))
+    # The whole balance is reserved by the pending refund; a retry resumes the same close.
+    v = ok(await jo.post(f"/api/admin/disputes/{d.ref}/close", json={"outcome": "full_refund"}))
+    assert v["refundable_pence"] == 0 and v["closing_outcome"] == "full_refund" and v["closing_amount_pence"] == 3000
+    assert gw.created == [f"dispute-{d.id}-close-1"]  # still one refund

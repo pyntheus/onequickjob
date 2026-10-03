@@ -9,7 +9,7 @@ import { fmt } from "../../shared/format";
 import { useToast } from "../../shared/toast-context";
 import { useAdminAction, useDisputes, type DisputeView } from "../api";
 import { AdminHeader, Dialog, FormError, QueryState, TextArea } from "../components";
-import { gap, poundsToPence } from "../util";
+import { errorText, gap, poundsToPence } from "../util";
 
 type Mode = "message" | "return_visit" | "partial_refund" | "close";
 
@@ -145,7 +145,13 @@ function CloseDialog({ d, onClose }: { d: DisputeView; onClose: () => void }) {
         onClick={async () => {
           try {
             const v = await close.mutateAsync(undefined);
-            notify(refunding ? `Closed. ${fmt(v.resolution?.amount_pence ?? 0)} refunded, paid by the provider.` : "Closed. Both have been told.");
+            notify(
+              v.stage === 3
+                ? refunding
+                  ? `Closed. ${fmt(v.resolution?.amount_pence ?? 0)} refunded, paid by the provider.`
+                  : "Closed. Both have been told."
+                : "Refund asked for. The dispute closes once Stripe confirms it.",
+            );
             onClose();
           } catch {
             // shown in the dialog
@@ -158,9 +164,45 @@ function CloseDialog({ d, onClose }: { d: DisputeView; onClose: () => void }) {
   );
 }
 
+function ClosingNote({ d }: { d: DisputeView }) {
+  const notify = useToast();
+  const check = useAdminAction(() =>
+    call(
+      api.POST("/api/admin/disputes/{ref}/close", {
+        params: { path: { ref: d.ref } },
+        body: { outcome: d.closing_outcome ?? "none", amount_pence: d.closing_amount_pence ?? null, note: "" },
+      }),
+    ),
+  );
+  return (
+    <div className="soft small row between wrap" style={gap("8px")} role="status">
+      <span>
+        Closing with a {fmt(d.closing_amount_pence ?? 0)} refund, waiting for Stripe to confirm it. It closes by itself once it
+        has.
+      </span>
+      <button
+        type="button"
+        className="btn btn-ghost btn-sm"
+        disabled={check.isPending}
+        onClick={async () => {
+          try {
+            const v = await check.mutateAsync(undefined);
+            notify(v.stage === 3 ? "Closed. Both have been told." : "Stripe hasn't confirmed it yet.");
+          } catch (e) {
+            notify(errorText(e));
+          }
+        }}
+      >
+        Check again
+      </button>
+    </div>
+  );
+}
+
 function DisputeCard({ d }: { d: DisputeView }) {
   const [mode, setMode] = useState<Mode | null>(null);
   const done = d.stage === 3;
+  const closing = !done && !!d.closing_outcome;
   return (
     <div className="card stack" style={{ ...gap("14px"), opacity: done ? 0.75 : 1 }}>
       <div className="row between wrap top" style={gap("10px")}>
@@ -201,7 +243,8 @@ function DisputeCard({ d }: { d: DisputeView }) {
           ))}
         </ol>
       )}
-      {!done && (
+      {closing && <ClosingNote d={d} />}
+      {!done && !closing && (
         <div className="row wrap" style={gap("8px")}>
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => setMode("message")}>
             <MessageCircle size={15} aria-hidden="true" /> Message both

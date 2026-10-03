@@ -281,6 +281,10 @@ class DisputeView(BaseModel):
     charged_pence: int = 0
     refunded_pence: int = 0
     refundable_pence: int = Field(default=0, description="What's left to refund, less refunds in flight")
+    closing_outcome: Literal["return_visit", "partial_refund", "full_refund", "none"] | None = Field(
+        default=None, description="A close in progress, waiting for its refund to be confirmed (L3 addition)"
+    )
+    closing_amount_pence: int | None = None
 
 
 class DisputeMessageIn(In):

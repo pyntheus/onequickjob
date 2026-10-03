@@ -136,6 +136,15 @@ async def test_an_interrupted_attempt_resumes_with_the_same_key(db, catalogue):
         {"charge": {"status": "pending", "amount_pence": 3000, "fee_pence": 450, "provider_pence": 2550,
                     "gateway": "fake", "idempotency_key": key, "refunded_pence": 0, "refund_ids": []}},
     )  # fmt: skip
+    from datetime import timedelta
+
+    from app.core.timeutil import utcnow
+
+    # Without a record of when the attempt began, it isn't repeated (it might be too old).
+    assert (await charging.charge_visit(db, S, fake(db), v.id)).charge.status == "pending"
+    await db["payment_attempts"].insert_one(
+        {"_id": key, "visit_id": v.id, "purpose": "visit", "created_at": utcnow() - timedelta(minutes=5)}
+    )
     done = (await charging.charge_visit(db, S, fake(db), v.id)).charge
     assert done.status == "succeeded" and done.idempotency_key == key
     assert await db["fake_gateway"].count_documents({"kind": "charge", "idempotency_key": key}) == 1
@@ -171,6 +180,42 @@ async def test_an_unknown_attempt_isnt_repeated_after_its_key_expires(db, catalo
     await db["payment_attempts"].update_one(attempt, {"$set": {"created_at": utcnow() - timedelta(hours=25)}})
     still = await charging.settle_unknown(db, S, Lost(db), pending, "visit")
     assert still.charge.status == "pending" and len(calls) == 1  # not repeated: Stripe may have forgotten the key
-    await db["payment_attempts"].update_one(attempt, {"$set": {"created_at": utcnow()}})
+    await db["payment_attempts"].update_one(attempt, {"$set": {"created_at": utcnow() - timedelta(minutes=5)}})
     done = await charging.settle_unknown(db, S, fake(db), pending, "visit")
     assert done.charge.status == "succeeded"
+
+
+async def test_charging_again_never_repeats_blindly(db, catalogue):
+    from datetime import timedelta
+
+    from app.core.timeutil import utcnow
+
+    customer, provider = await card_customer(db), await payable_provider(db)
+    v = await finished_visit(db, customer, provider)
+    calls: list[str] = []
+
+    class Counting(FakeGateway):
+        async def charge_visit(self, *a, **kw):
+            calls.append(kw.get("idempotency_key"))
+            raise ConnectionError("lost")
+
+        async def charge_status(self, pi):
+            calls.append(f"status:{pi}")
+            return await super().charge_status(pi)
+
+    await charging.charge_visit(db, S, Counting(db), v.id)
+    assert len(calls) == 1
+    # A repeated finish at once doesn't race the first request.
+    assert (await charging.charge_visit(db, S, Counting(db), v.id)).charge.status == "pending" and len(calls) == 1
+    # Too old to repeat: nothing.
+    attempt = {"_id": f"visit:{v.id}:visit"}
+    await db["payment_attempts"].update_one(attempt, {"$set": {"created_at": utcnow() - timedelta(hours=25)}})
+    await charging.charge_visit(db, S, Counting(db), v.id)
+    assert len(calls) == 1
+    # A known payment is read, never made again.
+    await db["payment_attempts"].update_one(attempt, {"$set": {"created_at": utcnow() - timedelta(minutes=5)}})
+    paid = await charging.charge_visit(db, S, fake(db), v.id)
+    assert paid.charge.status == "succeeded"
+    await Visits(db).update(v.id, {"charge.status": "pending"})
+    await charging.charge_visit(db, S, Counting(db), v.id)
+    assert calls[-1] == f"status:{paid.charge.payment_intent_id}"

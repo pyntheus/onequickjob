@@ -2928,6 +2928,13 @@ export interface components {
              * @default 0
              */
             charged_pence: number;
+            /** Closing Amount Pence */
+            closing_amount_pence?: number | null;
+            /**
+             * Closing Outcome
+             * @description A close in progress, waiting for its refund to be confirmed (L3 addition)
+             */
+            closing_outcome?: ("return_visit" | "partial_refund" | "full_refund" | "none") | null;
             /** Customer Name */
             customer_name: string;
             /** Events */

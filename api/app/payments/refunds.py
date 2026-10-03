@@ -272,6 +272,8 @@ async def apply_refund_result(
             note=result.failure_reason or "",
             session=session,
         )
+        if settled is not None:
+            await _dispute_hook(db, s, settled, succeeded=False, session=session)
         return settled
     fee_done = current.fee_pence == 0 or result.fee_refunded_pence >= current.fee_pence
     settled = await refunds.settle(
@@ -329,7 +331,17 @@ async def apply_refund_result(
             note=current.reason,
             session=session,
         )
+        if settled is not None:
+            await _dispute_hook(db, s, settled, succeeded=True, session=session)
     return settled
+
+
+async def _dispute_hook(db: Db, s: Settings, intent: RefundIntent, *, succeeded: bool, session: DbSession) -> None:
+    """A dispute closing with this refund closes now it's confirmed (or is released if it failed)."""
+    if intent.dispute_id:
+        from app.admin.disputes import on_refund_settled
+
+        await on_refund_settled(db, s, intent, succeeded=succeeded, session=session)
 
 
 async def record_refund_result(db: Db, s: Settings, intent_id: str, result: RefundResult, actor: Actor) -> RefundOut:

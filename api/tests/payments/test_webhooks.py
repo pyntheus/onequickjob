@@ -254,3 +254,41 @@ async def test_a_refund_that_fails_releases_its_amount(client, db, catalogue, we
     assert after and (after.status, after.failure_reason) == ("failed", "expired_or_canceled_card")
     assert await PaymentRefunds(db).unsettled_pence(v.id) == 0
     assert not await LedgerEntries(db).find({"visit_id": v.id, "kind": "refund"})
+
+
+async def test_a_deferred_refund_stranded_by_a_concurrent_success_is_replayed(client, db, catalogue, webhook_secret):
+    from app.payments.webhooks import replay_all_deferred
+
+    v, _ = await waiting_visit(db, status="pending", pi=None)  # type: ignore[arg-type]
+    ch = {"id": "ch_1", "object": "charge", "amount": 3000, "amount_refunded": 500, "payment_intent": "pi_1"}
+    early = event("charge.refunded", ch)
+    await post(client, early)
+    # The success commits without seeing the deferred event (the interleaving the review found).
+    await Visits(db).update(
+        v.id, {"charge.status": "succeeded", "charge.charge_id": "ch_1", "charge.payment_intent_id": "pi_1"}
+    )
+    assert await replay_all_deferred(db, make_settings()) == 1
+    assert (await Visits(db).get(v.id)).charge.refunded_pence == 500  # type: ignore[union-attr]
+    assert (await db["payment_events"].find_one({"_id": early["id"]}))["outcome"] == "applied"  # type: ignore[index]
+
+
+async def test_a_dashboard_refund_during_one_of_ours_waits_until_it_can_be_told_apart(
+    client, db, catalogue, webhook_secret
+):
+    from app.payments.webhooks import replay_all_deferred
+    from app.repos.payments import PaymentRefunds
+
+    v, intent = await refund_waiting(db, refund_id="re_ours")
+    # Stripe's total: our pending £15 plus someone's £5 in the dashboard.
+    ch = {"id": "ch_1", "object": "charge", "amount": 3000, "amount_refunded": 2000, "payment_intent": "pi_1"}
+    total = event("charge.refunded", ch)
+    await post(client, total)
+    assert (await db["payment_events"].find_one({"_id": total["id"]}))["outcome"] == "deferred"  # type: ignore[index]
+    # Ours fails; then the dashboard's £5 can be attributed.
+    re = {"id": "re_ours", "object": "refund", "status": "failed", "amount": 1500}
+    await post(client, event("refund.failed", re))
+    assert (await PaymentRefunds(db).get(intent.id)).status == "failed"  # type: ignore[union-attr]
+    await replay_all_deferred(db, make_settings())
+    charge = (await Visits(db).get(v.id)).charge  # type: ignore[union-attr]
+    assert charge.refunded_pence == 2000  # what Stripe says was refunded, ours having failed
+    assert await db["audit_log"].count_documents({"action": "payment.refund_external"}) == 1

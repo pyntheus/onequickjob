@@ -136,18 +136,25 @@ async def charge_refunded(db: Db, s: Settings, ch: Json, session: DbSession) -> 
     match = [{"charge.charge_id": ch.get("id")}] + ([{"charge.payment_intent_id": pi}] if pi else [])
     visit = await visits.find_one({"$or": match}, session=session)
     if visit is None or visit.charge.status not in ("succeeded", "partially_refunded", "refunded"):
-        if pi:
-            return "deferred", "the charge isn't recorded yet; replayed when it is"
-        return "no_match", "no visit charge with that id"
+        if not pi:
+            return "no_match", "no visit charge with that id"
+        if visit is not None:
+            # Write the visit, so a charge success committing at the same moment conflicts with
+            # this deferral and one of them re-runs (and sees the other).
+            await visits.update(visit.id, {}, session=session)
+        return "deferred", "the charge isn't recorded yet; replayed when it is"
     charge = visit.charge
-    unsettled = await PaymentRefunds(db).unsettled_pence(visit.id, session=session)
-    known = charge.refunded_pence + unsettled
-    extra = min(int(ch.get("amount_refunded") or 0), charge.amount_pence) - known
-    if extra <= 0:
+    total = min(int(ch.get("amount_refunded") or 0), charge.amount_pence)
+    if total <= charge.refunded_pence:
         return "ignored", "refunds already recorded"
+    if await PaymentRefunds(db).unsettled_pence(visit.id, session=session):
+        # A refund we asked for isn't confirmed yet, so Stripe's total can't be attributed:
+        # look again once it is (the settle task replays deferred events).
+        return "deferred", "a refund of ours is still pending; replayed once it settles"
+    extra = total - charge.refunded_pence
     split = refund_split_for(charging.charged_split(visit, charge, "visit", s), charge.refunded_pence, extra)
-    refunded = charge.refunded_pence + extra
-    ref = f"{ch['id']}:external:{ch.get('amount_refunded')}"
+    refunded = total
+    ref = f"{ch['id']}:external:{total}"
     await visits.update(
         visit.id,
         {
@@ -171,6 +178,30 @@ async def charge_refunded(db: Db, s: Settings, ch: Json, session: DbSession) -> 
         session=session,
     )
     return "applied", f"external refund of {extra}p"
+
+
+async def replay_all_deferred(db: Db, s: Settings, *, limit: int = 100) -> int:
+    """For the periodic task: try every deferred event again, each in its own transaction (an
+    event can be stranded if its charge settled at the same moment it was deferred, or while a
+    refund of ours was pending). Returns how many were applied."""
+    applied = 0
+    for ev in await PaymentEvents(db).find({"outcome": "deferred"}, sort=[("received_at", 1)], limit=limit):
+
+        async def replay(session: DbSession, ev=ev) -> bool:
+            fresh = await PaymentEvents(db).get(ev.id, session=session)
+            if fresh is None or fresh.outcome != "deferred":
+                return False
+            outcome, note = await charge_refunded(db, s, fresh.payload or {}, session)
+            if outcome == "deferred":
+                return False
+            await PaymentEvents(db).set_outcome(ev.id, outcome, f"replayed: {note}", session=session)
+            return True
+
+        try:
+            applied += await transaction(db, replay)
+        except Exception:
+            log.exception("couldn't replay stripe event %s", ev.id)
+    return applied
 
 
 async def replay_deferred(db: Db, s: Settings, payment_intent: str, *, session: DbSession) -> None:
