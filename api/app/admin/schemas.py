@@ -36,6 +36,8 @@ class UnfilledRequest(BaseModel):
     why: str = Field(description="Why it's stuck, from views and counters (or the admin note)")
     views: int
     pending_counters: int
+    awaiting_customer: bool = Field(default=False, description="A raised guide is waiting for the customer (A12)")
+    proposed_guide_pence: int | None = Field(default=None, description="The raise they've been asked to approve")
 
 
 class DistrictTile(BaseModel):

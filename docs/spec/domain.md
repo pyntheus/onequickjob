@@ -386,6 +386,7 @@ Model `app.models.job_requests.JobRequest`; repo `app.repos.job_requests.JobRequ
 | `direct_provider_id` | str \| None (optional) | Book again: offered to this provider only |
 | `cover_for_visit_id` | str \| None (optional) | Time-off cover (L2 creates): accepting reassigns this one visit instead of creating a booking |
 | `admin_note` | str \| None (optional) |  |
+| `price_change` | PriceChange \| None (optional) | A raised guide awaiting the customer (A12) |
 
 Indexes:
 - `ref` (unique)
@@ -1114,6 +1115,21 @@ Indexes:
 | `before` | list[str] | File ids |
 | `after` | list[str] |  |
 
+### `PriceChange`
+
+| Field | Type | Notes |
+|---|---|---|
+| `status` | Literal['pending', 'approved', 'declined'] |  |
+| `guide_pence` | int | Integer pence |
+| `first_pence` | int \| None (optional) | Scaled by the same ratio (scaled_first_price) |
+| `from_guide_pence` | int | Integer pence |
+| `from_first_pence` | int \| None (optional) |  |
+| `percent` | int \| None (optional) |  |
+| `proposed_by` | str \| None (optional) | Admin user id |
+| `proposed_at` | datetime |  |
+| `decided_at` | datetime \| None (optional) |  |
+| `note` | str |  |
+
 ### `ProviderDocument`
 
 | Field | Type | Notes |
@@ -1184,7 +1200,7 @@ Indexes:
 | Field | Type | Notes |
 |---|---|---|
 | `at` | datetime |  |
-| `kind` | Literal['created', 'broadcast', 'viewed', 'countered', 'counter_declined', 'counter_lapsed', 'accepted', 'guide_raised', 'cancelled', 'expired', 'note'] |  |
+| `kind` | Literal['created', 'broadcast', 'viewed', 'countered', 'counter_declined', 'counter_lapsed', 'accepted', 'guide_raised', 'price_change_proposed', 'price_change_declined', 'cancelled', 'expired', 'note'] |  |
 | `provider_id` | str \| None (optional) |  |
 | `offer_id` | str \| None (optional) |  |
 | `price_pence` | int \| None (optional) |  |

@@ -105,6 +105,31 @@ describe("Finding someone local", () => {
     expect(declined).toBe(true);
   });
 
+  it("asks the customer to approve a raised guide, and approves it (A12)", async () => {
+    let current = request({
+      price_change: { guide_pence: 7300, first_pence: 9700, from_guide_pence: 6600, from_first_pence: 8800, proposed_at: "2026-10-03T10:00:00Z" },
+    });
+    let approved = false;
+    mockApi({
+      ...base(false),
+      "GET /api/c/requests/R-2301": () => current,
+      "POST /api/c/requests/R-2301/price-change/approve": () => {
+        approved = true;
+        current = request({ guide_pence: 7300, first_pence: 9700, price_change: null });
+        return current;
+      },
+    });
+    renderAt("/requests/R-2301");
+    expect(await screen.findByRole("heading", { name: "A higher guide price?" })).toBeInTheDocument();
+    expect(screen.getByText(/we suggest raising the guide price to/)).toHaveTextContent(
+      "we suggest raising the guide price to £73 a clean (first visit £97) (it's £66 a clean (first visit £88) now)",
+    );
+    expect(screen.getByRole("button", { name: "Keep £66" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Approve £73 a clean (first visit £97)" }));
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "A higher guide price?" })).not.toBeInTheDocument());
+    expect(approved).toBe(true);
+  });
+
   it("offers Simulate local responses in DEMO_MODE, through the simulate endpoint", async () => {
     let simulated = false;
     mockApi({

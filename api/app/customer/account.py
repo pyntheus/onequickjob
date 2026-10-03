@@ -36,6 +36,7 @@ from app.repos.disputes import Disputes
 from app.repos.files import Files
 from app.repos.job_requests import JobRequests
 from app.repos.messages import Messages, MessageThreads
+from app.repos.plan_changes import PlanChanges
 from app.repos.providers import Providers
 from app.repos.ratings import Ratings
 from app.repos.series import SeriesRepo
@@ -88,7 +89,7 @@ async def _provider_user(db: Db, provider_id: str, session: DbSession | None = N
     return provider, await Users(db).get(provider.user_id, session=session)
 
 
-async def _system_note(db: Db, thread_id: str | None, text: str, session: DbSession) -> None:
+async def system_note(db: Db, thread_id: str | None, text: str, session: DbSession) -> None:
     """A line in the booking's thread, so the provider sees what the customer changed."""
     if thread_id:
         await Messages(db).post(thread_id, None, "system", text, session=session)
@@ -133,7 +134,7 @@ async def skip_visit(db: Db, s: Settings, visit: Visit, customer: Customer, user
         )
         next_text = f"Your next one is {wording.day_text(nxt.local_date)}." if nxt else ""
         day = wording.day_text(visit.local_date)
-        await _system_note(
+        await system_note(
             db, booking.thread_id if booking else None, f"{customer.name} skipped the visit on {day}.", session
         )
         if user.phone:
@@ -408,15 +409,12 @@ async def _fill(db: Db, series: Series, provider: Provider, source: str, after: 
             est_mins=series.est_mins,
         )
         stored = await Visits(db).insert_once(v, {"series_id": series.id, "local_date": d.isoformat()}, session=session)
-        if (
-            stored.id != v.id
-            and stored.status in ("cancelled", "skipped")
-            and stored.skipped_reason in (None, "plan_change", "away", "winter")
-        ):
+        if stored.id != v.id and stored.status == "cancelled" and stored.skipped_reason == "plan_change":
+            # A date an earlier change cancelled is back on: the visit returns at the plan's price.
             await Visits(db).update(
                 stored.id,
-                {"status": "scheduled", "skipped_reason": None},
-                extra_filter={"status": stored.status},
+                {"status": "scheduled", "skipped_reason": None, "price_pence": series.price_pence},
+                extra_filter={"status": "cancelled"},
                 session=session,
             )
     if dates:
@@ -430,6 +428,8 @@ async def _fill(db: Db, series: Series, provider: Provider, source: str, after: 
 async def update_plan(
     db: Db, s: Settings, series: Series, booking: Booking, customer: Customer, user: User, body: PlanUpdate
 ) -> Series:
+    """Pauses and cover apply at once. A change of frequency is a request the provider accepts
+    (A10: app.customer.plan_changes), applied by apply_frequency_change."""
     if series.status == "cancelled":
         fail(status.HTTP_409_CONFLICT, "plan_cancelled", "This plan is cancelled.")
     cat = await _category(db, series.category_id)
@@ -475,16 +475,6 @@ async def update_plan(
         set_["cover_when_away"] = fields["cover_when_away"]
         who = wording.first_name(provider.name)
         changes.append(f"cover when {who}'s away {'on' if fields['cover_when_away'] else 'off'}")
-    new_freq = fields.get("frequency")
-    if new_freq and new_freq != series.frequency:
-        if series.frequency not in schedule.INTERVAL_DAYS and series.frequency not in schedule.MONTHS:
-            fail(
-                status.HTTP_422_UNPROCESSABLE_CONTENT,
-                "cannot_change_frequency",
-                "Message your provider to change this plan.",
-            )
-        set_["frequency"] = new_freq
-        changes.append(f"now {wording.FREQUENCY_WORDS[new_freq]}, at the same price")
     if not set_:
         return series
 
@@ -505,36 +495,6 @@ async def update_plan(
             session=session,
         )
         nxt = next((v for v in future if v.status == "scheduled"), None)
-        if "frequency" in set_:
-            # Keep the next visit; later ones that aren't on the new frequency's dates are cancelled,
-            # including visits a pause skipped (so ending the pause can't bring the old dates back).
-            await Bookings(db).update(booking.id, {"frequency": new_freq}, session=session)
-            paused = next((v for v in future if v.status == "skipped" and v.skipped_reason in PAUSES), None)
-            first = nxt or paused
-            anchor = first.local_date if first else today + timedelta(days=1)
-            updated = await SeriesRepo(db).update(series.id, {"anchor_date": anchor.isoformat()}, session=session)
-            assert updated is not None
-            unpaused = updated.model_copy(update={"pause": Pause()})
-            on_dates = set(schedule.occurrences(unpaused, anchor, today + timedelta(days=500))) | {anchor}
-            for v in future:
-                if v.local_date in on_dates or v.cover.state != "none":
-                    continue
-                if v.status == "scheduled" or (v.status == "skipped" and v.skipped_reason in PAUSES):
-                    await Visits(db).update(
-                        v.id,
-                        {"status": "cancelled", "skipped_reason": "plan_change"},
-                        extra_filter={"status": v.status},
-                        session=session,
-                    )
-            future = await Visits(db).find(
-                {
-                    "series_id": series.id,
-                    "scheduled_start": {"$gt": now},
-                    "status": {"$in": ["scheduled", "skipped", "cancelled"]},
-                },
-                sort=[("local_date", 1)],
-                session=session,
-            )
         # Pauses: skip the visits that now fall in one; bring back those a removed pause skipped.
         for v in future:
             if v.status == "scheduled" and schedule.paused_on(updated, v.local_date) and v.cover.state == "none":
@@ -554,7 +514,7 @@ async def update_plan(
                 )
         await _fill(db, updated, provider, booking.source, (nxt.local_date if nxt else today), session)
         summary = _summary(changes)
-        await _system_note(db, booking.thread_id, f"{customer.name} changed the plan: {summary}.", session)
+        await system_note(db, booking.thread_id, f"{customer.name} changed the plan: {summary}.", session)
         if user.phone:
             await notify(
                 db,
@@ -568,6 +528,77 @@ async def update_plan(
         return updated
 
     return await transaction(db, apply)
+
+
+async def apply_frequency_change(
+    db: Db,
+    series: Series,
+    booking: Booking,
+    provider: Provider,
+    frequency: str,
+    price_pence: int,
+    *,
+    session: DbSession,
+) -> tuple[Series, Visit | None]:
+    """An accepted change of frequency (A10), inside the caller's transaction: the plan and booking
+    take the new frequency and price; the next visit stays (at the new price unless it's the first
+    visit, whose price was agreed separately) and later visits that aren't on the new dates are
+    cancelled, including ones a pause skipped, so ending the pause can't bring the old dates back;
+    then the new dates are filled in. Visits under way, done or covered are left alone. Returns the
+    plan and its next visit."""
+    now = utcnow()
+    today = london_today()
+    future = await Visits(db).find(
+        {
+            "series_id": series.id,
+            "scheduled_start": {"$gt": now},
+            "status": {"$in": ["scheduled", "skipped", "cancelled"]},
+        },
+        sort=[("local_date", 1)],
+        session=session,
+    )
+    nxt = next((v for v in future if v.status == "scheduled"), None)
+    paused = next((v for v in future if v.status == "skipped" and v.skipped_reason in PAUSES), None)
+    first = nxt or paused
+    anchor = first.local_date if first else today + timedelta(days=1)
+    updated = await SeriesRepo(db).update(
+        series.id,
+        {
+            "frequency": frequency,
+            "anchor_date": anchor.isoformat(),
+            "days": schedule.series_days(frequency, anchor),
+            "price_pence": price_pence,
+        },
+        extra_filter={"status": {"$ne": "cancelled"}},
+        session=session,
+    )
+    if updated is None:
+        fail(status.HTTP_409_CONFLICT, "plan_cancelled", "This plan is cancelled.")
+    await Bookings(db).update(booking.id, {"frequency": frequency, "price_pence": price_pence}, session=session)
+    on_dates = set(
+        schedule.occurrences(updated.model_copy(update={"pause": Pause()}), anchor, today + timedelta(days=500))
+    )
+    on_dates.add(anchor)
+    for v in future:
+        if v.cover.state != "none":
+            continue
+        if v.local_date not in on_dates:
+            if v.status == "scheduled" or (v.status == "skipped" and v.skipped_reason in PAUSES):
+                await Visits(db).update(
+                    v.id,
+                    {"status": "cancelled", "skipped_reason": "plan_change"},
+                    extra_filter={"status": v.status},
+                    session=session,
+                )
+        elif not v.is_first and v.price_pence != price_pence:
+            await Visits(db).update(v.id, {"price_pence": price_pence}, session=session)
+    await _fill(db, updated, provider, booking.source, (nxt.local_date if nxt else today), session)
+    nxt = await Visits(db).find_one(
+        {"series_id": series.id, "status": "scheduled", "scheduled_start": {"$gt": now}},
+        sort=[("scheduled_start", 1)],
+        session=session,
+    )
+    return updated, nxt
 
 
 async def cancel_plan(db: Db, s: Settings, series: Series, booking: Booking, customer: Customer, user: User) -> Series:
@@ -584,12 +615,17 @@ async def cancel_plan(db: Db, s: Settings, series: Series, booking: Booking, cus
         if updated is None:
             fail(status.HTTP_409_CONFLICT, "plan_cancelled", "This plan is already cancelled.")
         await Bookings(db).update(booking.id, {"status": "cancelled", "cancelled_at": now}, session=session)
+        await PlanChanges(db).coll.update_many(  # a change still waiting can't be accepted now (A10)
+            {"series_id": series.id, "status": "pending"},
+            {"$set": {"status": "withdrawn", "decided_at": now, "updated_at": now}},
+            session=PlanChanges.s(session),
+        )
         await Visits(db).coll.update_many(
             {"series_id": series.id, "status": "scheduled", "scheduled_start": {"$gt": now}},
             {"$set": {"status": "cancelled", "skipped_reason": "plan_cancelled", "updated_at": now}},
             session=Visits.s(session),
         )
-        await _system_note(
+        await system_note(
             db, booking.thread_id, f"{customer.name} cancelled the plan. There are no more visits.", session
         )
         if user.phone:

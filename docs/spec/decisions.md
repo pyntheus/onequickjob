@@ -391,6 +391,38 @@ Decided by Hasan after reviewing the F report; each has tests.
   The outbox message goes to the provider, who otherwise wouldn't know their price had
   lapsed or why; the customer sees the message on screen and in the request's timeline.
 
+- **A10. Changing a plan's frequency re-prices it, and the provider accepts it** (Hasan, after
+  the L1 report). The new frequency is priced by the pricing engine (`services.quotes.create_quote`,
+  so the quote records its pricing version), keeping any counter in proportion: new price = new
+  guide x agreed price / original guide, rounded half-up to whole pounds
+  (`app.customer.plan_changes.scaled_price`). The original guide is the last accepted change's new
+  guide, else the request's guide, else (an own customer's plan, which has no request) the
+  engine's price at the current frequency. A dearer first visit doesn't apply to an existing plan
+  (an unstarted first visit keeps its agreed price). The provider is texted the new price
+  (`plan_change_proposed`, with a single-use link to `/plan-change/{token}`) and accepts or
+  declines; the customer is told at each step (`plan_change_requested`, `_accepted`, `_declined`,
+  `_lapsed`). Until the provider accepts, the plan carries on unchanged; unanswered for 48 hours
+  the change lapses (`plan_change_expiry` task). Accepting applies the frequency and price to the
+  plan, the booking and the visits still to come, in one transaction. Asking again replaces a
+  change still waiting; cancelling the plan withdraws it. Only frequencies the category's intake
+  offers can be chosen. The web shows the API's prices only. (`tests/customer/test_plan_changes.py`.)
+- **A11. Unbooked requests close after 7 days, and the customer is texted** (Hasan: confirmed
+  as built by L1). The `request_expiry` task closes an open request with no booking 7 days after
+  it was made (`expired`), lapses any counters (their providers get `request_closed`) and sends
+  the customer `request_expired`. (`tests/customer/test_requests.py`:
+  `test_requests_expire_after_a_week`.)
+- **A12. A raised guide price needs the customer's approval** (Hasan, after the L1 report). The
+  admin's "Raise guide" no longer changes the guide: it records a pending price change on the
+  open request (the first visit scaled by the same ratio with `marketplace.scaled_first_price`),
+  audit-logged as `request.guide_raise_proposed`, and texts the customer (`guide_raise_proposed`).
+  The customer approves or declines it on "Finding someone local". Only on approval does the guide
+  change, in one transaction with the job alerts sent again, at the new price, to the providers
+  eligible then (`request.guide_raise_approved`); on decline the original guide stands and the
+  team may suggest again. Admin's waiting list shows "Awaiting customer" meanwhile. A provider who
+  accepts the old guide while it waits books at the old guide. (`app.customer.price_changes`,
+  called by `app.admin.overview.raise_guide` inside its transaction;
+  `tests/customer/test_price_changes.py`, `tests/admin/test_overview.py`.)
+
 ## 3. Open questions (for Hasan)
 
 - **Q1 (resolved: A1). Counter-offers on jobs with a dearer first visit.** Today a counter sets the per-visit

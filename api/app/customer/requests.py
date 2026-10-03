@@ -110,9 +110,12 @@ async def send_job_alerts(
     hints: dict[str, str],
     *,
     session: DbSession,
+    round_key: str = "",
 ) -> None:
     """One job_alert per target and chosen channel, each with its own single-use sign-in link,
-    held for quiet hours. Inside the request's transaction."""
+    held for quiet hours. Inside the request's transaction. round_key tells a later round of
+    alerts (after a guide raise the customer approved) apart from the first, so it isn't
+    deduplicated away."""
     split = money.split(req.guide_pence, "standard", s)
     now = utcnow()
     path = f"/p/j/{req.ref}"
@@ -130,7 +133,7 @@ async def send_job_alerts(
                 settings=s,
                 not_before=quiet_until(t.provider.alert_settings, now),
                 related=Related(request_id=req.id, customer_id=req.customer_id, provider_id=t.provider.id),
-                idempotency_key=f"request:{req.id}:job_alert:{t.provider.id}:{ch}",
+                idempotency_key=f"request:{req.id}:job_alert:{t.provider.id}:{ch}{round_key}",
                 data={
                     "category": cat.name,
                     "area": req.address.area,

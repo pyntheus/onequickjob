@@ -94,6 +94,16 @@ class TimelineEvent(BaseModel):
     offer: CounterOfferView | None = None
 
 
+class PriceChangeView(BaseModel):
+    """A raised guide waiting for the customer's approval (A12)."""
+
+    guide_pence: int
+    first_pence: int | None
+    from_guide_pence: int
+    from_first_pence: int | None
+    proposed_at: datetime
+
+
 class RequestDetail(RequestSummary):
     timeline: list[TimelineEvent]
     pending_offers: list[CounterOfferView]
@@ -108,6 +118,7 @@ class RequestDetail(RequestSummary):
     )
     notes: str = ""
     simulating: bool = Field(default=False, description="DEMO_MODE: a simulation is running for this request")
+    price_change: PriceChangeView | None = Field(default=None, description="A raised guide to approve or decline (A12)")
 
 
 class SimulationStarted(BaseModel):
@@ -182,6 +193,20 @@ class ChangeDateIn(In):
     note: str = Field(default="", max_length=500)
 
 
+class FrequencyOption(BaseModel):
+    value: str
+    label: str = Field(description='e.g. "every 2 weeks"')
+
+
+class PendingPlanChange(BaseModel):
+    """A change of frequency waiting for the provider (A10). The plan is unchanged until then."""
+
+    to_frequency: str
+    to_frequency_label: str
+    to_price_pence: int
+    expires_at: datetime
+
+
 class PlanOut(BaseModel):
     series_id: str
     booking_id: str
@@ -199,6 +224,10 @@ class PlanOut(BaseModel):
     away_to: date | None
     cover_when_away: bool
     next_visit_date: date | None
+    pending_change: PendingPlanChange | None = None
+    frequency_options: list[FrequencyOption] = Field(
+        default_factory=list, description="How often this plan can run (the category's options); empty if fixed"
+    )
 
 
 class PlanUpdate(In):
@@ -208,7 +237,20 @@ class PlanUpdate(In):
     away_from: date | None = None
     away_to: date | None = None
     cover_when_away: bool | None = None
-    frequency: Literal["weekly", "fortnightly", "threeweekly", "fourweekly", "eightweekly", "monthly"] | None = None
+    frequency: (
+        Literal[
+            "weekly",
+            "fortnightly",
+            "threeweekly",
+            "fourweekly",
+            "eightweekly",
+            "monthly",
+            "threemonthly",
+            "weekdays",
+            "someweekdays",
+        ]
+        | None
+    ) = Field(default=None, description="Asks the provider to accept the re-priced plan (A10); applied only if they do")
 
 
 class RebookIn(In):
@@ -298,3 +340,28 @@ class FeeExample(BaseModel):
     """The landing page's "Where your money goes" example, from app.core.money."""
 
     split: FeeSplit
+
+
+class PlanPrice(BaseModel):
+    """What the plan would cost at another frequency (A10), before asking the provider."""
+
+    frequency: str
+    frequency_label: str
+    price_pence: int
+    current_price_pence: int
+
+
+class PlanChangeView(BaseModel):
+    """The provider's page for a change of frequency (the link in their text)."""
+
+    status: Literal["pending", "accepted", "declined", "lapsed", "withdrawn"]
+    customer_first_name: str
+    provider_first_name: str
+    category_name: str
+    area: str
+    from_frequency_label: str
+    to_frequency_label: str
+    from_price_pence: int
+    to_price_pence: int
+    provider_pence: int = Field(description="What the provider keeps per visit at the new price (money.py)")
+    expires_at: datetime

@@ -57,6 +57,12 @@ const plan = {
   away_to: null,
   cover_when_away: true,
   next_visit_date: "2026-10-13",
+  pending_change: null,
+  frequency_options: [
+    { value: "weekly", label: "every week" },
+    { value: "fortnightly", label: "every 2 weeks" },
+    { value: "threeweekly", label: "every 3 weeks" },
+  ],
 };
 const done = visit({ id: "v0", local_date: "2026-09-29", status: "finished", label: "done", minutes_actual: 38, can_rate: true, can_skip: false, can_report: true });
 
@@ -93,12 +99,17 @@ describe("my account", () => {
     await waitFor(() => expect(skipped).toBe("/api/c/visits/v1/skip"));
   });
 
-  it("changes the plan: winter pause, cover, how often, cancel", async () => {
+  it("changes the plan: winter pause, cover, cancel; asks the provider about a new frequency (A10)", async () => {
     const patches: unknown[] = [];
     let cancelled = false;
+    let repriced = "";
     window.confirm = () => true;
     accountApi({
       "PATCH /api/c/plans/s1": async (_u, req) => (patches.push(await req.json()), plan),
+      "GET /api/c/plans/s1/reprice": (url) => (
+        (repriced = url.searchParams.get("frequency") ?? ""),
+        { frequency: "weekly", frequency_label: "every week", price_pence: 2800, current_price_pence: 3100 }
+      ),
       "POST /api/c/plans/s1/cancel": () => ((cancelled = true), { ...plan, status: "cancelled" }),
     });
     renderAt("/account?tab=plan");
@@ -106,11 +117,28 @@ describe("my account", () => {
     await userEvent.click(screen.getByRole("switch", { name: /Pause over winter/ }));
     await userEvent.click(screen.getByRole("switch", { name: /Cover when Dave's away/ }));
     await userEvent.click(screen.getByRole("button", { name: "Change how often" }));
-    expect(screen.getByText(/The price per visit stays at £31/)).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Weekly" }));
+    expect(screen.getByRole("button", { name: "Every 2 weeks" })).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: "Every week" }));
+    expect(await screen.findByText(/the price would be/)).toHaveTextContent(
+      "Every week, the price would be £28 a visit (it's £31 now). We'll ask Dave to accept it; your plan stays as it is unless they do.",
+    );
+    expect(repriced).toBe("weekly");
+    await userEvent.click(screen.getByRole("button", { name: "Ask Dave" }));
     await userEvent.click(screen.getByRole("button", { name: "Cancel plan" }));
     await waitFor(() => expect(cancelled).toBe(true));
     expect(patches).toEqual([{ pause_winter: true }, { cover_when_away: false }, { frequency: "weekly" }]);
+  });
+
+  it("shows a frequency change waiting for the provider", async () => {
+    accountApi({
+      "GET /api/c/plans": () => [
+        { ...plan, pending_change: { to_frequency: "weekly", to_frequency_label: "every week", to_price_pence: 2800, expires_at: "2026-10-05T09:00:00Z" } },
+      ],
+    });
+    renderAt("/account?tab=plan");
+    expect(await screen.findByText(/Waiting for Dave to accept every week at/)).toHaveTextContent(
+      "Waiting for Dave to accept every week at £28 a visit. Your plan carries on as it is until then.",
+    );
   });
 
   it("messages the provider", async () => {
@@ -226,5 +254,48 @@ describe("booking confirmed", () => {
     expect(screen.getByText(/Your agreement for this job is with Mike/)).toBeInTheDocument();
     expect(screen.getByText("We've texted the details to 07700 900123.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Message Mike/ })).toHaveAttribute("href", "/account?tab=messages&thread=t1");
+  });
+});
+
+describe("the provider's answer to a plan change (A10)", () => {
+  const change = {
+    status: "pending",
+    customer_first_name: "Sarah",
+    provider_first_name: "Dave",
+    category_name: "Lawn mowing",
+    area: "Hazlemere",
+    from_frequency_label: "every 2 weeks",
+    to_frequency_label: "every week",
+    from_price_pence: 3100,
+    to_price_pence: 2800,
+    provider_pence: 2380,
+    expires_at: "2026-10-05T09:00:00Z",
+  };
+
+  it("shows the API's prices and accepts", async () => {
+    let accepted = false;
+    mockApi({
+      "GET /api/config": () => config(false),
+      "GET /api/auth/me": unauthorised,
+      "GET /api/c/plan-changes/tok9": () => change,
+      "POST /api/c/plan-changes/tok9/accept": () => ((accepted = true), { ...change, status: "accepted" }),
+    });
+    renderAt("/plan-change/tok9");
+    expect(await screen.findByRole("heading", { name: "Sarah would like visits every week" })).toBeInTheDocument();
+    expect(screen.getByText("£23.80 a visit, after the OneQuickJob fee")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Accept £28 a visit" }));
+    expect(await screen.findByText("You accepted this change. The plan has been updated.")).toBeInTheDocument();
+    expect(accepted).toBe(true);
+  });
+
+  it("says when a change has lapsed", async () => {
+    mockApi({
+      "GET /api/config": () => config(false),
+      "GET /api/auth/me": unauthorised,
+      "GET /api/c/plan-changes/tok9": () => ({ ...change, status: "lapsed" }),
+    });
+    renderAt("/plan-change/tok9");
+    expect(await screen.findByText(/lapsed after 48 hours/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Accept/ })).not.toBeInTheDocument();
   });
 });

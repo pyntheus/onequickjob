@@ -6,6 +6,7 @@ from app.core.config import Settings
 from app.core.db import Db
 from app.core.tasks import periodic
 from app.customer import templates as _templates  # noqa: F401 (registers L1's outbox templates)
+from app.customer.plan_changes import lapse_stale
 from app.customer.requests import expire_stale
 
 log = logging.getLogger("oqj.tasks")
@@ -17,3 +18,11 @@ async def expire_requests(db: Db, s: Settings) -> None:
     n = await expire_stale(db, s)
     if n:
         log.info("expired %d open requests", n)
+
+
+@periodic("plan_change_expiry", every_seconds=900)
+async def lapse_plan_changes(db: Db, s: Settings) -> None:
+    """A change of frequency the provider hasn't answered in 48 hours lapses; the customer is told (A10)."""
+    n = await lapse_stale(db, s)
+    if n:
+        log.info("lapsed %d plan changes", n)

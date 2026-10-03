@@ -6,16 +6,19 @@ Logic lives in the modules beside this one: requests, simulator, account, thread
 views (read-only presenters).
 """
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Request, status
+from fastapi import APIRouter, Depends, FastAPI, Query, Request, status
 
 from app.adapters.payments.base import CardSetup, CustomerRef, PaymentGateway
+from app.core import money
 from app.core.config import Settings
 from app.core.db import Db, get_db
 from app.core.deps import CurrentUser, current_customer, current_user, gateway_dep, settings_dep
 from app.core.errors import ERROR_RESPONSES, fail, not_found
-from app.customer import account, invites, requests, simulator, threads
+from app.customer import account, invites, plan_changes, price_changes, requests, simulator, threads
 from app.customer import templates as _templates  # noqa: F401 (registers L1's outbox templates)
 from app.customer.schemas import (
     BookingCard,
@@ -28,7 +31,9 @@ from app.customer.schemas import (
     InviteAccept,
     InvitePreview,
     NewRequest,
+    PlanChangeView,
     PlanOut,
+    PlanPrice,
     PlanUpdate,
     ProblemIn,
     ProblemOut,
@@ -41,6 +46,7 @@ from app.customer.schemas import (
     SimulationStarted,
     VisitsOut,
 )
+from app.customer.store import ensure_customer_collections
 from app.customer.views import (
     Lookup,
     booking_card,
@@ -57,12 +63,20 @@ from app.repos.bookings import Bookings
 from app.repos.customers import Customers
 from app.repos.job_requests import JobRequests
 from app.repos.own_customer_invites import OwnCustomerInvites
+from app.repos.providers import Providers
 from app.repos.series import SeriesRepo
 from app.repos.users import Users
 from app.repos.visits import Visits
 from app.shared.schemas import MessageOut, NewMessage, ThreadSummary
 
-router = APIRouter(prefix="/api/c", tags=["L1 customer"], responses=ERROR_RESPONSES)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    await ensure_customer_collections(app.state.db)
+    yield
+
+
+router = APIRouter(prefix="/api/c", tags=["L1 customer"], responses=ERROR_RESPONSES, lifespan=lifespan)
 User_ = Annotated[CurrentUser, Depends(current_user)]
 Cust = Annotated[Customer, Depends(current_customer)]
 DbDep = Annotated[Db, Depends(get_db)]
@@ -121,6 +135,23 @@ async def get_request(ref: str, customer: Cust, db: DbDep, s: SettingsDep) -> Re
 async def cancel_request(ref: str, customer: Cust, db: DbDep, s: SettingsDep) -> RequestDetail:
     req = await _own_request(db, ref, customer)
     updated = await requests.cancel_request(db, s, req, customer, await _user(db, customer))
+    return await request_detail(db, updated, demo=s.demo_mode)
+
+
+@router.post("/requests/{ref}/price-change/approve")
+async def approve_price_change(ref: str, customer: Cust, db: DbDep, s: SettingsDep) -> RequestDetail:
+    """Approve a raised guide price (A12): the guide changes and the job goes out again at it.
+    (Added by L1.)"""
+    req = await _own_request(db, ref, customer)
+    updated = await price_changes.approve(db, s, req, await _user(db, customer))
+    return await request_detail(db, updated, demo=s.demo_mode)
+
+
+@router.post("/requests/{ref}/price-change/decline")
+async def decline_price_change(ref: str, customer: Cust, db: DbDep, s: SettingsDep) -> RequestDetail:
+    """Keep the original guide price (A12). (Added by L1.)"""
+    req = await _own_request(db, ref, customer)
+    updated = await price_changes.decline(db, s, req, await _user(db, customer))
     return await request_detail(db, updated, demo=s.demo_mode)
 
 
@@ -370,9 +401,37 @@ async def get_plan(series_id: str, customer: Cust, db: DbDep) -> PlanOut:
 
 @router.patch("/plans/{series_id}")
 async def update_plan(series_id: str, body: PlanUpdate, customer: Cust, db: DbDep, s: SettingsDep) -> PlanOut:
+    """Pauses and cover change at once. A new frequency is re-priced and sent to the provider to
+    accept (A10): the plan carries on unchanged until they do (see pending_change)."""
     series, booking = await account.own_series(db, series_id, customer)
-    updated = await account.update_plan(db, s, series, booking, customer, await _user(db, customer), body)
-    return await plan_view(db, updated, booking, Lookup(db))
+    user = await _user(db, customer)
+    fields = body.model_dump(exclude_unset=True)
+    frequency = fields.pop("frequency", None)
+    if fields:
+        series = await account.update_plan(db, s, series, booking, customer, user, PlanUpdate(**fields))
+    if frequency:
+        await plan_changes.request_change(db, s, series, booking, customer, user, frequency)
+    return await plan_view(db, series, booking, Lookup(db))
+
+
+@router.get("/plans/{series_id}/reprice")
+async def reprice_plan(
+    series_id: str,
+    customer: Cust,
+    db: DbDep,
+    s: SettingsDep,
+    frequency: Annotated[str, Query(min_length=3, max_length=20)],
+) -> PlanPrice:
+    """What the plan would cost at another frequency, from the pricing engine (A10). Nothing
+    changes. (Added by L1.)"""
+    series, booking = await account.own_series(db, series_id, customer)
+    priced = await plan_changes.reprice(db, s, series, booking, frequency, customer.user_id)
+    return PlanPrice(
+        frequency=frequency,
+        frequency_label=plan_changes.words(frequency),
+        price_pence=priced.price_pence,
+        current_price_pence=series.price_pence,
+    )
 
 
 @router.post("/plans/{series_id}/cancel")
@@ -398,6 +457,48 @@ async def list_messages(thread_id: str, customer: Cust, db: DbDep) -> list[Messa
 async def post_message(thread_id: str, body: NewMessage, customer: Cust, db: DbDep, s: SettingsDep) -> MessageOut:
     user = await _user(db, customer)
     return await threads.post(db, s, await threads.own_thread(db, thread_id, user), user, body.body)
+
+
+# ---------------------------------------------------------------- the provider's answer to a plan change (A10)
+async def _plan_change_view(db: Db, s: Settings, found: plan_changes.Found) -> PlanChangeView:
+    c = found.change
+    provider = await Providers(db).get(c.provider_id)
+    cat = await Lookup(db).cat(c.category_id)
+    return PlanChangeView(
+        status=c.status,
+        customer_first_name=found.customer.name.split(" ")[0],
+        provider_first_name=provider.name.split(" ")[0] if provider else "",
+        category_name=cat.name,
+        area=found.booking.address.area,
+        from_frequency_label=plan_changes.words(c.from_frequency),
+        to_frequency_label=plan_changes.words(c.to_frequency),
+        from_price_pence=c.from_price_pence,
+        to_price_pence=c.to_price_pence,
+        provider_pence=money.split_for_source(c.to_price_pence, found.booking.source, s).provider_pence,
+        expires_at=c.expires_at,
+    )
+
+
+@router.get("/plan-changes/{token}")
+async def get_plan_change(token: str, db: DbDep, s: SettingsDep) -> PlanChangeView:
+    """Public: the link in the provider's text (the token is the authority, like an invite). (Added by L1.)"""
+    return await _plan_change_view(db, s, await plan_changes.find(db, s, token))
+
+
+@router.post("/plan-changes/{token}/accept")
+async def accept_plan_change(token: str, db: DbDep, s: SettingsDep) -> PlanChangeView:
+    """The provider accepts the new frequency and price: the plan changes now. (Added by L1.)"""
+    found = await plan_changes.find(db, s, token)
+    await plan_changes.accept(db, s, found)
+    return await _plan_change_view(db, s, await plan_changes.find(db, s, token))
+
+
+@router.post("/plan-changes/{token}/decline")
+async def decline_plan_change(token: str, db: DbDep, s: SettingsDep) -> PlanChangeView:
+    """The provider declines: the plan stays as it is. (Added by L1.)"""
+    found = await plan_changes.find(db, s, token)
+    await plan_changes.decline(db, s, found)
+    return await _plan_change_view(db, s, await plan_changes.find(db, s, token))
 
 
 # ---------------------------------------------------------------- own-customer invites

@@ -34,9 +34,10 @@ from app.core.db import Db, DbSession, transaction
 from app.core.errors import fail, not_found
 from app.core.rounding import D, round_to_pound
 from app.core.timeutil import london_datetime, london_today, utcnow, week_start
+from app.customer import price_changes
 from app.models.categories import Category
 from app.models.common import Actor, Related
-from app.models.job_requests import JobRequest, RequestEvent
+from app.models.job_requests import JobRequest
 from app.models.providers import Provider
 from app.repos import (
     Bookings,
@@ -135,6 +136,8 @@ async def _kpis(db: Db, start: date) -> list[Kpi]:
 
 
 def why_waiting(req: JobRequest, pending: list, names: dict[str, str]) -> str:
+    if req.price_change and req.price_change.status == "pending":  # A12
+        return f"Awaiting customer: they've been asked to approve {money(req.price_change.guide_pence)}."
     if req.admin_note:
         return req.admin_note
     if pending:
@@ -169,6 +172,10 @@ async def unfilled(db: Db, req: JobRequest, cat: Category | None = None) -> Unfi
         why=why_waiting(req, pending, names),
         views=len(req.viewed_by),
         pending_counters=len(pending),
+        awaiting_customer=bool(req.price_change and req.price_change.status == "pending"),
+        proposed_guide_pence=req.price_change.guide_pence
+        if req.price_change and req.price_change.status == "pending"
+        else None,
     )
 
 
@@ -382,10 +389,11 @@ async def whatsapp_text(db: Db, s: Settings, ref: str) -> WhatsAppText:
     )
 
 
-async def raise_guide(db: Db, ref: str, percent_: int, note: str, actor: Actor) -> UnfilledRequest:
-    """Raise an open request's guide price by percent_, rounded half-up to whole pounds. A
-    dearer first visit rises by the same ratio (marketplace.scaled_first_price, as for a
-    counter: A1). A provider accepting at the old guide meanwhile gets price_changed."""
+async def raise_guide(db: Db, s: Settings, ref: str, percent_: int, note: str, actor: Actor) -> UnfilledRequest:
+    """Suggest raising an open request's guide price by percent_, rounded half-up to whole pounds.
+    A dearer first visit rises by the same ratio (marketplace.scaled_first_price, as for a
+    counter: A1). Ruling A12: the raise waits for the customer's approval (L1's
+    app.customer.price_changes); only then does the guide change and the job go out again."""
     req = await _request(db, ref)
     if req.status != "open":
         fail(status.HTTP_409_CONFLICT, "not_open", "This request isn't open any more.")
@@ -397,22 +405,14 @@ async def raise_guide(db: Db, ref: str, percent_: int, note: str, actor: Actor) 
     after = {"guide_pence": new_guide, "first_pence": new_first, "percent": percent_}
 
     async def apply(session: DbSession) -> JobRequest:
-        event = RequestEvent(
-            at=utcnow(), kind="guide_raised", price_pence=new_guide, by_user_id=actor.user_id, text=note or None
-        )
-        updated = await JobRequests(db).update(
-            req.id,
-            {"guide_pence": new_guide, "first_pence": new_first},
-            extra_filter={"status": "open", "guide_pence": req.guide_pence},
-            push={"events": event.model_dump(mode="python")},
+        updated = await price_changes.propose(
+            db, s, req, guide_pence=new_guide, first_pence=new_first, percent=percent_, note=note, actor=actor,
             session=session,
-        )
-        if updated is None:
-            fail(status.HTTP_409_CONFLICT, "request_changed", "This request has just changed. Have another look.")
+        )  # fmt: skip
         await audit(
             db,
             actor,
-            "request.guide_raised",
+            "request.guide_raise_proposed",
             Related(request_id=req.id, customer_id=req.customer_id),
             before=before,
             after=after,

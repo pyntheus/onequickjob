@@ -59,6 +59,8 @@ in `web/src/api/schema.d.ts` come from it (`make types`).
 | `GET` | `/api/c/requests` |  | list[RequestSummary] |  |
 | `GET` | `/api/c/requests/{ref}` |  | RequestDetail | The "Finding someone local" screen polls this: timeline, pending counters, booking. |
 | `POST` | `/api/c/requests/{ref}/cancel` |  | RequestDetail |  |
+| `POST` | `/api/c/requests/{ref}/price-change/approve` |  | RequestDetail | Approve a raised guide price (A12): the guide changes and the job goes out again at it. (Added by L1.) |
+| `POST` | `/api/c/requests/{ref}/price-change/decline` |  | RequestDetail | Keep the original guide price (A12). (Added by L1.) |
 | `POST` | `/api/c/requests/{ref}/demo/simulate` |  | SimulationStarted | DEMO_MODE only (404 otherwise): the nearest seeded provider with the skill counters at guide + 20% after a few seconds, and the next accepts at guide shortly after, through the real offer endpoints. |
 | `GET` | `/api/c/profile` |  | CustomerProfile |  |
 | `PATCH` | `/api/c/profile` | ProfileUpdate | CustomerProfile |  |
@@ -76,11 +78,15 @@ in `web/src/api/schema.d.ts` come from it (`make types`).
 | `POST` | `/api/c/visits/{visit_id}/problem` | ProblemIn | ProblemOut | "Something not right?": opens a dispute (stage 0) and tells the provider. |
 | `GET` | `/api/c/plans` |  | list[PlanOut] |  |
 | `GET` | `/api/c/plans/{series_id}` |  | PlanOut |  |
-| `PATCH` | `/api/c/plans/{series_id}` | PlanUpdate | PlanOut |  |
+| `PATCH` | `/api/c/plans/{series_id}` | PlanUpdate | PlanOut | Pauses and cover change at once. A new frequency is re-priced and sent to the provider to accept (A10): the plan carries on unchanged until they do (see pending_change). |
+| `GET` | `/api/c/plans/{series_id}/reprice` |  | PlanPrice | What the plan would cost at another frequency, from the pricing engine (A10). Nothing changes. (Added by L1.) |
 | `POST` | `/api/c/plans/{series_id}/cancel` |  | PlanOut |  |
 | `GET` | `/api/c/threads` |  | list[ThreadSummary] |  |
 | `GET` | `/api/c/threads/{thread_id}/messages` |  | list[MessageOut] |  |
 | `POST` | `/api/c/threads/{thread_id}/messages` | NewMessage | MessageOut |  |
+| `GET` | `/api/c/plan-changes/{token}` |  | PlanChangeView | Public: the link in the provider's text (the token is the authority, like an invite). (Added by L1.) |
+| `POST` | `/api/c/plan-changes/{token}/accept` |  | PlanChangeView | The provider accepts the new frequency and price: the plan changes now. (Added by L1.) |
+| `POST` | `/api/c/plan-changes/{token}/decline` |  | PlanChangeView | The provider declines: the plan stays as it is. (Added by L1.) |
 | `GET` | `/api/c/invites/{token}` |  | InvitePreview | Public: the invite link in the provider's text. No sign-in needed to read it. |
 | `POST` | `/api/c/invites/{token}/accept` | InviteAccept | BookingCard | Signed in with the invited number: creates the customer (joined_via own_customer) and a booking with source own_customer via app.services.bookings.create_booking, in one transaction with marking the invite accepted and its messages. |
 
@@ -135,7 +141,7 @@ in `web/src/api/schema.d.ts` come from it (`make types`).
 |---|---|---|---|---|
 | `GET` | `/api/admin/overview` |  | Overview |  |
 | `GET` | `/api/admin/requests/{ref}/whatsapp` |  | WhatsAppText | The text for the providers' WhatsApp group, with the job link (/p/j/{ref}). |
-| `POST` | `/api/admin/requests/{ref}/raise-guide` | RaiseGuideIn | UnfilledRequest | Raise an open request's guide price (rounded to whole pounds) and audit-log it. |
+| `POST` | `/api/admin/requests/{ref}/raise-guide` | RaiseGuideIn | UnfilledRequest | Suggest a higher guide price for an open request (rounded to whole pounds), audit-logged. It waits for the customer's approval (A12): the request shows "Awaiting customer" until then. |
 | `GET` | `/api/admin/providers` |  | list[ProviderRow] |  |
 | `GET` | `/api/admin/providers/{provider_id}` |  | ProviderDetail |  |
 | `POST` | `/api/admin/providers/{provider_id}/documents/{doc_type}/verify` | VerifyDocIn | ProviderDetail | Set the expiry with services.documents.expiry_for (a basic DBS check: 12 months from its issue date); F's task reminds the provider 30 days before it lapses. |
@@ -163,4 +169,4 @@ in `web/src/api/schema.d.ts` come from it (`make types`).
 | `GET` | `/api/admin/audit` |  | list[AuditEntry] |  |
 | `POST` | `/api/payments/stripe/webhook` |  | WebhookAck | Verify the Stripe-Signature header, then handle payment_intent.*, account.updated, payout.* and charge.refunded idempotently (by event id). Webhooks are the source of truth for final payment states. |
 
-121 endpoints.
+127 endpoints.

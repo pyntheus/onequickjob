@@ -11,14 +11,90 @@ import { dateText } from "../text";
 
 const g = (px: number) => ({ "--g": `${px}px` }) as CSSProperties;
 type Frequency = NonNullable<Schemas["PlanUpdate"]["frequency"]>;
-const FREQUENCIES: [Frequency, string][] = [
-  ["weekly", "Weekly"],
-  ["fortnightly", "Every 2 weeks"],
-  ["threeweekly", "Every 3 weeks"],
-  ["fourweekly", "Every 4 weeks"],
-  ["monthly", "Monthly"],
-];
-const CHANGEABLE = new Set<string>(["weekly", "fortnightly", "threeweekly", "fourweekly", "eightweekly", "monthly", "threemonthly"]);
+type PlanPrice = Schemas["PlanPrice"];
+
+/**
+ * A10: a new frequency is re-priced by the API (never here) and sent to the provider to accept;
+ * the plan carries on unchanged until they do.
+ */
+function ChangeHowOften({ plan, onDone }: { plan: PlanOut; onDone: () => void }) {
+  const qc = useQueryClient();
+  const notify = useToast();
+  const who = plan.provider.first_name;
+  const [quote, setQuote] = useState<PlanPrice | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const choose = async (frequency: string) => {
+    setBusy(true);
+    setError(null);
+    try {
+      setQuote(
+        await call(
+          api.GET("/api/c/plans/{series_id}/reprice", { params: { path: { series_id: plan.series_id }, query: { frequency } } }),
+        ),
+      );
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const ask = async () => {
+    if (!quote) return;
+    setBusy(true);
+    try {
+      await call(
+        api.PATCH("/api/c/plans/{series_id}", {
+          params: { path: { series_id: plan.series_id } },
+          body: { frequency: quote.frequency as Frequency },
+        }),
+      );
+      notify(`We've asked ${who}. Your plan stays as it is unless they accept.`);
+      await qc.invalidateQueries({ queryKey: ["c"] });
+      onDone();
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="stack" style={{ ...g(8), paddingTop: 12 }}>
+      <span className="label" id={`freq-${plan.series_id}`}>
+        How often?
+      </span>
+      <div className="chips" role="group" aria-labelledby={`freq-${plan.series_id}`}>
+        {(plan.frequency_options ?? []).map((o) => (
+          <Chip
+            key={o.value}
+            on={(quote?.frequency ?? plan.frequency) === o.value}
+            disabled={busy || o.value === plan.frequency}
+            onClick={() => choose(o.value)}
+          >
+            {o.label.charAt(0).toUpperCase() + o.label.slice(1)}
+          </Chip>
+        ))}
+      </div>
+      {quote && (
+        <div className="soft small stack" style={g(8)}>
+          <span>
+            {quote.frequency_label.charAt(0).toUpperCase() + quote.frequency_label.slice(1)}, the price would be{" "}
+            <b>{fmt(quote.price_pence)} a visit</b> (it's {fmt(quote.current_price_pence)} now). We'll ask {who} to accept it;
+            your plan stays as it is unless they do.
+          </span>
+          <button type="button" className="btn btn-primary btn-sm" style={{ alignSelf: "flex-start" }} onClick={ask} disabled={busy}>
+            Ask {who}
+          </button>
+        </div>
+      )}
+      {error && (
+        <p className="field-error" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
 
 function PlanCard({ plan }: { plan: PlanOut }) {
   const qc = useQueryClient();
@@ -125,30 +201,15 @@ function PlanCard({ plan }: { plan: PlanOut }) {
             hint={`We'll offer the visit to another checked local provider at the same price. ${who} carries on afterwards.`}
           />
           <hr />
-          {changing && (
-            <div className="stack" style={{ ...g(8), paddingTop: 12 }}>
-              <span className="label" id={`freq-${plan.series_id}`}>
-                How often?
-              </span>
-              <div className="chips" role="group" aria-labelledby={`freq-${plan.series_id}`}>
-                {FREQUENCIES.map(([v, l]) => (
-                  <Chip
-                    key={v}
-                    on={plan.frequency === v}
-                    disabled={busy}
-                    onClick={() => v !== plan.frequency && patch({ frequency: v }, `Now ${l.toLowerCase()}`).then(() => setChanging(false))}
-                  >
-                    {l}
-                  </Chip>
-                ))}
-              </div>
-              <p className="xs muted">
-                The price per visit stays at {fmt(plan.price_pence)}. Your next visit stays as it is; we'll let {who} know.
-              </p>
-            </div>
+          {plan.pending_change && (
+            <p className="soft small" style={{ marginTop: 12 }}>
+              Waiting for {who} to accept {plan.pending_change.to_frequency_label} at{" "}
+              <b>{fmt(plan.pending_change.to_price_pence)} a visit</b>. Your plan carries on as it is until then.
+            </p>
           )}
+          {changing && <ChangeHowOften plan={plan} onDone={() => setChanging(false)} />}
           <div className="row wrap" style={{ ...g(10), paddingTop: 12 }}>
-            {CHANGEABLE.has(plan.frequency) && (
+            {(plan.frequency_options ?? []).length > 1 && (
               <button type="button" className="btn btn-ghost btn-sm" onClick={() => setChanging((c) => !c)} aria-expanded={changing}>
                 Change how often
               </button>

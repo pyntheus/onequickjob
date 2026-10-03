@@ -180,6 +180,40 @@ function Status({ req }: { req: RequestDetail }) {
   );
 }
 
+/** A12: a raised guide the team suggested, waiting for the customer's approval. */
+function PriceChangeCard({
+  req,
+  onApprove,
+  onDecline,
+  busy,
+}: {
+  req: RequestDetail;
+  onApprove: () => void;
+  onDecline: () => void;
+  busy: boolean;
+}) {
+  const pc = req.price_change;
+  if (!pc) return null;
+  const proposed = priceText(pc.guide_pence, req.unit, pc.first_pence);
+  return (
+    <div className="card stack price-change" style={g(12)} aria-live="polite">
+      <h2 className="h3">A higher guide price?</h2>
+      <p className="small">
+        Nobody has taken your job yet. To help find someone local, we suggest raising the guide price to <b>{proposed}</b>{" "}
+        (it's {priceText(pc.from_guide_pence, req.unit, pc.from_first_pence)} now). Nothing changes unless you approve it.
+      </p>
+      <div className="row wrap" style={g(8)}>
+        <button type="button" className="btn btn-primary btn-sm" disabled={busy} onClick={onApprove}>
+          Approve {proposed}
+        </button>
+        <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={onDecline}>
+          Keep {fmt(pc.from_guide_pence)}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /** "Finding someone local": polls the request, shows counters and the booking. */
 export default function Offers() {
   const { ref = "" } = useParams();
@@ -241,6 +275,16 @@ export default function Offers() {
     if (!window.confirm("Cancel this request? Nothing has been charged.")) return;
     void act(() => call(api.POST("/api/c/requests/{ref}/cancel", { params: { path: { ref } } })), "Request cancelled");
   };
+  const approveRaise = () =>
+    act(
+      () => call(api.POST("/api/c/requests/{ref}/price-change/approve", { params: { path: { ref } } })),
+      "Done. We've sent your job to providers again at the new price.",
+    );
+  const declineRaise = () =>
+    act(
+      () => call(api.POST("/api/c/requests/{ref}/price-change/decline", { params: { path: { ref } } })),
+      "Your guide price stays as it is.",
+    );
   const simulate = () =>
     act(async () => {
       const s = await call(api.POST("/api/c/requests/{ref}/demo/simulate", { params: { path: { ref } } }));
@@ -256,6 +300,7 @@ export default function Offers() {
           {message}
         </p>
       )}
+      <PriceChangeCard req={req} onApprove={approveRaise} onDecline={declineRaise} busy={busy} />
       <Timeline req={req} onAccept={accept} onDecline={decline} busy={busy} />
       {req.status === "open" && (
         <div className="row between wrap" style={g(12)}>

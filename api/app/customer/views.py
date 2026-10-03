@@ -19,7 +19,10 @@ from app.customer.schemas import (
     BookingDetail,
     CounterOfferView,
     CustomerVisit,
+    FrequencyOption,
+    PendingPlanChange,
     PlanOut,
+    PriceChangeView,
     ProviderCard,
     RequestDetail,
     RequestSummary,
@@ -37,6 +40,7 @@ from app.repos.categories import Categories
 from app.repos.disputes import Disputes
 from app.repos.files import Files
 from app.repos.offers import Offers
+from app.repos.plan_changes import PlanChanges
 from app.repos.providers import Providers
 from app.repos.ratings import Ratings
 from app.repos.users import Users
@@ -231,6 +235,20 @@ async def request_detail(
                 else:
                     text = f"{pc.short} accepted your guide price"
                 timeline.append(TimelineEvent(at=e.at, kind="accepted", text=text, provider=pc))
+            case "price_change_proposed":
+                text = f"We suggested raising the guide price to {wording.money(e.price_pence or 0)}"
+                timeline.append(TimelineEvent(at=e.at, kind="note", text=text))
+            case "price_change_declined":
+                text = f"You kept the guide price at {wording.money(e.price_pence or req.guide_pence)}"
+                timeline.append(TimelineEvent(at=e.at, kind="note", text=text))
+            case "guide_raised" if e.text == "Approved by the customer":
+                again = (
+                    f"we've sent it to checked providers near {req.address.district} again"
+                    if e.count
+                    else "we're finding someone local by hand"
+                )
+                text = f"You approved a guide price of {wording.money(e.price_pence or 0)}, and {again}"
+                timeline.append(TimelineEvent(at=e.at, kind="note", text=text))
             case "guide_raised":
                 price = f" to {wording.money(e.price_pence)}" if e.price_pence else ""
                 timeline.append(
@@ -279,6 +297,15 @@ async def request_detail(
         size_text=size_text(req.measure),
         notes=req.notes,
         simulating=simulating,
+        price_change=PriceChangeView(
+            guide_pence=pc.guide_pence,
+            first_pence=pc.first_pence,
+            from_guide_pence=pc.from_guide_pence,
+            from_first_pence=pc.from_first_pence,
+            proposed_at=pc.proposed_at,
+        )
+        if (pc := req.price_change) and pc.status == "pending" and still_open
+        else None,
     )
 
 
@@ -448,7 +475,26 @@ async def plan_view(db: Db, series: Series, booking: Booking, look: Lookup) -> P
         away_to=series.pause.away_to,
         cover_when_away=series.cover_when_away,
         next_visit_date=nxt.local_date if nxt else None,
+        pending_change=PendingPlanChange(
+            to_frequency=pc.to_frequency,
+            to_frequency_label=frequency_label(pc.to_frequency) or "",
+            to_price_pence=pc.to_price_pence,
+            expires_at=pc.expires_at,
+        )
+        if (pc := await PlanChanges(db).pending_for(series.id))
+        else None,
+        frequency_options=[
+            FrequencyOption(value=f, label=frequency_label(f) or f)
+            for f in plan_frequencies(cat)
+            if series.status != "cancelled" and series.frequency in plan_frequencies(cat)
+        ],
     )
+
+
+def plan_frequencies(cat: Category) -> list[str]:
+    """The recurring frequencies a category offers (its intake's frequency options, not one-off)."""
+    field = next((f for f in cat.intake if f.key == "frequency"), None)
+    return [o.value for o in (field.options or []) if o.value != "oneoff"] if field else []
 
 
 def _away_now(series: Series) -> bool:

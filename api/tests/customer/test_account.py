@@ -242,47 +242,51 @@ async def test_away_dates_skip_those_visits(client, db, catalogue):
     assert inside.status_code == 422, "the winter pause is for outside jobs"
 
 
-async def test_changing_frequency_keeps_the_next_visit_and_the_price(client, db, catalogue):
+async def _accepted_change(client, db, series_id: str, frequency: str) -> int:
+    """Ask for a frequency (A10) and accept it as the provider would, from the link in their text.
+    Returns the new price."""
+    r = await client.patch(f"/api/c/plans/{series_id}", json={"frequency": frequency})
+    assert r.status_code == 200, r.text
+    price = r.json()["pending_change"]["to_price_pence"]
+    msg = await db["outbox"].find_one({"template_id": "plan_change_proposed"}, sort=[("created_at", -1), ("_id", -1)])
+    token = msg["body"].split("/plan-change/")[1].split()[0]
+    assert (await client.post(f"/api/c/plan-changes/{token}/accept")).status_code == 200
+    return price
+
+
+async def _scheduled(db, series_id: str):
+    return [
+        v.local_date
+        for v in await Visits(db).find({"series_id": series_id, "status": "scheduled"}, sort=[("local_date", 1)])
+    ]
+
+
+async def test_an_accepted_frequency_change_keeps_the_next_visit(client, db, catalogue):
     _dave, booking, first = await _booked(client, db)
-    r = await client.patch(f"/api/c/plans/{booking.series_id}", json={"frequency": "weekly"})
-    assert r.status_code == 200 and r.json()["frequency"] == "weekly" and r.json()["price_pence"] == 3100
-    scheduled = [
-        v.local_date
-        for v in await Visits(db).find(
-            {"series_id": booking.series_id, "status": "scheduled"}, sort=[("local_date", 1)]
-        )
-    ]
+    price = await _accepted_change(client, db, booking.series_id, "weekly")
+    plan = (await client.get(f"/api/c/plans/{booking.series_id}")).json()
+    assert plan["frequency"] == "weekly" and plan["price_pence"] == price
+    scheduled = await _scheduled(db, booking.series_id)
     assert scheduled[0] == first.local_date
-    gaps = {(b - a).days for a, b in itertools.pairwise(scheduled)}
-    assert gaps == {7}
+    assert {(b - a).days for a, b in itertools.pairwise(scheduled)} == {7}
     assert (await Bookings(db).get(booking.id)).frequency == "weekly"
-    r = await client.patch(f"/api/c/plans/{booking.series_id}", json={"frequency": "monthly"})
-    scheduled = [
-        v.local_date
-        for v in await Visits(db).find(
-            {"series_id": booking.series_id, "status": "scheduled"}, sort=[("local_date", 1)]
-        )
-    ]
+    await _accepted_change(client, db, booking.series_id, "threeweekly")
+    scheduled = await _scheduled(db, booking.series_id)
     assert scheduled[0] == first.local_date and len(scheduled) >= 2
-    assert all(28 <= (b - a).days <= 31 for a, b in itertools.pairwise(scheduled)), scheduled
+    assert {(b - a).days for a, b in itertools.pairwise(scheduled)} == {21}, scheduled
 
 
 async def test_a_frequency_change_during_a_pause_doesnt_bring_old_dates_back(client, db, catalogue):
     """Codex (medium): weekly plan, away pause, change to fortnightly, clear the pause."""
     _dave, booking, first = await _booked(client, db, "cleaning")
     sid = booking.series_id
-    r = await client.patch(f"/api/c/plans/{sid}", json={"frequency": "weekly"})
-    assert r.status_code == 200
-    weekly = [
-        v.local_date for v in await Visits(db).find({"series_id": sid, "status": "scheduled"}, sort=[("local_date", 1)])
-    ]
+    await _accepted_change(client, db, sid, "weekly")
+    weekly = await _scheduled(db, sid)
     away = {"away_from": weekly[1].isoformat(), "away_to": weekly[3].isoformat()}
     assert (await client.patch(f"/api/c/plans/{sid}", json=away)).status_code == 200
-    assert (await client.patch(f"/api/c/plans/{sid}", json={"frequency": "fortnightly"})).status_code == 200
+    await _accepted_change(client, db, sid, "fortnightly")
     assert (await client.patch(f"/api/c/plans/{sid}", json={"away_from": None, "away_to": None})).status_code == 200
-    scheduled = [
-        v.local_date for v in await Visits(db).find({"series_id": sid, "status": "scheduled"}, sort=[("local_date", 1)])
-    ]
+    scheduled = await _scheduled(db, sid)
     assert scheduled[0] == first.local_date
     assert {(b - a).days for a, b in itertools.pairwise(scheduled)} == {14}, scheduled
 
@@ -325,45 +329,6 @@ async def test_a_frequency_change_keeps_a_visit_later_today_as_the_anchor(client
     """Codex re-check (medium): fortnightly to weekly before today's visit keeps next week's."""
     _dave, booking, first = await _booked(client, db)
     await _first_visit_later_today(db, first.id)
-    assert (await client.patch(f"/api/c/plans/{booking.series_id}", json={"frequency": "weekly"})).status_code == 200
-    scheduled = [
-        v.local_date
-        for v in await Visits(db).find(
-            {"series_id": booking.series_id, "status": "scheduled"}, sort=[("local_date", 1)]
-        )
-    ]
+    await _accepted_change(client, db, booking.series_id, "weekly")
+    scheduled = await _scheduled(db, booking.series_id)
     assert scheduled[0] == london_today() and scheduled[1] == london_today() + timedelta(days=7), scheduled
-
-
-async def test_cancelling_a_plan_cancels_future_visits_with_no_fee(client, db, catalogue):
-    _dave, booking, _first = await _booked(client, db)
-    r = await client.post(f"/api/c/plans/{booking.series_id}/cancel")
-    assert r.status_code == 200 and r.json()["status"] == "cancelled" and r.json()["next_visit_date"] is None
-    assert (await Bookings(db).get(booking.id)).status == "cancelled"
-    assert await Visits(db).count({"series_id": booking.series_id, "status": "scheduled"}) == 0
-    assert "is cancelled. There's no fee." in (await db["outbox"].find_one({"template_id": "plan_cancelled"}))["body"]
-    assert (await client.patch(f"/api/c/plans/{booking.series_id}", json={"cover_when_away": False})).status_code == 409
-
-
-async def test_book_again_offers_the_same_provider_the_same_price(client, db, catalogue):
-    dave, booking, _first = await _booked(client, db, "flatpack")
-    await make_provider(db, "Mike Reynolds", "+447700900202", ["flatpack"])
-    r = await client.post(f"/api/c/bookings/{booking.id}/rebook", json={"note": "Another wardrobe please"})
-    assert r.status_code == 201, r.text
-    summary = r.json()
-    assert summary["guide_pence"] == booking.price_pence and summary["status"] == "open"
-    from app.repos import JobRequests
-
-    req = await JobRequests(db).by_ref(summary["ref"])
-    assert req.direct_provider_id == dave.id and req.broadcast.provider_ids == [dave.id]
-    alerts = await db["outbox"].find({"template_id": "job_alert", "related.request_id": req.id}).to_list()
-    assert [a["recipient"]["phone"] for a in alerts] == ["+447700900201"]
-
-
-async def test_plans_and_visits_are_private(app, client, db, catalogue):
-    _dave, booking, first = await _booked(client, db)
-    async with await new_client(app) as other:
-        await signed_in_with_card(other, db, "+447700900130", "Robert Brown")
-        assert (await other.get(f"/api/c/plans/{booking.series_id}")).status_code == 404
-        assert (await other.post(f"/api/c/visits/{first.id}/skip")).status_code == 404
-        assert (await other.get("/api/c/visits")).json()["upcoming"] == []

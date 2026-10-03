@@ -89,26 +89,39 @@ async def test_whatsapp_text_for_the_providers_group(jo, db, catalogue):
 
 
 async def test_raise_the_guide_ten_percent(jo, db, catalogue):
+    """A12 (L1 change): the raise is proposed to the customer; the guide moves only on approval."""
     customer = await make_customer(db)
     req = await make_request(db, customer, "windows")  # £22 a clean, first clean £33
     assert (req.guide_pence, req.first_pence) == (2200, 3300)
     out = ok(await jo.post(f"/api/admin/requests/{req.ref}/raise-guide", json={"note": "Ladder work"}))
-    assert out["guide_pence"] == 2400  # £24.20 to whole pounds
+    assert out["guide_pence"] == 2200 and out["awaiting_customer"] is True
+    assert out["proposed_guide_pence"] == 2400  # £24.20 to whole pounds
+    assert out["why"].startswith("Awaiting customer")
     after = await JobRequests(db).get(req.id)
-    assert after and (after.guide_pence, after.first_pence) == (2400, 3600)  # 3300 x 24/22, whole pounds
-    assert after.events[-1].kind == "guide_raised" and after.events[-1].price_pence == 2400
-    log = await db["audit_log"].find_one({"action": "request.guide_raised"})
+    assert after and (after.guide_pence, after.first_pence) == (2200, 3300), "unchanged until the customer approves"
+    pc = after.price_change
+    assert pc and (pc.status, pc.guide_pence, pc.first_pence) == ("pending", 2400, 3600)  # 3300 x 24/22, whole pounds
+    assert after.events[-1].kind == "price_change_proposed" and after.events[-1].price_pence == 2400
+    log = await db["audit_log"].find_one({"action": "request.guide_raise_proposed"})
     assert log and log["before"] == {"guide_pence": 2200, "first_pence": 3300}
     assert log["after"]["guide_pence"] == 2400 and log["note"] == "Ladder work"
     assert log["actor"]["name"] == "Jo Morgan"
 
 
 async def test_a_raise_beats_a_stale_acceptance_and_closed_requests_cant_be_raised(jo, db, catalogue):
+    from app.customer import price_changes
+    from app.repos import Users
+
     customer = await make_customer(db)
     provider = await make_provider(db, "Dave Hughes", "+447700900201", ["mowing"])
     req = await make_request(db, customer, "mowing")
     stale_guide = req.guide_pence
     ok(await jo.post(f"/api/admin/requests/{req.ref}/raise-guide", json={"percent": 20}))
+    again = await jo.post(f"/api/admin/requests/{req.ref}/raise-guide", json={"percent": 20})
+    assert again.status_code == 409 and again.json()["detail"]["code"] == "awaiting_customer"
+    await price_changes.approve(
+        db, make_settings(), await JobRequests(db).get(req.id), await Users(db).get(customer.user_id)
+    )
     # A provider who read the old guide gets price_changed, not the old price.
     claimed = await marketplace.claim_request(
         db, req.id, provider_id=provider.id, price_pence=stale_guide, first_price_pence=None, via="guide",
