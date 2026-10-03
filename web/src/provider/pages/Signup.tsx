@@ -2,7 +2,7 @@
  * home, ID, tax details (stored sealed, shown masked), insurance, jobs and area, and the
  * payment-account link from the PaymentGateway. Owned by L2. Lifted from the prototype's
  * OnboardingScreen. */
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Phone, PiggyBank, TriangleAlert } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router";
@@ -14,7 +14,7 @@ import { CatIcon } from "../../shared/CatIcon";
 import { Chip } from "../../shared/Chip";
 import { TextField } from "../../shared/Field";
 import { useToast } from "../../shared/toast-context";
-import { pKeys, useDebounced, useDocuments, usePatchProfile, useProfile, useSignup, type DocumentOut, type SignupChecklist } from "../api";
+import { pKeys, useDebounced, useDocuments, usePatchProfile, useProfile, useProviderMutation, useSignup, type DocumentOut, type SignupChecklist } from "../api";
 import { ErrorNote, Note } from "../components";
 import { DocUpload } from "../Documents";
 import { appPath, css, dateText } from "../util";
@@ -30,7 +30,7 @@ function Details({ onDone }: { onDone: () => void }) {
     queryFn: () => call(api.GET("/api/address/search", { params: { query: { q } } })),
     enabled: q.length >= 5,
   });
-  const start = useMutation({
+  const start = useProviderMutation({
     mutationFn: () =>
       call(api.POST("/api/p/signup/start", { body: { name: name.trim(), postcode: postcode.trim(), address_id: addressId } })),
     onSuccess: onDone,
@@ -85,7 +85,7 @@ function Details({ onDone }: { onDone: () => void }) {
 function TaxForm({ onDone }: { onDone: () => void }) {
   const [ni, setNi] = useState("");
   const [dob, setDob] = useState("");
-  const save = useMutation({
+  const save = useProviderMutation({
     mutationFn: () => call(api.PUT("/api/p/signup/tax", { body: { ni_number: ni.trim(), date_of_birth: dob } })),
     onSuccess: onDone,
   });
@@ -164,7 +164,7 @@ function Work({ onDone }: { onDone: () => void }) {
 function Payouts() {
   const navigate = useNavigate();
   const { data: config } = useConfig();
-  const link = useMutation({
+  const link = useProviderMutation({
     mutationFn: () => call(api.POST("/api/p/signup/payment-account")),
     onSuccess: ({ url }) => {
       const path = config ? appPath(url, config.public_base_url) : null;
@@ -211,7 +211,7 @@ export default function Signup() {
   const { data: list, isLoading, error } = useSignup(!!me);
   const [guide, setGuide] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
-  const callMe = useMutation({
+  const callMe = useProviderMutation({
     mutationFn: (step: string) => call(api.POST("/api/p/signup/callback", { body: { step } })),
     onSuccess: (ack) => notify(ack.message),
   });

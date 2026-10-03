@@ -1,13 +1,13 @@
 /** Messages with customers: the list of conversations, and one conversation. Owned by L2. The
  * prototype's "Message" button on the round opens a conversation here. */
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router";
 import { api, call } from "../../api/client";
 import { Loading } from "../../app/Status";
 import { Button } from "../../shared/Button";
 import { relativeTime, timeText } from "../../shared/format";
-import { pKeys, useMessages, useThreads } from "../api";
+import { pKeys, useMessages, useProviderMutation, useThreads } from "../api";
 import { BackLink, ErrorNote } from "../components";
 import { css } from "../util";
 
@@ -17,7 +17,7 @@ function Conversation({ id }: { id: string }) {
   const { data: msgs, isLoading, error } = useMessages(id);
   const [body, setBody] = useState("");
   const thread = threads?.find((t) => t.id === id);
-  const send = useMutation({
+  const send = useProviderMutation({
     mutationFn: () => call(api.POST("/api/p/threads/{thread_id}/messages", { params: { path: { thread_id: id } }, body: { body: body.trim() } })),
     onSuccess: () => {
       setBody("");

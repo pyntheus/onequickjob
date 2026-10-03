@@ -1,7 +1,7 @@
 /** Finish a job: minutes taken (from the timer), what was different, a note; then the visit is
  * charged and the provider sees what's on its way. Owned by L2. Lifted from the prototype's
  * FinishScreen. The recorded times and flags are how guide prices get fixed. */
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { Check, Info } from "lucide-react";
 import { useState } from "react";
 import { useLocation, useParams } from "react-router";
@@ -11,7 +11,7 @@ import { Button } from "../../shared/Button";
 import { Chip } from "../../shared/Chip";
 import { fmt } from "../../shared/format";
 import { Stepper } from "../../shared/Stepper";
-import { pKeys, useHelperMode, useVisit, type FinishOut, type ProviderVisit } from "../api";
+import { pKeys, useHelperMode, useProviderMutation, useVisit, type FinishOut, type ProviderVisit } from "../api";
 import { BackLink, ErrorNote } from "../components";
 import { css } from "../util";
 
@@ -63,7 +63,7 @@ function FinishForm({ v, timerMinutes, onDone }: { v: ProviderVisit; timerMinute
       const y = x.filter((z) => z !== NONE);
       return y.includes(f) ? y.filter((z) => z !== f) : [...y, f];
     });
-  const finish = useMutation({
+  const finish = useProviderMutation({
     mutationFn: () =>
       call(
         api.POST("/api/p/visits/{visit_id}/finish", {

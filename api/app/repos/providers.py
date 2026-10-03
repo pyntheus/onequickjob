@@ -3,7 +3,10 @@ providers through set_document and set_status; L1 updates ratings via apply_rati
 
 from typing import Any
 
+from fastapi import status
+
 from app.core.db import DbSession
+from app.core.errors import fail
 from app.core.timeutil import utcnow
 from app.models.providers import Provider, ProviderDocument, ProviderStatus, TaxIdentity
 from app.repos.base import Repo, idx
@@ -28,21 +31,30 @@ class Providers(Repo[Provider]):
     async def set_document(
         self, provider_id: str, doc: ProviderDocument, *, session: DbSession | None = None
     ) -> Provider | None:
-        """Insert or replace the provider's document of doc.type (L3's verify and reject send the
-        document they read, changed). A verified one replaces every copy of its type, so a checked
-        renewal supersedes the old copy. A rejected renewal replaces only itself (the upload with
-        its file): the verified copy beside it stays, first, and still counts."""
+        """L3's verdict on one of the provider's documents: doc is the copy L3 read (verify or
+        reject), changed. It replaces that copy (the one with the same file). A verified copy also
+        supersedes the type's other checked or rejected copies, so a checked renewal replaces the
+        old copy, while a newer upload still waiting stays; a rejected one replaces only itself, so
+        rejecting a renewal leaves the verified copy counting. Waiting copies come first (L3 checks
+        the first of a type), then the one that counts. If the copy L3 read isn't on record any
+        more (the provider replaced it since), nothing changes: 409, which undoes L3's transaction."""
         p = await self.get(provider_id, session=session)
         if p is None:
             return None
         same = [d for d in p.documents if d.type == doc.type]
-        renewal = (
-            next((d for d in same if d.file_id == doc.file_id and d.status != "verified"), None)
-            if doc.status == "rejected" and doc.file_id
-            else None
-        )
-        kept = [d for d in same if d is not renewal and d.status == "verified"] if renewal else []
-        docs = [d for d in p.documents if d.type != doc.type] + kept + [doc]
+        read = next((d for d in same if d.file_id == doc.file_id), None)
+        if same and read is None:
+            fail(
+                status.HTTP_409_CONFLICT,
+                "document_changed",
+                "That document has been replaced since you opened it. Have another look.",
+            )
+        rest = [d for d in same if d is not read]
+        if doc.status == "verified":
+            rest = [d for d in rest if d.status == "pending"]
+        first = {"pending": 0, "verified": 1}
+        kept = sorted([*rest, doc], key=lambda d: first.get(d.status, 2))
+        docs = [d for d in p.documents if d.type != doc.type] + kept
         return await self.update(
             provider_id, {"documents": [d.model_dump(mode="python") for d in docs]}, session=session
         )

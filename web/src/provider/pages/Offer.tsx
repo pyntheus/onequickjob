@@ -2,7 +2,6 @@
  * accept at guide (first wins) or suggest a different price. Owned by L2.
  * Lifted from the prototype's OfferDetail and ApproxMap. Opening a job-alert link signs the
  * provider in with its single-use token (the layout does it). */
-import { useMutation } from "@tanstack/react-query";
 import { Check, Clock, Info, PiggyBank, Route as RouteIcon, Users } from "lucide-react";
 import { useState } from "react";
 import { Link, useParams } from "react-router";
@@ -15,7 +14,7 @@ import { Chip } from "../../shared/Chip";
 import { fmt } from "../../shared/format";
 import { Stepper } from "../../shared/Stepper";
 import { useToast } from "../../shared/toast-context";
-import { useCounterPreview, useInvalidateProvider, useLimit, useOffer, type JobOffer } from "../api";
+import { useCounterPreview, useInvalidateProvider, useLimit, useOffer, useProviderMutation, type JobOffer } from "../api";
 import { ApproxMap, BackLink, ErrorNote, Note } from "../components";
 import { css, dateText, periodWord } from "../util";
 
@@ -24,7 +23,7 @@ function CounterPanel({ o, customer, onSent }: { o: JobOffer; customer: string; 
   const [reasons, setReasons] = useState<string[]>([]);
   const price = pounds * 100;
   const preview = useCounterPreview(o.card.request_ref, price, true);
-  const send = useMutation({
+  const send = useProviderMutation({
     mutationFn: () =>
       call(
         api.POST("/api/p/requests/{ref}/counter", {
@@ -104,7 +103,7 @@ export default function Offer() {
   const refresh = useInvalidateProvider();
   const notify = useToast();
   const [open, setOpen] = useState(false);
-  const accept = useMutation({
+  const accept = useProviderMutation({
     mutationFn: () => call(api.POST("/api/p/requests/{ref}/accept", { params: { path: { ref } } })),
     onSuccess: () => void refresh(),
     onError: () => void refetch(),

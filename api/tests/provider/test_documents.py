@@ -3,6 +3,9 @@ basic DBS check runs 12 months from its issue date); a renewal doesn't stop the 
 
 from datetime import timedelta
 
+import pytest
+from fastapi import HTTPException
+
 from app.core.timeutil import add_months, london_today
 from app.repos import Providers
 from app.services.eligibility import can_take
@@ -219,3 +222,34 @@ async def test_rejecting_the_only_copy_still_replaces_it(dave_client, db, dave, 
     assert r.status_code == 200, r.text
     [only] = [d for d in (await Providers(db).get(dave.id)).documents if d.type == "dbs_basic"]
     assert only.status == "rejected" and only.note == "Too blurry"
+
+
+async def test_a_verdict_on_a_replaced_upload_changes_nothing(dave_client, db, dave):
+    """L3 reads renewal A, the provider replaces it with B, then L3's verdict on A arrives: 409,
+    and the verified copy and B both stay (Providers.set_document checks inside L3's transaction)."""
+    until = (london_today() + timedelta(days=400)).isoformat()
+    a = await _upload(dave_client)
+    await dave_client.post("/api/p/documents", json={"type": "insurance", "file_id": a, "expires_on": until})
+    read = next(d for d in (await Providers(db).get(dave.id)).documents if d.file_id == a)  # what L3 read
+    b = await _upload(dave_client)
+    await dave_client.post("/api/p/documents", json={"type": "insurance", "file_id": b, "expires_on": until})
+    before = [d for d in (await Providers(db).get(dave.id)).documents if d.type == "insurance"]
+    for verdict in ("rejected", "verified"):
+        with pytest.raises(HTTPException) as e:
+            await Providers(db).set_document(dave.id, read.model_copy(update={"status": verdict}))
+        assert e.value.status_code == 409 and e.value.detail["code"] == "document_changed"
+    after = [d for d in (await Providers(db).get(dave.id)).documents if d.type == "insurance"]
+    assert after == before and sorted((d.status, d.file_id == b) for d in after) == [
+        ("pending", True),
+        ("verified", False),
+    ]
+
+
+async def test_rejecting_the_current_copy_keeps_a_renewal_waiting(dave_client, db, dave):
+    old = next(d for d in dave.documents if d.type == "insurance")
+    until = (london_today() + timedelta(days=400)).isoformat()
+    fid = await _upload(dave_client)
+    await dave_client.post("/api/p/documents", json={"type": "insurance", "file_id": fid, "expires_on": until})
+    await Providers(db).set_document(dave.id, old.model_copy(update={"status": "rejected", "note": "Wrong policy"}))
+    insurance = [d for d in (await Providers(db).get(dave.id)).documents if d.type == "insurance"]
+    assert [(d.status, d.file_id) for d in insurance] == [("pending", fid), ("rejected", old.file_id)]

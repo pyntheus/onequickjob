@@ -3,7 +3,6 @@
  *
  * The benefits question only suggests a limit. Its answer stays in this screen's memory: it is
  * never sent to the API, stored, or kept in the browser. Only the limit is saved. */
-import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { api, call } from "../../api/client";
@@ -14,7 +13,7 @@ import { fmt } from "../../shared/format";
 import { Stepper } from "../../shared/Stepper";
 import { Toggle } from "../../shared/Toggle";
 import { useToast } from "../../shared/toast-context";
-import { useInvalidateProvider, useLimit, useLimitPreview, type LimitView } from "../api";
+import { useInvalidateProvider, useLimit, useLimitPreview, useProviderMutation, type LimitView } from "../api";
 import { BackLink, ErrorNote } from "../components";
 import { css, dateText } from "../util";
 
@@ -47,7 +46,7 @@ function LimitForm({ saved }: { saved: LimitView }) {
   const [pounds, setPounds] = useState(Math.round(saved.amount_pence / 100));
   const [benefit, setBenefit] = useState<Benefit | null>(null); // never sent, never stored
   const preview = useLimitPreview(period, pounds * 100, on);
-  const save = useMutation({
+  const save = useProviderMutation({
     mutationFn: () => call(api.PUT("/api/p/limit", { body: { on, period, amount_pence: pounds * 100 } })),
     onSuccess: () => {
       void refresh();

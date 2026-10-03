@@ -3,10 +3,18 @@
  * endpoints. Every figure the screens show comes from these: the web never works out a fee,
  * a first-visit price or what a provider keeps (decisions.md A1).
  */
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type MutationFunctionContext,
+  type QueryClient,
+  type UseMutationOptions,
+} from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { api, call, toApiError, type Schemas } from "../api/client";
-import { hasRole, useMe } from "../api/queries";
+import { ApiError, api, call, toApiError, type Schemas } from "../api/client";
+import { hasRole, queryKeys, useMe, type Me } from "../api/queries";
 
 export type ProviderHome = Schemas["ProviderHome"];
 export type JobCard = Schemas["JobCard"];
@@ -187,6 +195,33 @@ export function useSignup(enabled = true) {
 }
 
 /** Most changes touch several screens' figures: refetch everything the provider app shows. */
+/** Who the query cache says is signed in. */
+function signedInAs(qc: QueryClient): string | null {
+  return qc.getQueryData<Me | null>(queryKeys.me)?.user_id ?? null;
+}
+
+/** The provider app's useMutation: if someone else has signed in by the time the request
+ * returns (a magic link, switching user), its result is dropped as an error, so no callback
+ * (the hook's or the caller's) writes the last user's data into the cache or acts on it. */
+export function useProviderMutation<TData = unknown, TVariables = void, TContext = unknown>(
+  options: UseMutationOptions<TData, Error, TVariables, TContext>,
+) {
+  const qc = useQueryClient();
+  const run = options.mutationFn;
+  return useMutation({
+    ...options,
+    mutationFn: async (variables: TVariables, context: MutationFunctionContext) => {
+      const by = signedInAs(qc);
+      if (!run) throw new Error("useProviderMutation needs a mutationFn");
+      const data = await run(variables, context);
+      if (signedInAs(qc) !== by) {
+        throw new ApiError(409, "signed_in_as_someone_else", "You've signed in as someone else since, so this screen has been refreshed.");
+      }
+      return data;
+    },
+  });
+}
+
 export function useInvalidateProvider() {
   const qc = useQueryClient();
   return () => qc.invalidateQueries({ queryKey: pKeys.all });
@@ -194,7 +229,7 @@ export function useInvalidateProvider() {
 
 export function usePatchProfile() {
   const qc = useQueryClient();
-  return useMutation({
+  return useProviderMutation({
     mutationFn: (body: Schemas["ProfilePatch"]) => call(api.PATCH("/api/p/profile", { body })),
     onSuccess: (profile) => {
       qc.setQueryData(pKeys.profile, profile);

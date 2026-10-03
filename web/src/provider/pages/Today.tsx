@@ -1,6 +1,6 @@
 /** Today's round: the day's visits in time order and the on-the-job card (timer, photos,
  * directions, message, finish). Owned by L2. Lifted from the prototype's TodayScreen. */
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { MessageCircle, Navigation, Timer, UserPlus, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
@@ -10,7 +10,7 @@ import { Loading } from "../../app/Status";
 import { Button } from "../../shared/Button";
 import { Chip } from "../../shared/Chip";
 import { useToast } from "../../shared/toast-context";
-import { pKeys, useHelperMode, useInvalidateProvider, useToday, useVisit, type RoundItem, type TodayRound } from "../api";
+import { pKeys, useHelperMode, useInvalidateProvider, useProviderMutation, useToday, useVisit, type RoundItem, type TodayRound } from "../api";
 import { ErrorNote, Note, PhotoCheck } from "../components";
 import { clock, css, dateText, errorText } from "../util";
 
@@ -45,7 +45,7 @@ function OnJob({ item, demo }: { item: RoundItem; demo: boolean }) {
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, [running]);
-  const start = useMutation({
+  const start = useProviderMutation({
     mutationFn: () => call(api.POST("/api/p/visits/{visit_id}/start", { params: { path: { visit_id: item.visit_id } } })),
     onSuccess: (data) => {
       qc.setQueryData(pKeys.visit(item.visit_id), data);
@@ -195,7 +195,7 @@ function CantMakeIt({ round }: { round: TodayRound }) {
   const [chosen, setChosen] = useState<string | null>(null);
   const visitId = chosen ?? options[0]?.visit_id ?? null;
   const item = options.find((i) => i.visit_id === visitId);
-  const send = useMutation({
+  const send = useProviderMutation({
     mutationFn: (helperId: string) =>
       call(api.POST("/api/p/visits/{visit_id}/send-helper", { params: { path: { visit_id: visitId ?? "" } }, body: { helper_user_id: helperId } })),
     onSuccess: (v) => {
@@ -203,7 +203,7 @@ function CantMakeIt({ round }: { round: TodayRound }) {
       void refresh();
     },
   });
-  const cover = useMutation({
+  const cover = useProviderMutation({
     mutationFn: () => call(api.POST("/api/p/visits/{visit_id}/cover", { params: { path: { visit_id: visitId ?? "" } } })),
     onSuccess: () => {
       notify("Sent out for local cover. We'll text you when someone takes it.");

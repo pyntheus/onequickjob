@@ -1,7 +1,6 @@
 /** Your own customers: the fee comparison, the list, and the invite form, with the invite-only
  * rule (numbers that belong to platform customers stay on the standard fee). Owned by L2. Lifted
  * from the prototype's OwnCustomersScreen. What the provider keeps comes from the API. */
-import { useMutation } from "@tanstack/react-query";
 import { Info } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { ApiError, api, call } from "../../api/client";
@@ -15,7 +14,7 @@ import { TextField } from "../../shared/Field";
 import { fmt, initialsOf } from "../../shared/format";
 import { Stepper } from "../../shared/Stepper";
 import { useToast } from "../../shared/toast-context";
-import { useInvalidateProvider, useOwnCustomers, useOwnPreview } from "../api";
+import { useInvalidateProvider, useOwnCustomers, useOwnPreview, useProviderMutation } from "../api";
 import { BackLink, ErrorNote, Note } from "../components";
 import { css } from "../util";
 
@@ -39,7 +38,7 @@ function InviteForm({ skills }: { skills: string[] }) {
   const [pounds, setPounds] = useState(30);
   const [freq, setFreq] = useState<Freq>("fortnightly");
   const keep = useOwnPreview(pounds * 100);
-  const send = useMutation({
+  const send = useProviderMutation({
     mutationFn: () =>
       call(
         api.POST("/api/p/own-customers/invites", {

@@ -1,7 +1,6 @@
 /** Tax and records: turnover against fees against what reached the bank, the trading allowance
  * against actual costs, mileage logged for you, receipts, key dates and the tax pack. Owned by L2.
  * Lifted from the prototype's TaxScreen. Every figure comes from the API (ledger, mileage, expenses). */
-import { useMutation } from "@tanstack/react-query";
 import { Camera, Car, Download, Printer, Receipt, Trash } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { api, call } from "../../api/client";
@@ -11,7 +10,7 @@ import { Chip } from "../../shared/Chip";
 import { TextField } from "../../shared/Field";
 import { fmt } from "../../shared/format";
 import { useToast } from "../../shared/toast-context";
-import { useInvalidateProvider, useTax } from "../api";
+import { useInvalidateProvider, useProviderMutation, useTax } from "../api";
 import { BackLink, ErrorNote, UploadButton } from "../components";
 import { css, dateText, londonToday, parsePounds } from "../util";
 
@@ -31,7 +30,7 @@ function ReceiptForm({ onDone }: { onDone: () => void }) {
   const [category, setCategory] = useState<(typeof CATEGORIES)[number]["id"]>("kit");
   const pence = parsePounds(amount);
   const valid = description.trim().length > 0 && pence !== null && pence > 0;
-  const add = useMutation({
+  const add = useProviderMutation({
     mutationFn: () =>
       call(
         api.POST("/api/p/expenses", {
@@ -86,7 +85,7 @@ export default function Tax() {
   const [adding, setAdding] = useState(false);
   const { data: t, isLoading, error } = useTax(year);
   const refresh = useInvalidateProvider();
-  const remove = useMutation({
+  const remove = useProviderMutation({
     mutationFn: (id: string) => call(api.DELETE("/api/p/expenses/{expense_id}", { params: { path: { expense_id: id } } })),
     onSuccess: () => void refresh(),
   });

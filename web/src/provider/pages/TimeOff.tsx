@@ -1,6 +1,5 @@
 /** Time off and helpers: a date range, each affected visit set to local cover, a helper or skip;
  * your helpers and adding one. Owned by L2. Lifted from the prototype's CoverScreen. */
-import { useMutation } from "@tanstack/react-query";
 import { BadgeCheck, Plane, Plus, UserPlus } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { api, call, type Schemas } from "../../api/client";
@@ -11,7 +10,7 @@ import { Button } from "../../shared/Button";
 import { Chip } from "../../shared/Chip";
 import { TextField } from "../../shared/Field";
 import { useToast } from "../../shared/toast-context";
-import { useHelpers, useInvalidateProvider, useTimeOff, type AffectedVisit, type HelperOut, type TimeOffOut } from "../api";
+import { useHelpers, useInvalidateProvider, useProviderMutation, useTimeOff, type AffectedVisit, type HelperOut, type TimeOffOut } from "../api";
 import { BackLink, ErrorNote } from "../components";
 import { css, dateText, londonToday } from "../util";
 
@@ -31,14 +30,14 @@ function Plan({ helpers }: { helpers: HelperOut[] }) {
   const [visits, setVisits] = useState<AffectedVisit[] | null>(null);
   const [plan, setPlan] = useState<Record<string, Choice>>({});
   const ready = helpers.filter((h) => h.status === "ready");
-  const preview = useMutation({
+  const preview = useProviderMutation({
     mutationFn: () => call(api.POST("/api/p/time-off/preview", { body: { from_date: from, to_date: to } })),
     onSuccess: (vs) => {
       setVisits(vs);
       setPlan(Object.fromEntries(vs.map((v) => [v.visit_id, v.cover_allowed ? { action: "cover" } : { action: "skip" }])));
     },
   });
-  const book = useMutation({
+  const book = useProviderMutation({
     mutationFn: () =>
       call(
         api.POST("/api/p/time-off", {
@@ -139,7 +138,7 @@ function ArrangeLater({ t, helpers }: { t: TimeOffOut; helpers: HelperOut[] }) {
   const [plan, setPlan] = useState<Record<string, Choice>>(() =>
     Object.fromEntries(t.unarranged.map((v) => [v.visit_id, v.cover_allowed ? { action: "cover" } : { action: "skip" }])),
   );
-  const save = useMutation({
+  const save = useProviderMutation({
     mutationFn: () =>
       call(
         api.POST("/api/p/time-off/{time_off_id}/arrange", {
@@ -195,7 +194,7 @@ function ArrangeLater({ t, helpers }: { t: TimeOffOut; helpers: HelperOut[] }) {
 function Booked({ helpers }: { helpers: HelperOut[] }) {
   const { data } = useTimeOff();
   const refresh = useInvalidateProvider();
-  const cancel = useMutation({
+  const cancel = useProviderMutation({
     mutationFn: (id: string) => call(api.DELETE("/api/p/time-off/{time_off_id}", { params: { path: { time_off_id: id } } })),
     onSuccess: () => void refresh(),
   });
@@ -236,7 +235,7 @@ function AddHelper({ onDone }: { onDone: () => void }) {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [relationship, setRelationship] = useState("");
-  const add = useMutation({
+  const add = useProviderMutation({
     mutationFn: () => call(api.POST("/api/p/helpers", { body: { name: name.trim(), phone: phone.trim(), relationship: relationship.trim() } })),
     onSuccess: () => {
       notify("We've texted them a sign-up link. It takes about 10 minutes.");

@@ -1,14 +1,14 @@
 /** Documents with their status and expiry, and the upload that sends a new one for checks.
  * The expiry shown after an upload comes from the API's shared rule (decisions.md A3: a basic
  * DBS check runs 12 months from its issue date), never from sums in the browser. */
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { BadgeCheck, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import { api, call } from "../api/client";
 import { Badge, type BadgeTone } from "../shared/Badge";
 import { Button } from "../shared/Button";
 import { TextField } from "../shared/Field";
-import { pKeys, type DocumentOut } from "./api";
+import { pKeys, useProviderMutation, type DocumentOut } from "./api";
 import { ErrorNote, UploadButton } from "./components";
 import { css, dateText, londonToday } from "./util";
 
@@ -56,7 +56,7 @@ export function DocUpload({ doc, onDone }: { doc: DocumentOut; onDone?: (d: Docu
   const qc = useQueryClient();
   const [date, setDate] = useState("");
   const [result, setResult] = useState<DocumentOut | null>(null);
-  const attach = useMutation({
+  const attach = useProviderMutation({
     mutationFn: (fileId: string) =>
       call(
         api.POST("/api/p/documents", {
