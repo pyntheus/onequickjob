@@ -10,12 +10,25 @@ from typing import Any, ClassVar, Literal
 
 from pydantic import Field
 
+from app.core.ids import new_id
 from app.models.common import Address, DaysPref, GeoPoint, Model, Pence, TimePref, Timestamped
 from app.models.quotes import Measure, Unit
 
 RequestStatus = Literal["open", "booked", "cancelled", "expired"]
 EventKind = Literal[
-    "created", "broadcast", "viewed", "countered", "counter_declined", "accepted", "guide_raised", "cancelled", "note"
+    "created",
+    "broadcast",
+    "viewed",
+    "countered",
+    "counter_declined",
+    "counter_lapsed",
+    "accepted",
+    "guide_raised",
+    "price_change_proposed",
+    "price_change_declined",
+    "cancelled",
+    "expired",
+    "note",
 ]
 
 
@@ -55,6 +68,23 @@ class Booked(Model):
     at: datetime
 
 
+class PriceChange(Model):
+    """A raised guide price waiting for the customer's approval (ruling A12). Only on approval
+    does the request's guide change and its job alerts go out again."""
+
+    id: str = Field(default_factory=new_id, description="Answers name it, so a stale page can't approve a newer one")
+    status: Literal["pending", "approved", "declined"] = "pending"
+    guide_pence: Pence
+    first_pence: Pence | None = Field(default=None, description="Scaled by the same ratio (scaled_first_price)")
+    from_guide_pence: Pence
+    from_first_pence: Pence | None = None
+    percent: int | None = None
+    proposed_by: str | None = Field(default=None, description="Admin user id")
+    proposed_at: datetime
+    decided_at: datetime | None = None
+    note: str = ""
+
+
 class JobRequest(Timestamped):
     COLLECTION: ClassVar[str] = "job_requests"
 
@@ -88,3 +118,4 @@ class JobRequest(Timestamped):
         description="Time-off cover (L2 creates): accepting reassigns this one visit instead of creating a booking",
     )
     admin_note: str | None = None
+    price_change: PriceChange | None = Field(default=None, description="A raised guide awaiting the customer (A12)")

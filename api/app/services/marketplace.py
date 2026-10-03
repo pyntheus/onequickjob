@@ -5,6 +5,8 @@
 - A counter-offer waits for the customer: accepting it claims the request the same
   atomic way (and fails if a guide acceptance got there first); "keep waiting" declines it.
 - Once booked, every other pending counter lapses and those providers are told.
+- A counter whose provider can no longer take the job when the customer accepts it lapses
+  instead; the request stays open and the provider is told (ruling A9).
 
 Each action is one transaction (app.core.db.transaction): the claim, the booking with its
 plan, visits and thread (or a cover's reassigned visit), the lapsed counters and every
@@ -14,8 +16,9 @@ of them hits a write conflict; the driver re-runs it, it finds the request booke
 """
 
 from dataclasses import dataclass
+from typing import NoReturn
 
-from fastapi import status
+from fastapi import HTTPException, status
 from pymongo.errors import DuplicateKeyError
 
 from app.core import money
@@ -436,7 +439,7 @@ async def accept_counter(db: Db, s: Settings, offer_id: str, customer: Customer)
     provider = await Providers(db).get(offer.provider_id)
     cat = await _category(db, req.category_id)
     if provider is None or not can_take(provider, cat).ok:
-        fail(status.HTTP_409_CONFLICT, "provider_unavailable", "That provider can't take this job any more.")
+        await _lapse_unavailable(db, s, offer, req, cat, customer)
 
     async def accept(session: DbSession) -> BookingOutcome:
         if not can_take(await _provider_now(db, offer.provider_id, session), cat).ok:
@@ -463,7 +466,60 @@ async def accept_counter(db: Db, s: Settings, offer_id: str, customer: Customer)
             _taken(await _request(db, req.ref, session))
         return await _book(db, s, claimed, session)
 
-    return await transaction(db, accept)
+    try:
+        return await transaction(db, accept)
+    except HTTPException as e:
+        if isinstance(e.detail, dict) and e.detail.get("code") == "provider_unavailable":
+            await _lapse_unavailable(db, s, offer, req, cat, customer)
+        raise
+
+
+async def _lapse_unavailable(
+    db: Db, s: Settings, offer: Offer, req: JobRequest, cat: Category, customer: Customer
+) -> NoReturn:
+    """Ruling A9: the provider behind a counter the customer is accepting can no longer take the
+    job. In a transaction of its own (the refused acceptance has already rolled back): the counter
+    lapses, the still-open request records it and the provider is told why. The request stays
+    open for everyone else; the customer gets a 409 they can show as it is."""
+    provider = await Providers(db).get(offer.provider_id)
+    who = wording.first_name(provider.name) if provider else "That provider"
+
+    async def lapse(session: DbSession) -> None:
+        now = utcnow()
+        lapsed = await Offers(db).update(
+            offer.id, {"status": "lapsed", "decided_at": now}, extra_filter={"status": "pending"}, session=session
+        )
+        if lapsed is None:
+            _not_on_offer()
+        event = RequestEvent(at=now, kind="counter_lapsed", provider_id=offer.provider_id, offer_id=offer.id)
+        if await JobRequests(db).add_event(req.id, event, extra_filter={"status": "open"}, session=session) is None:
+            _taken(await _request(db, req.ref, session))
+        if provider is not None:
+            reasons = can_take(provider, cat).reasons
+            await _notify_provider(
+                db,
+                s,
+                provider.id,
+                "counter_lapsed",
+                {
+                    "customer": wording.first_name(customer.name) or "The customer",
+                    "price": wording.money(offer.price_pence),
+                    "category": wording.lower_name(cat),
+                    "area": req.address.area,
+                    "reason": " ".join(reasons) or "Your account can't take new jobs right now.",
+                    "link": link("/p/me", s),
+                },
+                Related(request_id=req.id, offer_id=offer.id),
+                session,
+                idempotency_key=f"offer:{offer.id}:counter_lapsed",
+            )
+
+    await transaction(db, lapse)
+    fail(
+        status.HTTP_409_CONFLICT,
+        "provider_unavailable",
+        f"{who} can no longer take this job. We're still finding someone local.",
+    )
 
 
 async def decline_counter(db: Db, s: Settings, offer_id: str, customer: Customer) -> Offer:

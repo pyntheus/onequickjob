@@ -182,6 +182,7 @@ async def apply_result(
             await ledger.record_tip(
                 db, updated, new.amount_pence, at=at, gateway=gateway, charge_id=new.charge_id, session=session
             )
+            await notices.tip_paid(db, s, updated, new, session)
     elif result.status in RETRYABLE and purpose == "visit":
         await notices.charge_failed(
             db,

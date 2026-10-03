@@ -376,6 +376,62 @@ Decided by Hasan after reviewing the F report; each has tests.
   (`test_keys.py`: `test_rotation_end_to_end`, `test_overlapping_rotations_never_retire_a_key_in_use`
   and the validation tests.)
 
+- **A9. A counter whose provider can no longer take the job lapses** (ruling given with the
+  L1 brief; built by L1 in the shared marketplace). When a customer accepts a counter and
+  the provider is no longer eligible (`eligibility.can_take` fails, whether seen before the
+  acceptance's transaction or inside it), the acceptance is refused and rolls back as
+  before; then, in a transaction of its own, the counter lapses (guarded on `pending`), the
+  still-open request records a `counter_lapsed` event and the provider is texted
+  `counter_lapsed` with the reasons. The request stays open for everyone else, and the
+  customer gets 409 `provider_unavailable`: "Mike can no longer take this job. We're still
+  finding someone local." (`marketplace._lapse_unavailable`; `test_marketplace.py`:
+  `test_a_suspended_providers_counter_cannot_be_accepted`,
+  `test_a_counter_lapses_when_documents_run_out_inside_the_acceptance`;
+  `tests/customer/test_requests.py`: `test_an_ineligible_counter_lapses_and_the_request_stays_open`.)
+  The outbox message goes to the provider, who otherwise wouldn't know their price had
+  lapsed or why; the customer sees the message on screen and in the request's timeline.
+
+- **A10. Changing a plan's frequency re-prices it, and the provider accepts it** (Hasan, after
+  the L1 report). The new frequency is priced by the pricing engine (`services.quotes.create_quote`,
+  so the quote records its pricing version), keeping any counter in proportion: new price = new
+  guide x agreed price / original guide, rounded half-up to whole pounds
+  (`app.customer.plan_changes.scaled_price`). The original guide is the last accepted change's new
+  guide, else the guide the booking was agreed against (an accepted counter's own guide, so a raise
+  approved under A12 before the counter was accepted doesn't erase the premium; else the guide it
+  was booked at), else (an own customer's plan, which has no request) the engine's price at the
+  current frequency. A dearer first visit doesn't apply to an existing plan
+  (an unstarted first visit keeps its agreed price). The provider is texted the new price
+  (`plan_change_proposed`, with a single-use link to `/plan-change/{token}`) and accepts or
+  declines; the customer is told at each step (`plan_change_requested`, `_accepted`, `_declined`,
+  `_lapsed`). Until the provider accepts, the plan carries on unchanged; unanswered for 48 hours
+  the change lapses (`plan_change_expiry` task). Accepting applies the frequency and price to the
+  plan, the booking and the visits still to come, in one transaction. Asking again replaces a
+  change still waiting; cancelling the plan withdraws it. Only frequencies the category's intake
+  offers can be chosen. A proposal is bound to the plan it was priced from (its frequency and
+  price, with a guarded write when it's made): if the plan has changed meanwhile, asking or
+  accepting gets 409 rather than a mispriced change, and the customer's "Ask" names the price they
+  were shown: if pricing has moved since the preview, nothing is sent and they see the new price
+  first (409 `price_changed`; Codex reviews). The web shows the API's prices only.
+  (`tests/customer/test_plan_changes.py`.)
+- **A11. Unbooked requests close after 7 days, and the customer is texted** (Hasan: confirmed
+  as built by L1). The `request_expiry` task closes an open request with no booking 7 days after
+  it was made (`expired`), lapses any counters (their providers get `request_closed`) and sends
+  the customer `request_expired`. (`tests/customer/test_requests.py`:
+  `test_requests_expire_after_a_week`.)
+- **A12. A raised guide price needs the customer's approval** (Hasan, after the L1 report). The
+  admin's "Raise guide" no longer changes the guide: it records a pending price change on the
+  open request (the first visit scaled by the same ratio with `marketplace.scaled_first_price`),
+  audit-logged as `request.guide_raise_proposed`, and texts the customer (`guide_raise_proposed`).
+  The customer approves or declines it on "Finding someone local". Only on approval does the guide
+  change, in one transaction with the job alerts sent again, at the new price, to the providers
+  eligible then (`request.guide_raise_approved`); on decline the original guide stands and the
+  team may suggest again. The customer's answer names the proposal it was shown (its id), so a
+  stale page can't approve a newer raise (409; Codex review). Admin's waiting list shows
+  "Awaiting customer" meanwhile. A provider who
+  accepts the old guide while it waits books at the old guide. (`app.customer.price_changes`,
+  called by `app.admin.overview.raise_guide` inside its transaction;
+  `tests/customer/test_price_changes.py`, `tests/admin/test_overview.py`.)
+
 ## 3. Open questions (for Hasan)
 
 - **Q1 (resolved: A1). Counter-offers on jobs with a dearer first visit.** Today a counter sets the per-visit

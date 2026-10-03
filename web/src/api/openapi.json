@@ -1972,6 +1972,12 @@
             "title": "Booking Id",
             "type": "string"
           },
+          "can_change_date": {
+            "default": false,
+            "description": "One-off visits not yet done",
+            "title": "Can Change Date",
+            "type": "boolean"
+          },
           "can_rate": {
             "title": "Can Rate",
             "type": "boolean"
@@ -1992,6 +1998,17 @@
           "category_name": {
             "title": "Category Name",
             "type": "string"
+          },
+          "dispute_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dispute Ref"
           },
           "id": {
             "title": "Id",
@@ -2027,6 +2044,11 @@
             "title": "Price Pence",
             "type": "integer"
           },
+          "provider_first_name": {
+            "default": "",
+            "title": "Provider First Name",
+            "type": "string"
+          },
           "provider_short": {
             "title": "Provider Short",
             "type": "string"
@@ -2041,6 +2063,11 @@
               }
             ],
             "title": "Rating Stars"
+          },
+          "recurring": {
+            "default": false,
+            "title": "Recurring",
+            "type": "boolean"
           },
           "scheduled_start": {
             "format": "date-time",
@@ -2057,6 +2084,22 @@
             ],
             "title": "Status",
             "type": "string"
+          },
+          "thread_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thread Id"
+          },
+          "tip_pence": {
+            "default": 0,
+            "title": "Tip Pence",
+            "type": "integer"
           },
           "window": {
             "enum": [
@@ -2950,6 +2993,19 @@
         "title": "FeeConfig",
         "type": "object"
       },
+      "FeeExample": {
+        "description": "The landing page's \"Where your money goes\" example, from app.core.money.",
+        "properties": {
+          "split": {
+            "$ref": "#/components/schemas/FeeSplit"
+          }
+        },
+        "required": [
+          "split"
+        ],
+        "title": "FeeExample",
+        "type": "object"
+      },
       "FeeSplit": {
         "description": "What the customer pays, our fee and what the provider gets. From money.py only.",
         "properties": {
@@ -3136,6 +3192,25 @@
           "payout_date"
         ],
         "title": "FinishOut",
+        "type": "object"
+      },
+      "FrequencyOption": {
+        "properties": {
+          "label": {
+            "description": "e.g. \"every 2 weeks\"",
+            "title": "Label",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "label"
+        ],
+        "title": "FrequencyOption",
         "type": "object"
       },
       "GeoPoint": {
@@ -3502,6 +3577,17 @@
       "InviteAccept": {
         "additionalProperties": false,
         "properties": {
+          "address": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Address"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From /api/address/{id}; needed when the customer has no saved address yet"
+          },
           "agree_terms": {
             "const": true,
             "title": "Agree Terms",
@@ -4518,6 +4604,15 @@
             "title": "Notes",
             "type": "string"
           },
+          "photos": {
+            "description": "File ids from POST /api/files (kind request_photo), uploaded once signed in",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 4,
+            "title": "Photos",
+            "type": "array"
+          },
           "quote_id": {
             "title": "Quote Id",
             "type": "string"
@@ -5176,6 +5271,36 @@
         "title": "Payout",
         "type": "object"
       },
+      "PendingPlanChange": {
+        "description": "A change of frequency waiting for the provider (A10). The plan is unchanged until then.",
+        "properties": {
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "to_frequency": {
+            "title": "To Frequency",
+            "type": "string"
+          },
+          "to_frequency_label": {
+            "title": "To Frequency Label",
+            "type": "string"
+          },
+          "to_price_pence": {
+            "title": "To Price Pence",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "to_frequency",
+          "to_frequency_label",
+          "to_price_pence",
+          "expires_at"
+        ],
+        "title": "PendingPlanChange",
+        "type": "object"
+      },
       "PhotoIn": {
         "additionalProperties": false,
         "properties": {
@@ -5197,6 +5322,79 @@
           "file_id"
         ],
         "title": "PhotoIn",
+        "type": "object"
+      },
+      "PlanChangeView": {
+        "description": "The provider's page for a change of frequency (the link in their text).",
+        "properties": {
+          "area": {
+            "title": "Area",
+            "type": "string"
+          },
+          "category_name": {
+            "title": "Category Name",
+            "type": "string"
+          },
+          "customer_first_name": {
+            "title": "Customer First Name",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "from_frequency_label": {
+            "title": "From Frequency Label",
+            "type": "string"
+          },
+          "from_price_pence": {
+            "title": "From Price Pence",
+            "type": "integer"
+          },
+          "provider_first_name": {
+            "title": "Provider First Name",
+            "type": "string"
+          },
+          "provider_pence": {
+            "description": "What the provider keeps per visit at the new price (money.py)",
+            "title": "Provider Pence",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "accepted",
+              "declined",
+              "lapsed",
+              "withdrawn"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "to_frequency_label": {
+            "title": "To Frequency Label",
+            "type": "string"
+          },
+          "to_price_pence": {
+            "title": "To Price Pence",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "status",
+          "customer_first_name",
+          "provider_first_name",
+          "category_name",
+          "area",
+          "from_frequency_label",
+          "to_frequency_label",
+          "from_price_pence",
+          "to_price_pence",
+          "provider_pence",
+          "expires_at"
+        ],
+        "title": "PlanChangeView",
         "type": "object"
       },
       "PlanOut": {
@@ -5249,6 +5447,14 @@
             "title": "Frequency Label",
             "type": "string"
           },
+          "frequency_options": {
+            "description": "How often this plan can run (the category's options); empty if fixed",
+            "items": {
+              "$ref": "#/components/schemas/FrequencyOption"
+            },
+            "title": "Frequency Options",
+            "type": "array"
+          },
           "next_visit_date": {
             "anyOf": [
               {
@@ -5269,6 +5475,16 @@
           "pause_winter": {
             "title": "Pause Winter",
             "type": "boolean"
+          },
+          "pending_change": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PendingPlanChange"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "price_pence": {
             "title": "Price Pence",
@@ -5322,8 +5538,38 @@
         "title": "PlanOut",
         "type": "object"
       },
+      "PlanPrice": {
+        "description": "What the plan would cost at another frequency (A10), before asking the provider.",
+        "properties": {
+          "current_price_pence": {
+            "title": "Current Price Pence",
+            "type": "integer"
+          },
+          "frequency": {
+            "title": "Frequency",
+            "type": "string"
+          },
+          "frequency_label": {
+            "title": "Frequency Label",
+            "type": "string"
+          },
+          "price_pence": {
+            "title": "Price Pence",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "frequency",
+          "frequency_label",
+          "price_pence",
+          "current_price_pence"
+        ],
+        "title": "PlanPrice",
+        "type": "object"
+      },
       "PlanUpdate": {
         "additionalProperties": false,
+        "description": "Change one or more plan settings. An away pause needs both dates; send both as null to clear it.",
         "properties": {
           "away_from": {
             "anyOf": [
@@ -5360,6 +5606,19 @@
             ],
             "title": "Cover When Away"
           },
+          "expected_price_pence": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "With frequency: the price the customer was shown (GET .../reprice). If the price has changed since, nothing is sent and the answer is 409 price_changed with the new price",
+            "title": "Expected Price Pence"
+          },
           "frequency": {
             "anyOf": [
               {
@@ -5369,7 +5628,10 @@
                   "threeweekly",
                   "fourweekly",
                   "eightweekly",
-                  "monthly"
+                  "monthly",
+                  "threemonthly",
+                  "weekdays",
+                  "someweekdays"
                 ],
                 "type": "string"
               },
@@ -5377,6 +5639,7 @@
                 "type": "null"
               }
             ],
+            "description": "Asks the provider to accept the re-priced plan (A10); applied only if they do",
             "title": "Frequency"
           },
           "pause_winter": {
@@ -5392,6 +5655,78 @@
           }
         },
         "title": "PlanUpdate",
+        "type": "object"
+      },
+      "PriceChangeAnswer": {
+        "additionalProperties": false,
+        "description": "The customer's answer to a raised guide (A12), naming the proposal they saw.",
+        "properties": {
+          "change_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Change Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "change_id"
+        ],
+        "title": "PriceChangeAnswer",
+        "type": "object"
+      },
+      "PriceChangeView": {
+        "description": "A raised guide waiting for the customer's approval (A12).",
+        "properties": {
+          "change_id": {
+            "description": "Send it back with the answer",
+            "title": "Change Id",
+            "type": "string"
+          },
+          "first_pence": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Pence"
+          },
+          "from_first_pence": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From First Pence"
+          },
+          "from_guide_pence": {
+            "title": "From Guide Pence",
+            "type": "integer"
+          },
+          "guide_pence": {
+            "title": "Guide Pence",
+            "type": "integer"
+          },
+          "proposed_at": {
+            "format": "date-time",
+            "title": "Proposed At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "change_id",
+          "guide_pence",
+          "first_pence",
+          "from_guide_pence",
+          "from_first_pence",
+          "proposed_at"
+        ],
+        "title": "PriceChangeView",
         "type": "object"
       },
       "PricingVersion": {
@@ -6954,15 +7289,29 @@
             "title": "Tags",
             "type": "array"
           },
+          "tip_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why a tip couldn't be charged, to show as it is",
+            "title": "Tip Message"
+          },
           "tip_pence": {
             "title": "Tip Pence",
             "type": "integer"
           },
           "tip_status": {
+            "description": "pending: the gateway hasn't confirmed yet; the tip_reconcile task finishes it",
             "enum": [
               "none",
               "charged",
-              "failed"
+              "failed",
+              "pending"
             ],
             "title": "Tip Status",
             "type": "string"
@@ -7317,9 +7666,27 @@
       },
       "RequestDetail": {
         "properties": {
+          "alerted": {
+            "default": 0,
+            "description": "How many providers the request was sent to",
+            "title": "Alerted",
+            "type": "integer"
+          },
           "area": {
             "title": "Area",
             "type": "string"
+          },
+          "booked_first_price_pence": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "First-visit price agreed, if different",
+            "title": "Booked First Price Pence"
           },
           "booked_price_pence": {
             "anyOf": [
@@ -7401,12 +7768,29 @@
             ],
             "title": "First Pence"
           },
+          "frequency_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "e.g. \"every 2 weeks\"; None for a one-off",
+            "title": "Frequency Label"
+          },
           "guide_pence": {
             "title": "Guide Pence",
             "type": "integer"
           },
           "id": {
             "title": "Id",
+            "type": "string"
+          },
+          "notes": {
+            "default": "",
+            "title": "Notes",
             "type": "string"
           },
           "pending_offers": {
@@ -7416,9 +7800,38 @@
             "title": "Pending Offers",
             "type": "array"
           },
+          "price_change": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PriceChangeView"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A raised guide to approve or decline (A12)"
+          },
           "ref": {
             "title": "Ref",
             "type": "string"
+          },
+          "simulating": {
+            "default": false,
+            "description": "DEMO_MODE: a simulation is running for this request",
+            "title": "Simulating",
+            "type": "boolean"
+          },
+          "size_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Lawns: the size the customer chose, e.g. \"Large (about 190 m\u00b2)\"",
+            "title": "Size Text"
           },
           "status": {
             "enum": [
@@ -7515,6 +7928,18 @@
               }
             ],
             "title": "First Pence"
+          },
+          "frequency_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "e.g. \"every 2 weeks\"; None for a one-off",
+            "title": "Frequency Label"
           },
           "guide_pence": {
             "title": "Guide Pence",
@@ -8466,6 +8891,12 @@
             "title": "Area",
             "type": "string"
           },
+          "awaiting_customer": {
+            "default": false,
+            "description": "A raised guide is waiting for the customer (A12)",
+            "title": "Awaiting Customer",
+            "type": "boolean"
+          },
           "brief": {
             "title": "Brief",
             "type": "string"
@@ -8489,6 +8920,18 @@
           "pending_counters": {
             "title": "Pending Counters",
             "type": "integer"
+          },
+          "proposed_guide_pence": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The raise they've been asked to approve",
+            "title": "Proposed Guide Pence"
           },
           "request_id": {
             "title": "Request Id",
@@ -11723,7 +12166,7 @@
     },
     "/api/admin/requests/{ref}/raise-guide": {
       "post": {
-        "description": "Raise an open request's guide price (rounded to whole pounds) and audit-log it.",
+        "description": "Suggest a higher guide price for an open request (rounded to whole pounds), audit-logged. It\nwaits for the customer's approval (A12): the request shows \"Awaiting customer\" until then.",
         "operationId": "raise_guide_api_admin_requests__ref__raise_guide_post",
         "parameters": [
           {
@@ -12995,6 +13438,112 @@
         ]
       }
     },
+    "/api/c/fees/example": {
+      "get": {
+        "description": "\"Where your money goes\" on the landing page: the split of an example price, from money.py.",
+        "operationId": "fee_example_api_c_fees_example_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "price_pence",
+            "required": false,
+            "schema": {
+              "default": 3000,
+              "maximum": 100000,
+              "minimum": 100,
+              "title": "Price Pence",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeeExample"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          }
+        },
+        "summary": "Fee Example",
+        "tags": [
+          "L1 customer"
+        ]
+      }
+    },
     "/api/c/invites/{token}": {
       "get": {
         "description": "Public: the invite link in the provider's text. No sign-in needed to read it.",
@@ -13690,6 +14239,315 @@
         ]
       }
     },
+    "/api/c/plan-changes/{token}": {
+      "get": {
+        "description": "Public: the link in the provider's text (the token is the authority, like an invite). (Added by L1.)",
+        "operationId": "get_plan_change_api_c_plan_changes__token__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "title": "Token",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanChangeView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          }
+        },
+        "summary": "Get Plan Change",
+        "tags": [
+          "L1 customer"
+        ]
+      }
+    },
+    "/api/c/plan-changes/{token}/accept": {
+      "post": {
+        "description": "The provider accepts the new frequency and price: the plan changes now. (Added by L1.)",
+        "operationId": "accept_plan_change_api_c_plan_changes__token__accept_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "title": "Token",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanChangeView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          }
+        },
+        "summary": "Accept Plan Change",
+        "tags": [
+          "L1 customer"
+        ]
+      }
+    },
+    "/api/c/plan-changes/{token}/decline": {
+      "post": {
+        "description": "The provider declines: the plan stays as it is. (Added by L1.)",
+        "operationId": "decline_plan_change_api_c_plan_changes__token__decline_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "title": "Token",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanChangeView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          }
+        },
+        "summary": "Decline Plan Change",
+        "tags": [
+          "L1 customer"
+        ]
+      }
+    },
     "/api/c/plans": {
       "get": {
         "operationId": "list_plans_api_c_plans_get",
@@ -13877,6 +14735,7 @@
         ]
       },
       "patch": {
+        "description": "Pauses and cover change at once. A new frequency is re-priced and sent to the provider to\naccept (A10): the plan carries on unchanged until they do (see pending_change).",
         "operationId": "update_plan_api_c_plans__series_id__patch",
         "parameters": [
           {
@@ -14084,6 +14943,120 @@
           }
         },
         "summary": "Cancel Plan",
+        "tags": [
+          "L1 customer"
+        ]
+      }
+    },
+    "/api/c/plans/{series_id}/reprice": {
+      "get": {
+        "description": "What the plan would cost at another frequency, from the pricing engine (A10). Nothing\nchanges. (Added by L1.)",
+        "operationId": "reprice_plan_api_c_plans__series_id__reprice_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "series_id",
+            "required": true,
+            "schema": {
+              "title": "Series Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "frequency",
+            "required": true,
+            "schema": {
+              "maxLength": 20,
+              "minLength": 3,
+              "title": "Frequency",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanPrice"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          }
+        },
+        "summary": "Reprice Plan",
         "tags": [
           "L1 customer"
         ]
@@ -14762,6 +15735,232 @@
         ]
       }
     },
+    "/api/c/requests/{ref}/price-change/approve": {
+      "post": {
+        "description": "Approve a raised guide price (A12): the guide changes and the job goes out again at it.\n(Added by L1.)",
+        "operationId": "approve_price_change_api_c_requests__ref__price_change_approve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PriceChangeAnswer"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          }
+        },
+        "summary": "Approve Price Change",
+        "tags": [
+          "L1 customer"
+        ]
+      }
+    },
+    "/api/c/requests/{ref}/price-change/decline": {
+      "post": {
+        "description": "Keep the original guide price (A12). (Added by L1.)",
+        "operationId": "decline_price_change_api_c_requests__ref__price_change_decline_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PriceChangeAnswer"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          }
+        },
+        "summary": "Decline Price Change",
+        "tags": [
+          "L1 customer"
+        ]
+      }
+    },
     "/api/c/threads": {
       "get": {
         "operationId": "list_threads_api_c_threads_get",
@@ -15139,6 +16338,109 @@
           }
         },
         "summary": "List Visits",
+        "tags": [
+          "L1 customer"
+        ]
+      }
+    },
+    "/api/c/visits/{visit_id}": {
+      "get": {
+        "description": "One visit, for the rate screen. (Added by L1.)",
+        "operationId": "get_visit_api_c_visits__visit_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "visit_id",
+            "required": true,
+            "schema": {
+              "title": "Visit Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerVisit"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          }
+        },
+        "summary": "Get Visit",
         "tags": [
           "L1 customer"
         ]

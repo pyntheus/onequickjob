@@ -12,7 +12,7 @@ where it matters; never promise or guarantee anything; links are full URLs built
 Lanes may register extra templates from their own package with `templates.register(...)`;
 fold them into the catalogue at integration.
 
-44 templates.
+45 templates.
 
 ## Shared (sent by foundation code, or by any lane)
 
@@ -25,6 +25,7 @@ fold them into the catalogue at integration.
 | `booking_confirmed` | Text | provider | A provider's guide acceptance, or a counter the customer accepted, books the job. |
 | `counter_declined` | Text | provider | The customer chooses to keep waiting instead of accepting a counter. |
 | `job_taken` | Text | provider | A request books while the provider's counter was still waiting. |
+| `counter_lapsed` | Text | provider | A customer tries to accept a provider's counter, but the provider can no longer take the job (no longer eligible): the counter lapses and the request stays open for others (ruling A9). |
 | `document_expiring` | Text | provider | 30 days before a verified document expires (insurance, a basic DBS check 12 months after issue, waste carrier, ladder and pet cover). Sent once per expiry date by the document_expiry task. |
 
 **`login_code`** (subject: Your {brand} sign-in code)
@@ -68,6 +69,12 @@ Placeholders: `brand`, `customer`, `guide`, `category`, `area`, `link`
 > {brand}: the {category} job in {area} has gone to someone else. Thanks for looking.
 
 Placeholders: `brand`, `category`, `area`
+
+**`counter_lapsed`**
+
+> {brand}: {customer} tried to accept your price of {price} for the {category} job in {area}, but you can't take it at the moment. {reason} Your price has lapsed and the job is open to other providers. {link}
+
+Placeholders: `brand`, `customer`, `price`, `category`, `area`, `reason`, `link`
 
 **`document_expiring`**
 

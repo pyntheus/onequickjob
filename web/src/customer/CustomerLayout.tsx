@@ -2,11 +2,12 @@ import { User } from "lucide-react";
 import type { CSSProperties } from "react";
 import { Link, Outlet } from "react-router";
 import { Brand } from "../shared/Brand";
+import { FlowProvider } from "./FlowProvider";
 
 /** The customer header from the prototype; every customer screen renders in <main>. */
 export function CustomerLayout() {
   return (
-    <>
+    <FlowProvider>
       <a className="skip-link" href="#main">
         Skip to content
       </a>
@@ -24,7 +25,7 @@ export function CustomerLayout() {
       <main id="main" tabIndex={-1}>
         <Outlet />
       </main>
-    </>
+    </FlowProvider>
   );
 }
 

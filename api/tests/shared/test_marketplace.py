@@ -444,8 +444,49 @@ async def test_a_suspended_providers_counter_cannot_be_accepted(app, client, db,
     await sign_in(client, db, "+447700900123")
     r = await client.post(f"/api/c/offers/{offer.id}/accept")
     assert r.status_code == 409 and r.json()["detail"]["code"] == "provider_unavailable"
-    assert (await JobRequests(db).get(req.id)).status == "open", "still bookable by someone eligible"
+    assert r.json()["detail"]["message"] == "Mike can no longer take this job. We're still finding someone local."
+    stored = await JobRequests(db).get(req.id)
+    assert stored.status == "open", "still bookable by someone eligible"
     assert await Bookings(db).count({}) == 0
+    # Ruling A9: the counter lapses, the request records it, the provider is told why.
+    assert (await Offers(db).get(offer.id)).status == "lapsed"
+    assert [e.offer_id for e in stored.events if e.kind == "counter_lapsed"] == [offer.id]
+    msg = await db["outbox"].find_one({"template_id": "counter_lapsed"})
+    assert msg["recipient"]["phone"] == "+447700900202"
+    assert "Sarah tried to accept your price of £37 for the lawn mowing job in Hazlemere" in msg["body"]
+    assert "Your account isn't active for new jobs." in msg["body"]
+    again = await client.post(f"/api/c/offers/{offer.id}/accept")
+    assert again.status_code == 409 and again.json()["detail"]["code"] == "offer_not_pending"
+    assert await db["outbox"].count_documents({"template_id": "counter_lapsed"}) == 1
+
+
+async def test_a_counter_lapses_when_documents_run_out_inside_the_acceptance(db, catalogue, monkeypatch):
+    """Ruling A9 when ineligibility is only seen inside the acceptance's transaction: the refused
+    acceptance rolls back, then the lapse commits in a transaction of its own."""
+    from app.repos import Providers
+
+    customer = await make_customer(db)
+    mike = await make_provider(db, "Mike Reynolds", "+447700900202", ["mowing"])
+    req = await make_request(db, customer)
+    s = make_settings()
+    offer = await marketplace.make_counter(db, s, req.ref, mike, price_pence=3700, reasons=[])
+    original = marketplace._provider_now
+
+    async def insurance_runs_out(db_, provider_id, session):
+        provider = await original(db_, provider_id, session)
+        return provider.model_copy(update={"documents": [d for d in provider.documents if d.type != "insurance"]})
+
+    monkeypatch.setattr(marketplace, "_provider_now", insurance_runs_out)
+    with pytest.raises(Exception) as e:
+        await marketplace.accept_counter(db, s, offer.id, customer)
+    assert (e.value.status_code, e.value.detail["code"]) == (409, "provider_unavailable")
+    assert (await Offers(db).get(offer.id)).status == "lapsed"
+    assert (await JobRequests(db).get(req.id)).status == "open"
+    assert (await Providers(db).get(mike.id)).last_booked_at is None, "the refused acceptance rolled back"
+    assert (
+        await Bookings(db).count({}) == 0 and await db["outbox"].count_documents({"template_id": "request_booked"}) == 0
+    )
+    assert await db["outbox"].count_documents({"template_id": "counter_lapsed"}) == 1
 
 
 @pytest.mark.parametrize("path", ["guide", "counter"])
@@ -491,7 +532,9 @@ async def test_a_suspension_during_the_transaction_is_seen_by_its_retry(db, cata
         (403, "not_eligible") if path == "guide" else (409, "provider_unavailable")
     )
     assert (await JobRequests(db).get(req.id)).status == "open"
-    assert await Bookings(db).count({}) == 0 and (await Offers(db).get(offer.id)).status == "pending"
+    # A refused counter acceptance lapses the counter (ruling A9); a refused guide acceptance leaves it alone.
+    assert await Bookings(db).count({}) == 0
+    assert (await Offers(db).get(offer.id)).status == ("pending" if path == "guide" else "lapsed")
 
 
 async def _own_customer_cover(db):

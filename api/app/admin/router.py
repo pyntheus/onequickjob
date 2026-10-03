@@ -92,9 +92,10 @@ async def whatsapp_message(ref: str, admin: Admin, db: DbDep, s: SettingsDep) ->
 
 
 @router.post("/requests/{ref}/raise-guide")
-async def raise_guide(ref: str, body: RaiseGuideIn, admin: Admin, db: DbDep) -> UnfilledRequest:
-    """Raise an open request's guide price (rounded to whole pounds) and audit-log it."""
-    return await overview.raise_guide(db, ref, body.percent, body.note, actor(admin))
+async def raise_guide(ref: str, body: RaiseGuideIn, admin: Admin, db: DbDep, s: SettingsDep) -> UnfilledRequest:
+    """Suggest a higher guide price for an open request (rounded to whole pounds), audit-logged. It
+    waits for the customer's approval (A12): the request shows "Awaiting customer" until then."""
+    return await overview.raise_guide(db, s, ref, body.percent, body.note, actor(admin))
 
 
 # ---------------------------------------------------------------- providers

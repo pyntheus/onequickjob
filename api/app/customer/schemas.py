@@ -50,6 +50,11 @@ class NewRequest(In):
     when: When
     contact: ContactDetails
     agree_terms: Literal[True] = Field(description="The agency checkbox on the contact screen")
+    photos: list[str] = Field(
+        default_factory=list,
+        max_length=4,
+        description="File ids from POST /api/files (kind request_photo), uploaded once signed in",
+    )
 
 
 class RequestSummary(BaseModel):
@@ -65,6 +70,7 @@ class RequestSummary(BaseModel):
     district: str
     created_at: datetime
     booking_id: str | None
+    frequency_label: str | None = Field(default=None, description='e.g. "every 2 weeks"; None for a one-off')
 
 
 class CounterOfferView(BaseModel):
@@ -88,6 +94,17 @@ class TimelineEvent(BaseModel):
     offer: CounterOfferView | None = None
 
 
+class PriceChangeView(BaseModel):
+    """A raised guide waiting for the customer's approval (A12)."""
+
+    change_id: str = Field(description="Send it back with the answer")
+    guide_pence: int
+    first_pence: int | None
+    from_guide_pence: int
+    from_first_pence: int | None
+    proposed_at: datetime
+
+
 class RequestDetail(RequestSummary):
     timeline: list[TimelineEvent]
     pending_offers: list[CounterOfferView]
@@ -95,6 +112,14 @@ class RequestDetail(RequestSummary):
     booked_price_pence: int | None
     booked_via: Literal["guide", "counter"] | None
     demo_simulator: bool = Field(description="DEMO_MODE only: show the Simulate local responses control")
+    booked_first_price_pence: int | None = Field(default=None, description="First-visit price agreed, if different")
+    alerted: int = Field(default=0, description="How many providers the request was sent to")
+    size_text: str | None = Field(
+        default=None, description='Lawns: the size the customer chose, e.g. "Large (about 190 m²)"'
+    )
+    notes: str = ""
+    simulating: bool = Field(default=False, description="DEMO_MODE: a simulation is running for this request")
+    price_change: PriceChangeView | None = Field(default=None, description="A raised guide to approve or decline (A12)")
 
 
 class SimulationStarted(BaseModel):
@@ -138,6 +163,8 @@ class CustomerVisit(BaseModel):
     category_id: str
     category_name: str
     provider_short: str
+    provider_first_name: str = ""
+    recurring: bool = False
     local_date: date
     scheduled_start: datetime
     window: TimePref
@@ -150,6 +177,10 @@ class CustomerVisit(BaseModel):
     can_rate: bool
     can_skip: bool
     can_report: bool = Field(description="Within 48 hours of the visit")
+    can_change_date: bool = Field(default=False, description="One-off visits not yet done")
+    thread_id: str | None = None
+    dispute_ref: str | None = None
+    tip_pence: int = 0
 
 
 class VisitsOut(BaseModel):
@@ -161,6 +192,20 @@ class VisitsOut(BaseModel):
 class ChangeDateIn(In):
     preferred: list[date] = Field(min_length=1, max_length=3)
     note: str = Field(default="", max_length=500)
+
+
+class FrequencyOption(BaseModel):
+    value: str
+    label: str = Field(description='e.g. "every 2 weeks"')
+
+
+class PendingPlanChange(BaseModel):
+    """A change of frequency waiting for the provider (A10). The plan is unchanged until then."""
+
+    to_frequency: str
+    to_frequency_label: str
+    to_price_pence: int
+    expires_at: datetime
 
 
 class PlanOut(BaseModel):
@@ -180,14 +225,39 @@ class PlanOut(BaseModel):
     away_to: date | None
     cover_when_away: bool
     next_visit_date: date | None
+    pending_change: PendingPlanChange | None = None
+    frequency_options: list[FrequencyOption] = Field(
+        default_factory=list, description="How often this plan can run (the category's options); empty if fixed"
+    )
 
 
 class PlanUpdate(In):
+    """Change one or more plan settings. An away pause needs both dates; send both as null to clear it."""
+
     pause_winter: bool | None = None
     away_from: date | None = None
     away_to: date | None = None
     cover_when_away: bool | None = None
-    frequency: Literal["weekly", "fortnightly", "threeweekly", "fourweekly", "eightweekly", "monthly"] | None = None
+    frequency: (
+        Literal[
+            "weekly",
+            "fortnightly",
+            "threeweekly",
+            "fourweekly",
+            "eightweekly",
+            "monthly",
+            "threemonthly",
+            "weekdays",
+            "someweekdays",
+        ]
+        | None
+    ) = Field(default=None, description="Asks the provider to accept the re-priced plan (A10); applied only if they do")
+    expected_price_pence: int | None = Field(
+        default=None,
+        ge=0,
+        description="With frequency: the price the customer was shown (GET .../reprice). If the price has changed "
+        "since, nothing is sent and the answer is 409 price_changed with the new price",
+    )
 
 
 class RebookIn(In):
@@ -211,7 +281,10 @@ class RatingOut(BaseModel):
     stars: int
     tags: list[str]
     tip_pence: int
-    tip_status: Literal["none", "charged", "failed"]
+    tip_status: Literal["none", "charged", "failed", "pending"] = Field(
+        description="pending: the gateway hasn't confirmed yet; the tip_reconcile task finishes it"
+    )
+    tip_message: str | None = Field(default=None, description="Why a tip couldn't be charged, to show as it is")
 
 
 class ProblemIn(In):
@@ -265,3 +338,43 @@ class InvitePreview(BaseModel):
 
 class InviteAccept(In):
     agree_terms: Literal[True]
+    address: Address | None = Field(
+        default=None, description="From /api/address/{id}; needed when the customer has no saved address yet"
+    )
+
+
+class FeeExample(BaseModel):
+    """The landing page's "Where your money goes" example, from app.core.money."""
+
+    split: FeeSplit
+
+
+class PlanPrice(BaseModel):
+    """What the plan would cost at another frequency (A10), before asking the provider."""
+
+    frequency: str
+    frequency_label: str
+    price_pence: int
+    current_price_pence: int
+
+
+class PlanChangeView(BaseModel):
+    """The provider's page for a change of frequency (the link in their text)."""
+
+    status: Literal["pending", "accepted", "declined", "lapsed", "withdrawn"]
+    customer_first_name: str
+    provider_first_name: str
+    category_name: str
+    area: str
+    from_frequency_label: str
+    to_frequency_label: str
+    from_price_pence: int
+    to_price_pence: int
+    provider_pence: int = Field(description="What the provider keeps per visit at the new price (money.py)")
+    expires_at: datetime
+
+
+class PriceChangeAnswer(In):
+    """The customer's answer to a raised guide (A12), naming the proposal they saw."""
+
+    change_id: str = Field(min_length=1, max_length=64)

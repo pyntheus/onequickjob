@@ -485,7 +485,8 @@ export interface paths {
         put?: never;
         /**
          * Raise Guide
-         * @description Raise an open request's guide price (rounded to whole pounds) and audit-log it.
+         * @description Suggest a higher guide price for an open request (rounded to whole pounds), audit-logged. It
+         *     waits for the customer's approval (A12): the request shows "Awaiting customer" until then.
          */
         post: operations["raise_guide_api_admin_requests__ref__raise_guide_post"];
         delete?: never;
@@ -720,6 +721,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/c/fees/example": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Fee Example
+         * @description "Where your money goes" on the landing page: the split of an example price, from money.py.
+         */
+        get: operations["fee_example_api_c_fees_example_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/c/invites/{token}": {
         parameters: {
             query?: never;
@@ -856,6 +877,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/c/plan-changes/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Plan Change
+         * @description Public: the link in the provider's text (the token is the authority, like an invite). (Added by L1.)
+         */
+        get: operations["get_plan_change_api_c_plan_changes__token__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/c/plan-changes/{token}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Accept Plan Change
+         * @description The provider accepts the new frequency and price: the plan changes now. (Added by L1.)
+         */
+        post: operations["accept_plan_change_api_c_plan_changes__token__accept_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/c/plan-changes/{token}/decline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Decline Plan Change
+         * @description The provider declines: the plan stays as it is. (Added by L1.)
+         */
+        post: operations["decline_plan_change_api_c_plan_changes__token__decline_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/c/plans": {
         parameters: {
             query?: never;
@@ -887,7 +968,11 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** Update Plan */
+        /**
+         * Update Plan
+         * @description Pauses and cover change at once. A new frequency is re-priced and sent to the provider to
+         *     accept (A10): the plan carries on unchanged until they do (see pending_change).
+         */
         patch: operations["update_plan_api_c_plans__series_id__patch"];
         trace?: never;
     };
@@ -902,6 +987,27 @@ export interface paths {
         put?: never;
         /** Cancel Plan */
         post: operations["cancel_plan_api_c_plans__series_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/c/plans/{series_id}/reprice": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Reprice Plan
+         * @description What the plan would cost at another frequency, from the pricing engine (A10). Nothing
+         *     changes. (Added by L1.)
+         */
+        get: operations["reprice_plan_api_c_plans__series_id__reprice_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1008,6 +1114,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/c/requests/{ref}/price-change/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve Price Change
+         * @description Approve a raised guide price (A12): the guide changes and the job goes out again at it.
+         *     (Added by L1.)
+         */
+        post: operations["approve_price_change_api_c_requests__ref__price_change_approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/c/requests/{ref}/price-change/decline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Decline Price Change
+         * @description Keep the original guide price (A12). (Added by L1.)
+         */
+        post: operations["decline_price_change_api_c_requests__ref__price_change_decline_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/c/threads": {
         parameters: {
             query?: never;
@@ -1052,6 +1199,26 @@ export interface paths {
         };
         /** List Visits */
         get: operations["list_visits_api_c_visits_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/c/visits/{visit_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Visit
+         * @description One visit, for the rate screen. (Added by L1.)
+         */
+        get: operations["get_visit_api_c_visits__visit_id__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2809,6 +2976,12 @@ export interface components {
             after_photo_url: string | null;
             /** Booking Id */
             booking_id: string;
+            /**
+             * Can Change Date
+             * @description One-off visits not yet done
+             * @default false
+             */
+            can_change_date: boolean;
             /** Can Rate */
             can_rate: boolean;
             /**
@@ -2822,6 +2995,8 @@ export interface components {
             category_id: string;
             /** Category Name */
             category_name: string;
+            /** Dispute Ref */
+            dispute_ref?: string | null;
             /** Id */
             id: string;
             /**
@@ -2838,10 +3013,20 @@ export interface components {
             minutes_actual: number | null;
             /** Price Pence */
             price_pence: number;
+            /**
+             * Provider First Name
+             * @default
+             */
+            provider_first_name: string;
             /** Provider Short */
             provider_short: string;
             /** Rating Stars */
             rating_stars: number | null;
+            /**
+             * Recurring
+             * @default false
+             */
+            recurring: boolean;
             /**
              * Scheduled Start
              * Format: date-time
@@ -2852,6 +3037,13 @@ export interface components {
              * @enum {string}
              */
             status: "scheduled" | "in_progress" | "finished" | "skipped" | "cancelled";
+            /** Thread Id */
+            thread_id?: string | null;
+            /**
+             * Tip Pence
+             * @default 0
+             */
+            tip_pence: number;
             /**
              * Window
              * @enum {string}
@@ -3198,6 +3390,13 @@ export interface components {
             standard_percent: number;
         };
         /**
+         * FeeExample
+         * @description The landing page's "Where your money goes" example, from app.core.money.
+         */
+        FeeExample: {
+            split: components["schemas"]["FeeSplit"];
+        };
+        /**
          * FeeSplit
          * @description What the customer pays, our fee and what the provider gets. From money.py only.
          */
@@ -3286,6 +3485,16 @@ export interface components {
             provider_pence: number;
             /** Visit Id */
             visit_id: string;
+        };
+        /** FrequencyOption */
+        FrequencyOption: {
+            /**
+             * Label
+             * @description e.g. "every 2 weeks"
+             */
+            label: string;
+            /** Value */
+            value: string;
         };
         /** GeoPoint */
         GeoPoint: {
@@ -3419,6 +3628,8 @@ export interface components {
         };
         /** InviteAccept */
         InviteAccept: {
+            /** @description From /api/address/{id}; needed when the customer has no saved address yet */
+            address?: components["schemas"]["Address"] | null;
             /**
              * Agree Terms
              * @constant
@@ -3853,6 +4064,11 @@ export interface components {
              * @default
              */
             notes: string;
+            /**
+             * Photos
+             * @description File ids from POST /api/files (kind request_photo), uploaded once signed in
+             */
+            photos?: string[];
             /** Quote Id */
             quote_id: string;
             when: components["schemas"]["When"];
@@ -4129,6 +4345,23 @@ export interface components {
              */
             status: "paid" | "in_transit" | "pending" | "failed";
         };
+        /**
+         * PendingPlanChange
+         * @description A change of frequency waiting for the provider (A10). The plan is unchanged until then.
+         */
+        PendingPlanChange: {
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** To Frequency */
+            to_frequency: string;
+            /** To Frequency Label */
+            to_frequency_label: string;
+            /** To Price Pence */
+            to_price_pence: number;
+        };
         /** PhotoIn */
         PhotoIn: {
             /** File Id */
@@ -4138,6 +4371,43 @@ export interface components {
              * @enum {string}
              */
             kind: "before" | "after";
+        };
+        /**
+         * PlanChangeView
+         * @description The provider's page for a change of frequency (the link in their text).
+         */
+        PlanChangeView: {
+            /** Area */
+            area: string;
+            /** Category Name */
+            category_name: string;
+            /** Customer First Name */
+            customer_first_name: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** From Frequency Label */
+            from_frequency_label: string;
+            /** From Price Pence */
+            from_price_pence: number;
+            /** Provider First Name */
+            provider_first_name: string;
+            /**
+             * Provider Pence
+             * @description What the provider keeps per visit at the new price (money.py)
+             */
+            provider_pence: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "accepted" | "declined" | "lapsed" | "withdrawn";
+            /** To Frequency Label */
+            to_frequency_label: string;
+            /** To Price Pence */
+            to_price_pence: number;
         };
         /** PlanOut */
         PlanOut: {
@@ -4157,6 +4427,11 @@ export interface components {
             frequency: string;
             /** Frequency Label */
             frequency_label: string;
+            /**
+             * Frequency Options
+             * @description How often this plan can run (the category's options); empty if fixed
+             */
+            frequency_options?: components["schemas"]["FrequencyOption"][];
             /** Next Visit Date */
             next_visit_date: string | null;
             /**
@@ -4166,6 +4441,7 @@ export interface components {
             outside: boolean;
             /** Pause Winter */
             pause_winter: boolean;
+            pending_change?: components["schemas"]["PendingPlanChange"] | null;
             /** Price Pence */
             price_pence: number;
             provider: components["schemas"]["ProviderCard"];
@@ -4182,7 +4458,24 @@ export interface components {
              */
             unit: "a visit" | "one-off" | "a clean" | "a walk";
         };
-        /** PlanUpdate */
+        /**
+         * PlanPrice
+         * @description What the plan would cost at another frequency (A10), before asking the provider.
+         */
+        PlanPrice: {
+            /** Current Price Pence */
+            current_price_pence: number;
+            /** Frequency */
+            frequency: string;
+            /** Frequency Label */
+            frequency_label: string;
+            /** Price Pence */
+            price_pence: number;
+        };
+        /**
+         * PlanUpdate
+         * @description Change one or more plan settings. An away pause needs both dates; send both as null to clear it.
+         */
         PlanUpdate: {
             /** Away From */
             away_from?: string | null;
@@ -4190,10 +4483,50 @@ export interface components {
             away_to?: string | null;
             /** Cover When Away */
             cover_when_away?: boolean | null;
-            /** Frequency */
-            frequency?: ("weekly" | "fortnightly" | "threeweekly" | "fourweekly" | "eightweekly" | "monthly") | null;
+            /**
+             * Expected Price Pence
+             * @description With frequency: the price the customer was shown (GET .../reprice). If the price has changed since, nothing is sent and the answer is 409 price_changed with the new price
+             */
+            expected_price_pence?: number | null;
+            /**
+             * Frequency
+             * @description Asks the provider to accept the re-priced plan (A10); applied only if they do
+             */
+            frequency?: ("weekly" | "fortnightly" | "threeweekly" | "fourweekly" | "eightweekly" | "monthly" | "threemonthly" | "weekdays" | "someweekdays") | null;
             /** Pause Winter */
             pause_winter?: boolean | null;
+        };
+        /**
+         * PriceChangeAnswer
+         * @description The customer's answer to a raised guide (A12), naming the proposal they saw.
+         */
+        PriceChangeAnswer: {
+            /** Change Id */
+            change_id: string;
+        };
+        /**
+         * PriceChangeView
+         * @description A raised guide waiting for the customer's approval (A12).
+         */
+        PriceChangeView: {
+            /**
+             * Change Id
+             * @description Send it back with the answer
+             */
+            change_id: string;
+            /** First Pence */
+            first_pence: number | null;
+            /** From First Pence */
+            from_first_pence: number | null;
+            /** From Guide Pence */
+            from_guide_pence: number;
+            /** Guide Pence */
+            guide_pence: number;
+            /**
+             * Proposed At
+             * Format: date-time
+             */
+            proposed_at: string;
         };
         /** PricingVersion */
         PricingVersion: {
@@ -4750,13 +5083,19 @@ export interface components {
             stars: number;
             /** Tags */
             tags: string[];
+            /**
+             * Tip Message
+             * @description Why a tip couldn't be charged, to show as it is
+             */
+            tip_message?: string | null;
             /** Tip Pence */
             tip_pence: number;
             /**
              * Tip Status
+             * @description pending: the gateway hasn't confirmed yet; the tip_reconcile task finishes it
              * @enum {string}
              */
-            tip_status: "none" | "charged" | "failed";
+            tip_status: "none" | "charged" | "failed" | "pending";
             /** Visit Id */
             visit_id: string;
         };
@@ -4864,8 +5203,19 @@ export interface components {
         };
         /** RequestDetail */
         RequestDetail: {
+            /**
+             * Alerted
+             * @description How many providers the request was sent to
+             * @default 0
+             */
+            alerted: number;
             /** Area */
             area: string;
+            /**
+             * Booked First Price Pence
+             * @description First-visit price agreed, if different
+             */
+            booked_first_price_pence?: number | null;
             /** Booked Price Pence */
             booked_price_pence: number | null;
             /** Booked Via */
@@ -4891,14 +5241,37 @@ export interface components {
             district: string;
             /** First Pence */
             first_pence: number | null;
+            /**
+             * Frequency Label
+             * @description e.g. "every 2 weeks"; None for a one-off
+             */
+            frequency_label?: string | null;
             /** Guide Pence */
             guide_pence: number;
             /** Id */
             id: string;
+            /**
+             * Notes
+             * @default
+             */
+            notes: string;
             /** Pending Offers */
             pending_offers: components["schemas"]["CounterOfferView"][];
+            /** @description A raised guide to approve or decline (A12) */
+            price_change?: components["schemas"]["PriceChangeView"] | null;
             /** Ref */
             ref: string;
+            /**
+             * Simulating
+             * @description DEMO_MODE: a simulation is running for this request
+             * @default false
+             */
+            simulating: boolean;
+            /**
+             * Size Text
+             * @description Lawns: the size the customer chose, e.g. "Large (about 190 m²)"
+             */
+            size_text?: string | null;
             /**
              * Status
              * @enum {string}
@@ -4931,6 +5304,11 @@ export interface components {
             district: string;
             /** First Pence */
             first_pence: number | null;
+            /**
+             * Frequency Label
+             * @description e.g. "every 2 weeks"; None for a one-off
+             */
+            frequency_label?: string | null;
             /** Guide Pence */
             guide_pence: number;
             /** Id */
@@ -5322,6 +5700,12 @@ export interface components {
             age_text: string;
             /** Area */
             area: string;
+            /**
+             * Awaiting Customer
+             * @description A raised guide is waiting for the customer (A12)
+             * @default false
+             */
+            awaiting_customer: boolean;
             /** Brief */
             brief: string;
             /** Category Id */
@@ -5334,6 +5718,11 @@ export interface components {
             guide_pence: number;
             /** Pending Counters */
             pending_counters: number;
+            /**
+             * Proposed Guide Pence
+             * @description The raise they've been asked to approve
+             */
+            proposed_guide_pence?: number | null;
             /** Request Id */
             request_id: string;
             /** Request Ref */
@@ -8850,6 +9239,91 @@ export interface operations {
             };
         };
     };
+    fee_example_api_c_fees_example_get: {
+        parameters: {
+            query?: {
+                price_pence?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeeExample"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     get_invite_api_c_invites__token__get: {
         parameters: {
             query?: never;
@@ -9427,6 +9901,261 @@ export interface operations {
             };
         };
     };
+    get_plan_change_api_c_plan_changes__token__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanChangeView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    accept_plan_change_api_c_plan_changes__token__accept_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanChangeView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    decline_plan_change_api_c_plan_changes__token__decline_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanChangeView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     list_plans_api_c_plans_get: {
         parameters: {
             query?: never;
@@ -9693,6 +10422,93 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PlanOut"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    reprice_plan_api_c_plans__series_id__reprice_get: {
+        parameters: {
+            query: {
+                frequency: string;
+            };
+            header?: never;
+            path: {
+                series_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanPrice"];
                 };
             };
             /** @description Bad Request */
@@ -10337,6 +11153,184 @@ export interface operations {
             };
         };
     };
+    approve_price_change_api_c_requests__ref__price_change_approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PriceChangeAnswer"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequestDetail"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    decline_price_change_api_c_requests__ref__price_change_decline_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PriceChangeAnswer"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequestDetail"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     list_threads_api_c_threads_get: {
         parameters: {
             query?: never;
@@ -10646,6 +11640,91 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_visit_api_c_visits__visit_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                visit_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerVisit"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
             /** @description Not Implemented */

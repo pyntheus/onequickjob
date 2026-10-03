@@ -87,15 +87,15 @@ describe("overview and dispatch", () => {
     expect(screen.getByText("Couldn't copy here. The message is shown below the request.")).toBeInTheDocument();
   });
 
-  it("raises a guide price and says what it is now", async () => {
+  it("suggests a higher guide price for the customer to approve (A12)", async () => {
     const api = mockApi({
       "GET /api/config": () => config(true),
       "GET /api/admin/overview": () => overview,
-      "POST /api/admin/requests/R-2291/raise-guide": () => ({ ...waiting, guide_pence: 7900 }),
+      "POST /api/admin/requests/R-2291/raise-guide": () => ({ ...waiting, awaiting_customer: true, proposed_guide_pence: 7900 }),
     });
     withToasts(<Overview />);
     await userEvent.click(await screen.findByRole("button", { name: "Raise guide 10%" }));
-    expect(await screen.findByText("Guide price for R-2291 raised to £79. Logged for review.")).toBeInTheDocument();
+    expect(await screen.findByText("Raise to £79 sent to the customer to approve. Logged for review.")).toBeInTheDocument();
     const call = api.mock.calls.find(([r]) => r instanceof Request && r.url.endsWith("/raise-guide"));
     expect(await (call![0] as Request).json()).toEqual({ percent: 10, note: "" });
   });

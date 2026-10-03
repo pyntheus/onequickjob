@@ -3,7 +3,8 @@
 A charge that succeeds sends visit_done_customer, receipt (when the customer has an email)
 and payment_on_its_way; one that fails or needs the customer sends charge_failed_customer
 and charge_failed_provider, once per attempt; a refund sends refund_issued; a payout that
-lands sends payout_sent. Every call takes the caller's transaction session.
+lands sends payout_sent; a tip that's charged sends tip_received (L1). Every call takes the
+caller's transaction session.
 """
 
 from dataclasses import dataclass
@@ -20,7 +21,7 @@ from app.repos.categories import Categories
 from app.repos.customers import Customers
 from app.repos.providers import Providers
 from app.repos.users import Users
-from app.services import wording
+from app.services import templates, wording
 from app.services.notify import link, notify, recipient_for
 
 
@@ -120,6 +121,35 @@ async def charged(db: Db, s: Settings, visit: Visit, charge: Charge, session: Db
             related=related,
             settings=s,
             idempotency_key=f"{base}:payment_on_its_way",
+            session=session,
+        )
+
+
+TIP_RECEIVED = templates.register(
+    templates.Template(
+        id="tip_received",
+        lane="L3",
+        audience="provider",
+        channels=("sms",),
+        trigger="A customer's tip is charged (with their rating; L1 charges it through app.payments.charging).",
+        body="{brand}: {customer} added a {tip} tip for your {category}. All of it goes to you, with no fee.",
+    )
+)
+
+
+async def tip_paid(db: Db, s: Settings, visit: Visit, charge: Charge, session: DbSession) -> None:
+    """A tip went through: tell the provider, once (whichever path recorded it: the request,
+    a webhook or the settle task)."""
+    p = await parties(db, visit, session)
+    if p.provider_user and p.provider_user.phone:
+        await notify(
+            db,
+            "tip_received",
+            to=recipient_for(p.provider_user),
+            data={"customer": p.customer_first, "tip": wording.money(charge.amount_pence), "category": p.category_word},
+            related=_related(visit, p),
+            settings=s,
+            idempotency_key=f"charge:{visit.id}:tip:paid:tip_received",
             session=session,
         )
 

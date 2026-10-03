@@ -40,7 +40,8 @@ function Waiting({ r }: { r: UnfilledRequest }) {
   const raiseGuide = async () => {
     try {
       const updated = await raise.mutateAsync(r.request_ref);
-      notify(`Guide price for ${r.request_ref} raised to ${fmt(updated.guide_pence)}. Logged for review.`);
+      // A12: the raise waits for the customer's approval.
+      notify(`Raise to ${fmt(updated.proposed_guide_pence ?? updated.guide_pence)} sent to the customer to approve. Logged for review.`);
     } catch (e) {
       notify(errorText(e));
     }

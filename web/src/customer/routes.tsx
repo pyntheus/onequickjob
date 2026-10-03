@@ -33,5 +33,7 @@ export const customerRoutes: RouteObject = {
     { path: "account", lazy: page(() => import("./pages/Account")) },
     { path: "account/visits/:visitId/rate", lazy: page(() => import("./pages/Rate")) },
     { path: "invite/:token", lazy: page(() => import("./pages/Invite")) },
+    // A10: the provider's answer to a change of frequency (the link in their text).
+    { path: "plan-change/:token", lazy: page(() => import("./pages/PlanChange")) },
   ],
 };

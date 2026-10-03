@@ -21,12 +21,14 @@ const me = (roles: string[]) => ({
 });
 
 describe("the shell", () => {
-  it("renders the customer layout and the landing placeholder", async () => {
+  it("renders the customer layout and the landing page", async () => {
     mockApi({ "GET /api/config": () => config(false), "GET /api/auth/me": unauthorised });
     renderAt("/");
-    expect(await screen.findByRole("heading", { name: "Home and quote" })).toBeInTheDocument();
+    // L1 built the landing page (contract change L1: this asserted the placeholder).
+    expect(
+      await screen.findByRole("heading", { name: "Home and garden jobs, done by people who live nearby." }),
+    ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /my account/i })).toHaveAttribute("href", "/account");
-    expect(screen.getByText("Lane L1 builds this screen.")).toBeInTheDocument();
   });
 
   it("asks a signed-out provider to sign in, and shows the bottom nav once signed in", async () => {

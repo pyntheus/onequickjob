@@ -285,6 +285,18 @@ _t(
     body="{brand}: the {category} job in {area} has gone to someone else. Thanks for looking.",
 )
 _t(
+    id="counter_lapsed",
+    lane="F",
+    audience="provider",
+    channels=("sms",),
+    trigger=(
+        "A customer tries to accept a provider's counter, but the provider can no longer take the job (no longer "
+        "eligible): the counter lapses and the request stays open for others (ruling A9)."
+    ),
+    body="{brand}: {customer} tried to accept your price of {price} for the {category} job in {area}, but you "
+    "can't take it at the moment. {reason} Your price has lapsed and the job is open to other providers. {link}",
+)
+_t(
     id="visit_reminder_provider",
     lane="L2",
     audience="provider",
