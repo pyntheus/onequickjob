@@ -296,9 +296,25 @@
             "title": "Local Date",
             "type": "string"
           },
+          "start_time": {
+            "title": "Start Time",
+            "type": "string"
+          },
           "visit_id": {
             "title": "Visit Id",
             "type": "string"
+          },
+          "with_helper": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Already sent to this helper",
+            "title": "With Helper"
           }
         },
         "required": [
@@ -307,7 +323,9 @@
           "category_name",
           "local_date",
           "area",
-          "cover_allowed"
+          "cover_allowed",
+          "start_time",
+          "with_helper"
         ],
         "title": "AffectedVisit",
         "type": "object"
@@ -1856,6 +1874,78 @@
         "title": "CounterOfferView",
         "type": "object"
       },
+      "CounterPreview": {
+        "description": "What a suggested price means, worked out by the API (decisions.md A1): the provider sets the\nper-visit price; a dearer first visit scales by the same ratio. The web never does this maths.",
+        "properties": {
+          "fee_percent": {
+            "title": "Fee Percent",
+            "type": "integer"
+          },
+          "first_price_pence": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Price Pence"
+          },
+          "first_provider_pence": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Provider Pence"
+          },
+          "price_pence": {
+            "title": "Price Pence",
+            "type": "integer"
+          },
+          "problem": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why this price can't be sent, if it can't",
+            "title": "Problem"
+          },
+          "provider_pence": {
+            "title": "Provider Pence",
+            "type": "integer"
+          },
+          "text": {
+            "description": "e.g. \"Your price: \u00a336 a visit. The first visit becomes \u00a366.\"",
+            "title": "Text",
+            "type": "string"
+          },
+          "valid": {
+            "title": "Valid",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "price_pence",
+          "first_price_pence",
+          "provider_pence",
+          "first_provider_pence",
+          "fee_percent",
+          "text",
+          "valid",
+          "problem"
+        ],
+        "title": "CounterPreview",
+        "type": "object"
+      },
       "CounterRequest": {
         "additionalProperties": false,
         "properties": {
@@ -2543,6 +2633,17 @@
       },
       "DocumentOut": {
         "properties": {
+          "days_left": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Days Left"
+          },
           "expires_on": {
             "anyOf": [
               {
@@ -2554,6 +2655,11 @@
               }
             ],
             "title": "Expires On"
+          },
+          "expiring_soon": {
+            "description": "Verified and runs out within 30 days",
+            "title": "Expiring Soon",
+            "type": "boolean"
           },
           "file_url": {
             "anyOf": [
@@ -2582,6 +2688,15 @@
             "title": "Label",
             "type": "string"
           },
+          "needs_expiry_date": {
+            "title": "Needs Expiry Date",
+            "type": "boolean"
+          },
+          "needs_issue_date": {
+            "description": "Upload asks for the issue date (a basic DBS check)",
+            "title": "Needs Issue Date",
+            "type": "boolean"
+          },
           "note": {
             "anyOf": [
               {
@@ -2592,6 +2707,24 @@
               }
             ],
             "title": "Note"
+          },
+          "renewal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RenewalOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "required_for": {
+            "description": "Names of the jobs you do that need it",
+            "items": {
+              "type": "string"
+            },
+            "title": "Required For",
+            "type": "array"
           },
           "status": {
             "enum": [
@@ -2624,7 +2757,13 @@
           "issued_on",
           "expires_on",
           "note",
-          "file_url"
+          "file_url",
+          "expiring_soon",
+          "days_left",
+          "required_for",
+          "needs_issue_date",
+          "needs_expiry_date",
+          "renewal"
         ],
         "title": "DocumentOut",
         "type": "object"
@@ -2711,6 +2850,17 @@
       },
       "EarningsOut": {
         "properties": {
+          "bank_last4": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bank Last4"
+          },
           "limit": {
             "$ref": "#/components/schemas/LimitView"
           },
@@ -2737,6 +2887,11 @@
             "title": "Payouts",
             "type": "array"
           },
+          "pending_pence": {
+            "description": "Charged but not yet paid out",
+            "title": "Pending Pence",
+            "type": "integer"
+          },
           "week_jobs": {
             "title": "Week Jobs",
             "type": "integer"
@@ -2761,7 +2916,9 @@
           "payouts",
           "next_payout_date",
           "limit",
-          "own_customers_active"
+          "own_customers_active",
+          "bank_last4",
+          "pending_pence"
         ],
         "title": "EarningsOut",
         "type": "object"
@@ -3107,6 +3264,8 @@
           "flags": {
             "description": "What was different",
             "items": {
+              "maxLength": 80,
+              "minLength": 1,
               "type": "string"
             },
             "maxItems": 8,
@@ -3146,6 +3305,11 @@
       },
       "FinishOut": {
         "properties": {
+          "charge_message": {
+            "description": "What happened to the payment, in a sentence",
+            "title": "Charge Message",
+            "type": "string"
+          },
           "charge_status": {
             "enum": [
               "succeeded",
@@ -3154,6 +3318,10 @@
               "failed"
             ],
             "title": "Charge Status",
+            "type": "string"
+          },
+          "customer_first": {
+            "title": "Customer First",
             "type": "string"
           },
           "est_mins": {
@@ -3206,7 +3374,9 @@
           "price_pence",
           "fee_pence",
           "provider_pence",
-          "payout_date"
+          "payout_date",
+          "charge_message",
+          "customer_first"
         ],
         "title": "FinishOut",
         "type": "object"
@@ -3357,6 +3527,10 @@
             "title": "Status",
             "type": "string"
           },
+          "status_text": {
+            "title": "Status Text",
+            "type": "string"
+          },
           "user_id": {
             "title": "User Id",
             "type": "string"
@@ -3368,7 +3542,8 @@
           "initials",
           "relationship",
           "status",
-          "badges"
+          "badges",
+          "status_text"
         ],
         "title": "HelperOut",
         "type": "object"
@@ -3812,6 +3987,18 @@
             "title": "Category Name",
             "type": "string"
           },
+          "cover_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cover Date"
+          },
           "district": {
             "title": "District",
             "type": "string"
@@ -3824,6 +4011,12 @@
           "guide_pence": {
             "title": "Guide Pence",
             "type": "integer"
+          },
+          "is_cover": {
+            "default": false,
+            "description": "One visit of another provider's regular, while they're away",
+            "title": "Is Cover",
+            "type": "boolean"
           },
           "miles": {
             "title": "Miles",
@@ -3869,7 +4062,8 @@
                 "enum": [
                   "yours",
                   "countered",
-                  "taken"
+                  "taken",
+                  "lapsed"
                 ],
                 "type": "string"
               },
@@ -3877,6 +4071,7 @@
                 "type": "null"
               }
             ],
+            "description": "yours: you booked it; countered: your price is waiting; taken: it went to someone else; lapsed: your price lapsed while the job is still open (you couldn't take it any more)",
             "title": "State"
           },
           "unit": {
@@ -3912,6 +4107,18 @@
       },
       "JobOffer": {
         "properties": {
+          "address_line": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The exact address, only once the job is yours",
+            "title": "Address Line"
+          },
           "approx": {
             "$ref": "#/components/schemas/GeoPoint",
             "description": "About 1 km resolution: exact address only once booked"
@@ -3920,12 +4127,59 @@
             "title": "Booked By Me",
             "type": "boolean"
           },
+          "can_counter": {
+            "description": "Cover is at the regular price, so it can't be countered",
+            "title": "Can Counter",
+            "type": "boolean"
+          },
           "can_take": {
             "title": "Can Take",
             "type": "boolean"
           },
           "card": {
             "$ref": "#/components/schemas/JobCard"
+          },
+          "counter_max_pence": {
+            "title": "Counter Max Pence",
+            "type": "integer"
+          },
+          "counter_min_pence": {
+            "title": "Counter Min Pence",
+            "type": "integer"
+          },
+          "counter_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What happened to your last suggested price, if it isn't waiting",
+            "title": "Counter Note"
+          },
+          "counter_reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Counter Reasons",
+            "type": "array"
+          },
+          "counter_start_pence": {
+            "title": "Counter Start Pence",
+            "type": "integer"
+          },
+          "cover_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cover Text"
           },
           "customer": {
             "$ref": "#/components/schemas/CustomerMeta"
@@ -3941,6 +4195,52 @@
             "title": "Fee Percent",
             "type": "integer"
           },
+          "first_pence": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "First-visit guide price, when the first visit costs more",
+            "title": "First Pence"
+          },
+          "first_provider_pence": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Provider Pence"
+          },
+          "first_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Reason"
+          },
+          "first_visit_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Visit Date"
+          },
           "first_visit_text": {
             "anyOf": [
               {
@@ -3952,6 +4252,10 @@
             ],
             "description": "Once yours: when it's been added to your round",
             "title": "First Visit Text"
+          },
+          "is_cover": {
+            "title": "Is Cover",
+            "type": "boolean"
           },
           "missing_documents": {
             "items": {
@@ -3978,6 +4282,13 @@
               }
             ]
           },
+          "not_eligible_reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Not Eligible Reasons",
+            "type": "array"
+          },
           "note": {
             "anyOf": [
               {
@@ -3999,6 +4310,26 @@
               }
             ],
             "title": "Over Limit By Pence"
+          },
+          "request_status": {
+            "enum": [
+              "open",
+              "booked",
+              "cancelled",
+              "expired"
+            ],
+            "title": "Request Status",
+            "type": "string"
+          },
+          "unit": {
+            "enum": [
+              "a visit",
+              "one-off",
+              "a clean",
+              "a walk"
+            ],
+            "title": "Unit",
+            "type": "string"
           }
         },
         "required": [
@@ -4013,7 +4344,23 @@
           "missing_documents",
           "over_limit_by_pence",
           "booked_by_me",
-          "first_visit_text"
+          "first_visit_text",
+          "request_status",
+          "unit",
+          "first_pence",
+          "first_provider_pence",
+          "first_reason",
+          "is_cover",
+          "cover_text",
+          "can_counter",
+          "counter_min_pence",
+          "counter_max_pence",
+          "counter_start_pence",
+          "counter_reasons",
+          "counter_note",
+          "not_eligible_reasons",
+          "address_line",
+          "first_visit_date"
         ],
         "title": "JobOffer",
         "type": "object"
@@ -4278,6 +4625,11 @@
             "format": "date",
             "title": "Resumes On",
             "type": "string"
+          },
+          "used_percent": {
+            "description": "How far through the limit, 0 to 100, for the progress bar",
+            "title": "Used Percent",
+            "type": "integer"
           }
         },
         "required": [
@@ -4287,7 +4639,8 @@
           "earned_pence",
           "remaining_pence",
           "reached",
-          "resumes_on"
+          "resumes_on",
+          "used_percent"
         ],
         "title": "LimitView",
         "type": "object"
@@ -6448,6 +6801,11 @@
             "title": "Greeting",
             "type": "string"
           },
+          "helper": {
+            "description": "A helper is using the app: their visits only, no jobs or money",
+            "title": "Helper",
+            "type": "boolean"
+          },
           "limit": {
             "$ref": "#/components/schemas/LimitView"
           },
@@ -6473,9 +6831,23 @@
             "title": "Rating Count",
             "type": "integer"
           },
+          "status": {
+            "enum": [
+              "signing_up",
+              "active",
+              "payouts_paused",
+              "suspended"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
           "today_text": {
             "title": "Today Text",
             "type": "string"
+          },
+          "unread_messages": {
+            "title": "Unread Messages",
+            "type": "integer"
           },
           "week_earned_pence": {
             "title": "Week Earned Pence",
@@ -6495,7 +6867,10 @@
           "rating_count",
           "limit",
           "new_jobs",
-          "coming_up"
+          "coming_up",
+          "status",
+          "helper",
+          "unread_messages"
         ],
         "title": "ProviderHome",
         "type": "object"
@@ -6780,6 +7155,10 @@
             "title": "Booking Id",
             "type": "string"
           },
+          "can_start": {
+            "title": "Can Start",
+            "type": "boolean"
+          },
           "category_id": {
             "title": "Category Id",
             "type": "string"
@@ -6788,8 +7167,16 @@
             "title": "Category Name",
             "type": "string"
           },
+          "category_name_lower": {
+            "title": "Category Name Lower",
+            "type": "string"
+          },
           "charge_status": {
             "title": "Charge Status",
+            "type": "string"
+          },
+          "customer_first": {
+            "title": "Customer First",
             "type": "string"
           },
           "customer_name": {
@@ -6800,8 +7187,29 @@
             "title": "Directions Url",
             "type": "string"
           },
+          "early_start_demo": {
+            "description": "DEMO_MODE only: a future visit may be started now, for the demo",
+            "title": "Early Start Demo",
+            "type": "boolean"
+          },
+          "elapsed_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Timer: seconds since it was started, at the time of this response",
+            "title": "Elapsed Seconds"
+          },
           "est_mins": {
             "title": "Est Mins",
+            "type": "integer"
+          },
+          "fee_percent": {
+            "title": "Fee Percent",
             "type": "integer"
           },
           "finished_at": {
@@ -6816,9 +7224,24 @@
             ],
             "title": "Finished At"
           },
+          "flags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Flags",
+            "type": "array"
+          },
+          "flags_none": {
+            "title": "Flags None",
+            "type": "boolean"
+          },
           "id": {
             "title": "Id",
             "type": "string"
+          },
+          "is_first": {
+            "title": "Is First",
+            "type": "boolean"
           },
           "local_date": {
             "format": "date",
@@ -6836,8 +7259,32 @@
             ],
             "title": "Minutes Actual"
           },
+          "minutes_from_timer": {
+            "title": "Minutes From Timer",
+            "type": "boolean"
+          },
           "note": {
             "title": "Note",
+            "type": "string"
+          },
+          "overrun": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overrun"
+          },
+          "performer": {
+            "enum": [
+              "provider",
+              "helper",
+              "cover"
+            ],
+            "title": "Performer",
             "type": "string"
           },
           "performer_name": {
@@ -6856,6 +7303,18 @@
             "format": "date-time",
             "title": "Scheduled Start",
             "type": "string"
+          },
+          "start_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why it can't be started yet, if it can't",
+            "title": "Start Note"
           },
           "started_at": {
             "anyOf": [
@@ -6880,6 +7339,10 @@
             "title": "Status",
             "type": "string"
           },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
           "thread_id": {
             "anyOf": [
               {
@@ -6890,6 +7353,10 @@
               }
             ],
             "title": "Thread Id"
+          },
+          "window_text": {
+            "title": "Window Text",
+            "type": "string"
           }
         },
         "required": [
@@ -6914,7 +7381,22 @@
           "price_pence",
           "provider_pence",
           "charge_status",
-          "performer_name"
+          "performer_name",
+          "category_name_lower",
+          "customer_first",
+          "summary",
+          "window_text",
+          "is_first",
+          "performer",
+          "elapsed_seconds",
+          "can_start",
+          "start_note",
+          "early_start_demo",
+          "flags",
+          "flags_none",
+          "minutes_from_timer",
+          "overrun",
+          "fee_percent"
         ],
         "title": "ProviderVisit",
         "type": "object"
@@ -7681,6 +8163,65 @@
         "title": "Related",
         "type": "object"
       },
+      "RenewalOut": {
+        "description": "A new copy uploaded while the current one is still valid: it waits for checks, and the\ncurrent one keeps counting until then.",
+        "properties": {
+          "expires_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires On"
+          },
+          "file_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Url"
+          },
+          "issued_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Issued On"
+          },
+          "status": {
+            "enum": [
+              "missing",
+              "pending",
+              "verified",
+              "rejected",
+              "expired"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "issued_on",
+          "expires_on",
+          "file_url"
+        ],
+        "title": "RenewalOut",
+        "type": "object"
+      },
       "RequestDetail": {
         "properties": {
           "alerted": {
@@ -8072,8 +8613,39 @@
             "title": "Area",
             "type": "string"
           },
+          "category_id": {
+            "title": "Category Id",
+            "type": "string"
+          },
           "category_name": {
             "title": "Category Name",
+            "type": "string"
+          },
+          "charge_status": {
+            "enum": [
+              "none",
+              "pending",
+              "succeeded",
+              "requires_action",
+              "failed",
+              "refunded",
+              "partially_refunded"
+            ],
+            "title": "Charge Status",
+            "type": "string"
+          },
+          "cover_allowed": {
+            "description": "The customer's plan allows cover (one-offs always do)",
+            "title": "Cover Allowed",
+            "type": "boolean"
+          },
+          "cover_state": {
+            "enum": [
+              "none",
+              "offered",
+              "covered"
+            ],
+            "title": "Cover State",
             "type": "string"
           },
           "customer_name": {
@@ -8083,6 +8655,10 @@
           "est_mins": {
             "title": "Est Mins",
             "type": "integer"
+          },
+          "is_first": {
+            "title": "Is First",
+            "type": "boolean"
           },
           "is_now": {
             "title": "Is Now",
@@ -8121,6 +8697,10 @@
               "cover"
             ],
             "title": "Performer",
+            "type": "string"
+          },
+          "performer_name": {
+            "title": "Performer Name",
             "type": "string"
           },
           "start_time": {
@@ -8162,7 +8742,13 @@
           "summary",
           "note",
           "miles_from_previous",
-          "performer"
+          "performer",
+          "category_id",
+          "performer_name",
+          "cover_state",
+          "cover_allowed",
+          "charge_status",
+          "is_first"
         ],
         "title": "RoundItem",
         "type": "object"
@@ -8315,6 +8901,20 @@
             "title": "Done Count",
             "type": "integer"
           },
+          "limit_on": {
+            "title": "Limit On",
+            "type": "boolean"
+          },
+          "payment_account_status": {
+            "enum": [
+              "none",
+              "pending",
+              "enabled",
+              "restricted"
+            ],
+            "title": "Payment Account Status",
+            "type": "string"
+          },
           "provider_id": {
             "anyOf": [
               {
@@ -8325,6 +8925,23 @@
               }
             ],
             "title": "Provider Id"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "signing_up",
+                  "active",
+                  "payouts_paused",
+                  "suspended"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
           },
           "steps": {
             "items": {
@@ -8337,7 +8954,10 @@
         "required": [
           "steps",
           "done_count",
-          "provider_id"
+          "provider_id",
+          "status",
+          "payment_account_status",
+          "limit_on"
         ],
         "title": "SignupChecklist",
         "type": "object"
@@ -8345,6 +8965,19 @@
       "SignupStart": {
         "additionalProperties": false,
         "properties": {
+          "address_id": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From /api/address/search, for your home",
+            "title": "Address Id"
+          },
           "email": {
             "anyOf": [
               {
@@ -8579,6 +9212,11 @@
             "title": "Difference Pence",
             "type": "integer"
           },
+          "ends_on": {
+            "format": "date",
+            "title": "Ends On",
+            "type": "string"
+          },
           "expenses": {
             "items": {
               "$ref": "#/components/schemas/ExpenseOut"
@@ -8592,6 +9230,11 @@
           },
           "fees_pence": {
             "title": "Fees Pence",
+            "type": "integer"
+          },
+          "jobs": {
+            "description": "Charged visits in the year",
+            "title": "Jobs",
             "type": "integer"
           },
           "key_dates": {
@@ -8609,6 +9252,14 @@
             "title": "Mileage Pence",
             "type": "integer"
           },
+          "mileage_rate_text": {
+            "title": "Mileage Rate Text",
+            "type": "string"
+          },
+          "mtd_note": {
+            "title": "Mtd Note",
+            "type": "string"
+          },
           "received_pence": {
             "title": "Received Pence",
             "type": "integer"
@@ -8621,6 +9272,14 @@
           "tax_year": {
             "title": "Tax Year",
             "type": "string"
+          },
+          "tax_years": {
+            "description": "Tax years with records, newest first",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tax Years",
+            "type": "array"
           },
           "trips": {
             "items": {
@@ -8652,7 +9311,12 @@
           "difference_pence",
           "trips",
           "expenses",
-          "key_dates"
+          "key_dates",
+          "ends_on",
+          "tax_years",
+          "mileage_rate_text",
+          "mtd_note",
+          "jobs"
         ],
         "title": "TaxSummary",
         "type": "object"
@@ -8884,6 +9548,10 @@
             "title": "Helpers",
             "type": "array"
           },
+          "is_today": {
+            "title": "Is Today",
+            "type": "boolean"
+          },
           "items": {
             "items": {
               "$ref": "#/components/schemas/RoundItem"
@@ -8895,13 +9563,24 @@
             "format": "date",
             "title": "Local Date",
             "type": "string"
+          },
+          "upcoming_days": {
+            "description": "The next days with visits, for the day picker",
+            "items": {
+              "format": "date",
+              "type": "string"
+            },
+            "title": "Upcoming Days",
+            "type": "array"
           }
         },
         "required": [
           "local_date",
           "day_text",
           "items",
-          "helpers"
+          "helpers",
+          "is_today",
+          "upcoming_days"
         ],
         "title": "TodayRound",
         "type": "object"
@@ -18765,6 +19444,121 @@
         ]
       }
     },
+    "/api/p/limit/preview": {
+      "get": {
+        "description": "The limit screen's figures for a limit that hasn't been saved yet.",
+        "operationId": "preview_limit_api_p_limit_preview_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "period",
+            "required": true,
+            "schema": {
+              "pattern": "^(week|month)$",
+              "title": "Period",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "amount_pence",
+            "required": true,
+            "schema": {
+              "maximum": 500000,
+              "minimum": 500,
+              "title": "Amount Pence",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LimitView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          }
+        },
+        "summary": "Preview Limit",
+        "tags": [
+          "L2 provider"
+        ]
+      }
+    },
     "/api/p/mileage": {
       "get": {
         "operationId": "mileage_api_p_mileage_get",
@@ -19059,6 +19853,113 @@
           }
         },
         "summary": "Invite Own Customer",
+        "tags": [
+          "L2 provider"
+        ]
+      }
+    },
+    "/api/p/own-customers/preview": {
+      "get": {
+        "description": "What the provider keeps from their own price for an own customer (money.py, 5% with a\n100p minimum), so the invite form never works out a fee itself.",
+        "operationId": "own_customer_preview_api_p_own_customers_preview_get",
+        "parameters": [
+          {
+            "description": "Integer pence",
+            "in": "query",
+            "name": "price_pence",
+            "required": true,
+            "schema": {
+              "description": "Integer pence",
+              "exclusiveMinimum": 0,
+              "maximum": 1000000,
+              "title": "Price Pence",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeeSplit"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          }
+        },
+        "summary": "Own Customer Preview",
         "tags": [
           "L2 provider"
         ]
@@ -19560,6 +20461,122 @@
         "summary": "Provider Counter",
         "tags": [
           "shared: marketplace"
+        ]
+      }
+    },
+    "/api/p/requests/{ref}/counter-preview": {
+      "get": {
+        "description": "What a suggested price means before it's sent (decisions.md A1): the per-visit price, the\nfirst-visit price it scales to and what the provider would get for each.",
+        "operationId": "counter_preview_api_p_requests__ref__counter_preview_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Integer pence",
+            "in": "query",
+            "name": "price_pence",
+            "required": true,
+            "schema": {
+              "description": "Integer pence",
+              "exclusiveMinimum": 0,
+              "maximum": 1000000,
+              "title": "Price Pence",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CounterPreview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          }
+        },
+        "summary": "Counter Preview",
+        "tags": [
+          "L2 provider"
         ]
       }
     },
@@ -21162,19 +22179,21 @@
         "operationId": "today_api_p_today_get",
         "parameters": [
           {
+            "description": "A London date; default today",
             "in": "query",
             "name": "date",
             "required": false,
             "schema": {
               "anyOf": [
                 {
-                  "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                  "format": "date",
                   "type": "string"
                 },
                 {
                   "type": "null"
                 }
               ],
+              "description": "A London date; default today",
               "title": "Date"
             }
           }

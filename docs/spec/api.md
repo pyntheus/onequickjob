@@ -97,6 +97,7 @@ in `web/src/api/schema.d.ts` come from it (`make types`).
 | `GET` | `/api/p/home` |  | ProviderHome |  |
 | `GET` | `/api/p/jobs` |  | list[JobCard] | Open requests this provider can take (eligibility.can_take), nearest first, over-limit marked. |
 | `GET` | `/api/p/requests/{ref}` |  | JobOffer | The offer screen. Records a view (JobRequests.record_view) the first time. |
+| `GET` | `/api/p/requests/{ref}/counter-preview` |  | CounterPreview | What a suggested price means before it's sent (decisions.md A1): the per-visit price, the first-visit price it scales to and what the provider would get for each. |
 | `GET` | `/api/p/today` |  | TodayRound |  |
 | `GET` | `/api/p/visits/{visit_id}` |  | ProviderVisit |  |
 | `POST` | `/api/p/visits/{visit_id}/start` |  | ProviderVisit |  |
@@ -113,6 +114,7 @@ in `web/src/api/schema.d.ts` come from it (`make types`).
 | `POST` | `/api/p/expenses` | ExpenseIn | ExpenseOut |  |
 | `DELETE` | `/api/p/expenses/{expense_id}` |  | 204 |  |
 | `GET` | `/api/p/limit` |  | LimitView |  |
+| `GET` | `/api/p/limit/preview` |  | LimitView | The limit screen's figures for a limit that hasn't been saved yet. |
 | `PUT` | `/api/p/limit` | LimitIn | LimitView |  |
 | `GET` | `/api/p/profile` |  | ProviderProfile |  |
 | `PATCH` | `/api/p/profile` | ProfilePatch | ProviderProfile |  |
@@ -121,10 +123,12 @@ in `web/src/api/schema.d.ts` come from it (`make types`).
 | `POST` | `/api/p/time-off/preview` | TimeOffRange | list[AffectedVisit] |  |
 | `GET` | `/api/p/time-off` |  | list[TimeOffOut] |  |
 | `POST` | `/api/p/time-off` | TimeOffIn | TimeOffOut |  |
+| `POST` | `/api/p/time-off/{time_off_id}/arrange` | ArrangeMoreIn | TimeOffOut | Arrange visits booked into time off after it was arranged (cover, helper or skip). |
 | `DELETE` | `/api/p/time-off/{time_off_id}` |  | 204 |  |
 | `GET` | `/api/p/helpers` |  | list[HelperOut] |  |
 | `POST` | `/api/p/helpers` | HelperNew | HelperOut |  |
 | `GET` | `/api/p/own-customers` |  | OwnCustomersView |  |
+| `GET` | `/api/p/own-customers/preview` |  | FeeSplit | What the provider keeps from their own price for an own customer (money.py, 5% with a 100p minimum), so the invite form never works out a fee itself. |
 | `POST` | `/api/p/own-customers/invites` | InviteIn | InviteOut | 409 platform_customer if the number already belongs to a platform customer (recorded as blocked). |
 | `GET` | `/api/p/threads` |  | list[ThreadSummary] |  |
 | `GET` | `/api/p/threads/{thread_id}/messages` |  | list[MessageOut] |  |
@@ -169,4 +173,4 @@ in `web/src/api/schema.d.ts` come from it (`make types`).
 | `GET` | `/api/admin/audit` |  | list[AuditEntry] |  |
 | `POST` | `/api/payments/stripe/webhook` |  | WebhookAck | Verify the Stripe-Signature header, then handle payment_intent.*, account.updated, payout.* and charge.refunded idempotently (by event id). Webhooks are the source of truth for final payment states. |
 
-127 endpoints.
+131 endpoints.

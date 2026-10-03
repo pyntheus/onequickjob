@@ -195,6 +195,7 @@ Model `app.models.providers.Provider`; repo `app.repos.providers.Providers`. Own
 | `status_reason` | str \| None (optional) |  |
 | `stats` | ProviderStats |  |
 | `joined_on` | date \| None (optional) |  |
+| `email` | str \| None (optional) | Contact email given at sign-up (lower-cased) |
 | `last_booked_at` | datetime \| None (optional) | When they last took a job. Written in the booking's transaction, so a suspension or document change committed meanwhile conflicts with it and the booking is re-checked (marketplace) |
 
 Indexes:
@@ -1015,6 +1016,7 @@ Indexes:
 | `name` | str |  |
 | `relationship` | str |  |
 | `status` | Literal['invited', 'checking', 'ready', 'removed'] |  |
+| `documents` | list[ProviderDocument] |  |
 
 ### `Home`
 
