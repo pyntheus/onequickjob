@@ -241,6 +241,10 @@ async def request_detail(
             case "price_change_declined":
                 text = f"You kept the guide price at {wording.money(e.price_pence or req.guide_pence)}"
                 timeline.append(TimelineEvent(at=e.at, kind="note", text=text))
+            case "price_change_withdrawn":
+                proposed = wording.money(e.price_pence or 0)
+                text = f"Booked before you answered, so the suggested {proposed} no longer applies"
+                timeline.append(TimelineEvent(at=e.at, kind="note", text=text))
             case "guide_raised" if e.text == "Approved by the customer":
                 again = (
                     f"we've sent it to checked providers near {req.address.district} again"

@@ -296,6 +296,8 @@ async def payment_issues(db: Db, cats: dict[str, Category]) -> list[PaymentIssue
             "$or": [
                 {"charge.status": {"$in": ["failed", "requires_action"]}},
                 {"charge.status": "pending", "updated_at": {"$lte": stale}},
+                # Finished, but the charge never started (the settle task keeps trying: L2's filing).
+                {"status": "finished", "charge.status": "none", "finished_at": {"$lte": stale}},
             ]
         },
         sort=[("updated_at", -1)],
@@ -344,9 +346,9 @@ async def payment_issues(db: Db, cats: dict[str, Category]) -> list[PaymentIssue
             category_name=cats[v.category_id].name if v.category_id in cats else v.category_id,
             local_date=v.local_date,
             amount_pence=v.charge.amount_pence or v.price_pence,
-            status=v.charge.status,
+            status="not_started" if v.charge.status == "none" else v.charge.status,
             failure_reason=v.charge.failure_reason,
-            since=v.updated_at,
+            since=(v.finished_at or v.updated_at) if v.charge.status == "none" else v.updated_at,
         )
         for v in visits
     ]

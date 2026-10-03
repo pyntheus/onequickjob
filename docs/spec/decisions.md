@@ -477,6 +477,20 @@ has tests.
   on record and are re-priced at the medium band (open: see the S report).
   (`test_seed.py`: `test_margarets_weekly_reprice_is_cheaper_per_visit`; `test_plan_changes.py`:
   `test_at_the_minimum_price_weekly_costs_the_same_as_fortnightly`.)
+- **A16. Booking a request withdraws a raise still waiting for the customer** (addition to A12).
+  When a request is booked by any route (a provider accepts the guide, or the customer accepts a
+  counter) while a raised guide waits for the customer's answer, the raise is withdrawn in the
+  booking's transaction (`price_change.status` `withdrawn`, event `price_change_withdrawn`) and
+  the customer is texted `guide_raise_withdrawn`: booked "at your original price, £22" (a guide
+  acceptance) or "at the £25 you accepted" (a counter), so the suggested price no longer applies.
+  A booking that fails leaves the raise waiting. Admin's waiting list and the customer's request
+  page stop showing it. (`marketplace._withdraw_raise`; `test_price_changes.py`:
+  `test_booking_at_the_guide_withdraws_a_waiting_raise`,
+  `test_accepting_a_counter_withdraws_a_waiting_raise`,
+  `test_a_booking_that_fails_leaves_the_raise_waiting`.) Also: admin's "Payments needing a look"
+  lists a finished visit whose charge never started (`not_started`), ten minutes after it
+  finished, for Retry charge (L2's filing; `test_overview.py`:
+  `test_a_charge_that_never_started_shows_for_a_retry`).
 
 ## 3. Open questions (for Hasan)
 

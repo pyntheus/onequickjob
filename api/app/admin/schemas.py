@@ -64,7 +64,8 @@ class AttentionItem(BaseModel):
 
 
 class PaymentIssue(BaseModel):
-    """A visit whose charge failed, waits for the customer, or hasn't been confirmed (L3 addition)."""
+    """A visit whose charge failed, waits for the customer, hasn't been confirmed, or never started
+    (status not_started: finished, but no charge was recorded), or a refund that's stuck."""
 
     visit_id: str
     customer_name: str

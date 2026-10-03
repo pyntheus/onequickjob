@@ -202,6 +202,7 @@ const CHARGE_WORDS: Record<string, string> = {
   failed: "Card declined",
   requires_action: "Waiting for the customer to confirm",
   pending: "Not confirmed yet",
+  not_started: "Finished, but the charge never started",
   refund_pending: "Refund not confirmed yet",
   refund_fee_pending: "Refund made; our fee still to return to the provider",
   refund_restore: "Refund failed; giving the provider back what it took from them",

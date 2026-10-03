@@ -26,6 +26,7 @@ EventKind = Literal[
     "guide_raised",
     "price_change_proposed",
     "price_change_declined",
+    "price_change_withdrawn",
     "cancelled",
     "expired",
     "note",
@@ -73,7 +74,9 @@ class PriceChange(Model):
     does the request's guide change and its job alerts go out again."""
 
     id: str = Field(default_factory=new_id, description="Answers name it, so a stale page can't approve a newer one")
-    status: Literal["pending", "approved", "declined"] = "pending"
+    status: Literal["pending", "approved", "declined", "withdrawn"] = Field(
+        default="pending", description="withdrawn: the request was booked while it waited (A16)"
+    )
     guide_pence: Pence
     first_pence: Pence | None = Field(default=None, description="Scaled by the same ratio (scaled_first_price)")
     from_guide_pence: Pence

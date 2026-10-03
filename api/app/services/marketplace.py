@@ -184,7 +184,48 @@ async def _book(db: Db, s: Settings, req: JobRequest, session: DbSession) -> Boo
     )
     await _lapse_others(db, s, req, cat, session)
     await _notify_booked(db, s, req, cat, customer, provider, booking, first, session)
+    await _withdraw_raise(db, s, req, cat, provider, booking, session)
     return BookingOutcome(request=req, booking=booking, first_visit=first, via=b.via)
+
+
+async def _withdraw_raise(
+    db: Db, s: Settings, req: JobRequest, cat: Category, provider: Provider, booking: Booking, session: DbSession
+) -> None:
+    """A16 (to A12): a raised guide still waiting for the customer when the request is booked, by any
+    route, no longer applies. In the booking's transaction it's withdrawn and the customer is told
+    the price they're booked at: their original guide, or the counter they accepted."""
+    change = req.price_change
+    if change is None or change.status != "pending":
+        return
+    now = utcnow()
+    event = RequestEvent(at=now, kind="price_change_withdrawn", price_pence=change.guide_pence)
+    withdrawn = await JobRequests(db).update(
+        req.id,
+        {"price_change.status": "withdrawn", "price_change.decided_at": now},
+        extra_filter={"price_change.id": change.id, "price_change.status": "pending"},
+        push={"events": event.model_dump(mode="python")},
+        session=session,
+    )
+    customer = await Customers(db).get(req.customer_id, session=session)
+    cu = await Users(db).get(customer.user_id, session=session) if customer else None
+    if withdrawn is None or not (cu and cu.phone):
+        return
+    price = wording.money(booking.price_pence)
+    await notify(
+        db,
+        "guide_raise_withdrawn",
+        to=recipient_for(cu),
+        settings=s,
+        related=Related(request_id=req.id, booking_id=booking.id, customer_id=req.customer_id),
+        idempotency_key=f"request:{req.id}:guide_raise_withdrawn:{change.id}",
+        data={
+            "provider": provider.short,
+            "category": wording.lower_name(cat),
+            "booked_at": f"the {price} you accepted" if booking.via == "counter" else f"your original price, {price}",
+            "proposed": wording.money(change.guide_pence),
+        },
+        session=session,
+    )
 
 
 async def _cover(db: Db, s: Settings, req: JobRequest, session: DbSession) -> BookingOutcome:

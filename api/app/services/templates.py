@@ -285,6 +285,18 @@ _t(
     body="{brand}: the {category} job in {area} has gone to someone else. Thanks for looking.",
 )
 _t(
+    id="guide_raise_withdrawn",
+    lane="F",
+    audience="customer",
+    channels=("sms",),
+    trigger=(
+        "A request is booked (at the guide, or a counter the customer accepted) while a raised guide waits for "
+        "the customer's approval: the raise is withdrawn in the booking's transaction (A12, A16)."
+    ),
+    body="{brand}: {provider} has booked your {category} at {booked_at}, so the higher guide price we suggested "
+    "({proposed}) no longer applies. There's nothing you need to do.",
+)
+_t(
     id="counter_lapsed",
     lane="F",
     audience="provider",
