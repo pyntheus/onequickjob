@@ -122,7 +122,11 @@ async def _kpis(db: Db, start: date) -> list[Kpi]:
             value=minutes_text(median(waits)) if waits else "n/a",
             sub="median" if waits else "no answers yet",
         ),
-        Kpi(label="Taken at guide price", value=percent(at_guide, len(booked)), sub="the rest countered"),
+        Kpi(
+            label="Taken at guide price",
+            value=percent(at_guide, len(booked)),
+            sub="the rest countered" if booked else "nothing filled yet",
+        ),
         Kpi(label="Job value", value=money(gross), sub="all jobs charged this week"),
         Kpi(label="Our revenue", value=money(revenue), sub=f"{percent(revenue, gross)} of job value"),
     ]
