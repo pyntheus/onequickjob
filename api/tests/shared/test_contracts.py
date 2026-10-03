@@ -58,6 +58,8 @@ async def test_lane_endpoints_are_501_stubs_owned_by_their_lane(route: APIRoute)
     no longer answers 501 when called bare), its own lane's tests cover it (L3 contract change)."""
     lane = lane_of(route.path)
     assert any(t.startswith(lane) for t in route.tags), f"{route.path} is tagged with its lane {lane}"
+    if "not_implemented(" not in inspect.getsource(route.endpoint):
+        return  # built by its lane (L1 contract change: lanes replace stubs, so only stubs must 501)
     params = {name: None for name in inspect.signature(route.endpoint).parameters}
     try:
         await route.endpoint(**params)

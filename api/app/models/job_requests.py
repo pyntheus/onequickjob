@@ -15,7 +15,17 @@ from app.models.quotes import Measure, Unit
 
 RequestStatus = Literal["open", "booked", "cancelled", "expired"]
 EventKind = Literal[
-    "created", "broadcast", "viewed", "countered", "counter_declined", "accepted", "guide_raised", "cancelled", "note"
+    "created",
+    "broadcast",
+    "viewed",
+    "countered",
+    "counter_declined",
+    "counter_lapsed",
+    "accepted",
+    "guide_raised",
+    "cancelled",
+    "expired",
+    "note",
 ]
 
 

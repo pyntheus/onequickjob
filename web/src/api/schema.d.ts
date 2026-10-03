@@ -720,6 +720,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/c/fees/example": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Fee Example
+         * @description "Where your money goes" on the landing page: the split of an example price, from money.py.
+         */
+        get: operations["fee_example_api_c_fees_example_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/c/invites/{token}": {
         parameters: {
             query?: never;
@@ -1052,6 +1072,26 @@ export interface paths {
         };
         /** List Visits */
         get: operations["list_visits_api_c_visits_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/c/visits/{visit_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Visit
+         * @description One visit, for the rate screen. (Added by L1.)
+         */
+        get: operations["get_visit_api_c_visits__visit_id__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2809,6 +2849,12 @@ export interface components {
             after_photo_url: string | null;
             /** Booking Id */
             booking_id: string;
+            /**
+             * Can Change Date
+             * @description One-off visits not yet done
+             * @default false
+             */
+            can_change_date: boolean;
             /** Can Rate */
             can_rate: boolean;
             /**
@@ -2822,6 +2868,8 @@ export interface components {
             category_id: string;
             /** Category Name */
             category_name: string;
+            /** Dispute Ref */
+            dispute_ref?: string | null;
             /** Id */
             id: string;
             /**
@@ -2838,10 +2886,20 @@ export interface components {
             minutes_actual: number | null;
             /** Price Pence */
             price_pence: number;
+            /**
+             * Provider First Name
+             * @default
+             */
+            provider_first_name: string;
             /** Provider Short */
             provider_short: string;
             /** Rating Stars */
             rating_stars: number | null;
+            /**
+             * Recurring
+             * @default false
+             */
+            recurring: boolean;
             /**
              * Scheduled Start
              * Format: date-time
@@ -2852,6 +2910,13 @@ export interface components {
              * @enum {string}
              */
             status: "scheduled" | "in_progress" | "finished" | "skipped" | "cancelled";
+            /** Thread Id */
+            thread_id?: string | null;
+            /**
+             * Tip Pence
+             * @default 0
+             */
+            tip_pence: number;
             /**
              * Window
              * @enum {string}
@@ -3198,6 +3263,13 @@ export interface components {
             standard_percent: number;
         };
         /**
+         * FeeExample
+         * @description The landing page's "Where your money goes" example, from app.core.money.
+         */
+        FeeExample: {
+            split: components["schemas"]["FeeSplit"];
+        };
+        /**
          * FeeSplit
          * @description What the customer pays, our fee and what the provider gets. From money.py only.
          */
@@ -3419,6 +3491,8 @@ export interface components {
         };
         /** InviteAccept */
         InviteAccept: {
+            /** @description From /api/address/{id}; needed when the customer has no saved address yet */
+            address?: components["schemas"]["Address"] | null;
             /**
              * Agree Terms
              * @constant
@@ -3853,6 +3927,11 @@ export interface components {
              * @default
              */
             notes: string;
+            /**
+             * Photos
+             * @description File ids from POST /api/files (kind request_photo), uploaded once signed in
+             */
+            photos?: string[];
             /** Quote Id */
             quote_id: string;
             when: components["schemas"]["When"];
@@ -4182,7 +4261,10 @@ export interface components {
              */
             unit: "a visit" | "one-off" | "a clean" | "a walk";
         };
-        /** PlanUpdate */
+        /**
+         * PlanUpdate
+         * @description Change one or more plan settings. An away pause needs both dates; send both as null to clear it.
+         */
         PlanUpdate: {
             /** Away From */
             away_from?: string | null;
@@ -4750,6 +4832,11 @@ export interface components {
             stars: number;
             /** Tags */
             tags: string[];
+            /**
+             * Tip Message
+             * @description Why a tip couldn't be charged, to show as it is
+             */
+            tip_message?: string | null;
             /** Tip Pence */
             tip_pence: number;
             /**
@@ -4864,8 +4951,19 @@ export interface components {
         };
         /** RequestDetail */
         RequestDetail: {
+            /**
+             * Alerted
+             * @description How many providers the request was sent to
+             * @default 0
+             */
+            alerted: number;
             /** Area */
             area: string;
+            /**
+             * Booked First Price Pence
+             * @description First-visit price agreed, if different
+             */
+            booked_first_price_pence?: number | null;
             /** Booked Price Pence */
             booked_price_pence: number | null;
             /** Booked Via */
@@ -4891,14 +4989,35 @@ export interface components {
             district: string;
             /** First Pence */
             first_pence: number | null;
+            /**
+             * Frequency Label
+             * @description e.g. "every 2 weeks"; None for a one-off
+             */
+            frequency_label?: string | null;
             /** Guide Pence */
             guide_pence: number;
             /** Id */
             id: string;
+            /**
+             * Notes
+             * @default
+             */
+            notes: string;
             /** Pending Offers */
             pending_offers: components["schemas"]["CounterOfferView"][];
             /** Ref */
             ref: string;
+            /**
+             * Simulating
+             * @description DEMO_MODE: a simulation is running for this request
+             * @default false
+             */
+            simulating: boolean;
+            /**
+             * Size Text
+             * @description Lawns: the size the customer chose, e.g. "Large (about 190 m²)"
+             */
+            size_text?: string | null;
             /**
              * Status
              * @enum {string}
@@ -4931,6 +5050,11 @@ export interface components {
             district: string;
             /** First Pence */
             first_pence: number | null;
+            /**
+             * Frequency Label
+             * @description e.g. "every 2 weeks"; None for a one-off
+             */
+            frequency_label?: string | null;
             /** Guide Pence */
             guide_pence: number;
             /** Id */
@@ -8850,6 +8974,91 @@ export interface operations {
             };
         };
     };
+    fee_example_api_c_fees_example_get: {
+        parameters: {
+            query?: {
+                price_pence?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeeExample"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     get_invite_api_c_invites__token__get: {
         parameters: {
             query?: never;
@@ -10646,6 +10855,91 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_visit_api_c_visits__visit_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                visit_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerVisit"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
             /** @description Not Implemented */

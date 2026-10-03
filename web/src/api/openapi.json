@@ -1972,6 +1972,12 @@
             "title": "Booking Id",
             "type": "string"
           },
+          "can_change_date": {
+            "default": false,
+            "description": "One-off visits not yet done",
+            "title": "Can Change Date",
+            "type": "boolean"
+          },
           "can_rate": {
             "title": "Can Rate",
             "type": "boolean"
@@ -1992,6 +1998,17 @@
           "category_name": {
             "title": "Category Name",
             "type": "string"
+          },
+          "dispute_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dispute Ref"
           },
           "id": {
             "title": "Id",
@@ -2027,6 +2044,11 @@
             "title": "Price Pence",
             "type": "integer"
           },
+          "provider_first_name": {
+            "default": "",
+            "title": "Provider First Name",
+            "type": "string"
+          },
           "provider_short": {
             "title": "Provider Short",
             "type": "string"
@@ -2041,6 +2063,11 @@
               }
             ],
             "title": "Rating Stars"
+          },
+          "recurring": {
+            "default": false,
+            "title": "Recurring",
+            "type": "boolean"
           },
           "scheduled_start": {
             "format": "date-time",
@@ -2057,6 +2084,22 @@
             ],
             "title": "Status",
             "type": "string"
+          },
+          "thread_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thread Id"
+          },
+          "tip_pence": {
+            "default": 0,
+            "title": "Tip Pence",
+            "type": "integer"
           },
           "window": {
             "enum": [
@@ -2950,6 +2993,19 @@
         "title": "FeeConfig",
         "type": "object"
       },
+      "FeeExample": {
+        "description": "The landing page's \"Where your money goes\" example, from app.core.money.",
+        "properties": {
+          "split": {
+            "$ref": "#/components/schemas/FeeSplit"
+          }
+        },
+        "required": [
+          "split"
+        ],
+        "title": "FeeExample",
+        "type": "object"
+      },
       "FeeSplit": {
         "description": "What the customer pays, our fee and what the provider gets. From money.py only.",
         "properties": {
@@ -3502,6 +3558,17 @@
       "InviteAccept": {
         "additionalProperties": false,
         "properties": {
+          "address": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Address"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From /api/address/{id}; needed when the customer has no saved address yet"
+          },
           "agree_terms": {
             "const": true,
             "title": "Agree Terms",
@@ -4518,6 +4585,15 @@
             "title": "Notes",
             "type": "string"
           },
+          "photos": {
+            "description": "File ids from POST /api/files (kind request_photo), uploaded once signed in",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 4,
+            "title": "Photos",
+            "type": "array"
+          },
           "quote_id": {
             "title": "Quote Id",
             "type": "string"
@@ -5324,6 +5400,7 @@
       },
       "PlanUpdate": {
         "additionalProperties": false,
+        "description": "Change one or more plan settings. An away pause needs both dates; send both as null to clear it.",
         "properties": {
           "away_from": {
             "anyOf": [
@@ -6954,6 +7031,18 @@
             "title": "Tags",
             "type": "array"
           },
+          "tip_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why a tip couldn't be charged, to show as it is",
+            "title": "Tip Message"
+          },
           "tip_pence": {
             "title": "Tip Pence",
             "type": "integer"
@@ -7317,9 +7406,27 @@
       },
       "RequestDetail": {
         "properties": {
+          "alerted": {
+            "default": 0,
+            "description": "How many providers the request was sent to",
+            "title": "Alerted",
+            "type": "integer"
+          },
           "area": {
             "title": "Area",
             "type": "string"
+          },
+          "booked_first_price_pence": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "First-visit price agreed, if different",
+            "title": "Booked First Price Pence"
           },
           "booked_price_pence": {
             "anyOf": [
@@ -7401,12 +7508,29 @@
             ],
             "title": "First Pence"
           },
+          "frequency_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "e.g. \"every 2 weeks\"; None for a one-off",
+            "title": "Frequency Label"
+          },
           "guide_pence": {
             "title": "Guide Pence",
             "type": "integer"
           },
           "id": {
             "title": "Id",
+            "type": "string"
+          },
+          "notes": {
+            "default": "",
+            "title": "Notes",
             "type": "string"
           },
           "pending_offers": {
@@ -7419,6 +7543,24 @@
           "ref": {
             "title": "Ref",
             "type": "string"
+          },
+          "simulating": {
+            "default": false,
+            "description": "DEMO_MODE: a simulation is running for this request",
+            "title": "Simulating",
+            "type": "boolean"
+          },
+          "size_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Lawns: the size the customer chose, e.g. \"Large (about 190 m\u00b2)\"",
+            "title": "Size Text"
           },
           "status": {
             "enum": [
@@ -7515,6 +7657,18 @@
               }
             ],
             "title": "First Pence"
+          },
+          "frequency_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "e.g. \"every 2 weeks\"; None for a one-off",
+            "title": "Frequency Label"
           },
           "guide_pence": {
             "title": "Guide Pence",
@@ -12995,6 +13149,112 @@
         ]
       }
     },
+    "/api/c/fees/example": {
+      "get": {
+        "description": "\"Where your money goes\" on the landing page: the split of an example price, from money.py.",
+        "operationId": "fee_example_api_c_fees_example_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "price_pence",
+            "required": false,
+            "schema": {
+              "default": 3000,
+              "maximum": 100000,
+              "minimum": 100,
+              "title": "Price Pence",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeeExample"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          }
+        },
+        "summary": "Fee Example",
+        "tags": [
+          "L1 customer"
+        ]
+      }
+    },
     "/api/c/invites/{token}": {
       "get": {
         "description": "Public: the invite link in the provider's text. No sign-in needed to read it.",
@@ -15139,6 +15399,109 @@
           }
         },
         "summary": "List Visits",
+        "tags": [
+          "L1 customer"
+        ]
+      }
+    },
+    "/api/c/visits/{visit_id}": {
+      "get": {
+        "description": "One visit, for the rate screen. (Added by L1.)",
+        "operationId": "get_visit_api_c_visits__visit_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "visit_id",
+            "required": true,
+            "schema": {
+              "title": "Visit Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerVisit"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          }
+        },
+        "summary": "Get Visit",
         "tags": [
           "L1 customer"
         ]

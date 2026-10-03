@@ -50,6 +50,11 @@ class NewRequest(In):
     when: When
     contact: ContactDetails
     agree_terms: Literal[True] = Field(description="The agency checkbox on the contact screen")
+    photos: list[str] = Field(
+        default_factory=list,
+        max_length=4,
+        description="File ids from POST /api/files (kind request_photo), uploaded once signed in",
+    )
 
 
 class RequestSummary(BaseModel):
@@ -65,6 +70,7 @@ class RequestSummary(BaseModel):
     district: str
     created_at: datetime
     booking_id: str | None
+    frequency_label: str | None = Field(default=None, description='e.g. "every 2 weeks"; None for a one-off')
 
 
 class CounterOfferView(BaseModel):
@@ -95,6 +101,13 @@ class RequestDetail(RequestSummary):
     booked_price_pence: int | None
     booked_via: Literal["guide", "counter"] | None
     demo_simulator: bool = Field(description="DEMO_MODE only: show the Simulate local responses control")
+    booked_first_price_pence: int | None = Field(default=None, description="First-visit price agreed, if different")
+    alerted: int = Field(default=0, description="How many providers the request was sent to")
+    size_text: str | None = Field(
+        default=None, description='Lawns: the size the customer chose, e.g. "Large (about 190 m²)"'
+    )
+    notes: str = ""
+    simulating: bool = Field(default=False, description="DEMO_MODE: a simulation is running for this request")
 
 
 class SimulationStarted(BaseModel):
@@ -138,6 +151,8 @@ class CustomerVisit(BaseModel):
     category_id: str
     category_name: str
     provider_short: str
+    provider_first_name: str = ""
+    recurring: bool = False
     local_date: date
     scheduled_start: datetime
     window: TimePref
@@ -150,6 +165,10 @@ class CustomerVisit(BaseModel):
     can_rate: bool
     can_skip: bool
     can_report: bool = Field(description="Within 48 hours of the visit")
+    can_change_date: bool = Field(default=False, description="One-off visits not yet done")
+    thread_id: str | None = None
+    dispute_ref: str | None = None
+    tip_pence: int = 0
 
 
 class VisitsOut(BaseModel):
@@ -183,6 +202,8 @@ class PlanOut(BaseModel):
 
 
 class PlanUpdate(In):
+    """Change one or more plan settings. An away pause needs both dates; send both as null to clear it."""
+
     pause_winter: bool | None = None
     away_from: date | None = None
     away_to: date | None = None
@@ -212,6 +233,7 @@ class RatingOut(BaseModel):
     tags: list[str]
     tip_pence: int
     tip_status: Literal["none", "charged", "failed"]
+    tip_message: str | None = Field(default=None, description="Why a tip couldn't be charged, to show as it is")
 
 
 class ProblemIn(In):
@@ -265,3 +287,12 @@ class InvitePreview(BaseModel):
 
 class InviteAccept(In):
     agree_terms: Literal[True]
+    address: Address | None = Field(
+        default=None, description="From /api/address/{id}; needed when the customer has no saved address yet"
+    )
+
+
+class FeeExample(BaseModel):
+    """The landing page's "Where your money goes" example, from app.core.money."""
+
+    split: FeeSplit
