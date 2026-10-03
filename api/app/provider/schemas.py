@@ -448,6 +448,11 @@ class TimeOffOut(BaseModel):
     to_date: date
     status: Literal["planned", "active", "done", "cancelled"]
     arrangements: list[ArrangementOut]
+    unarranged: list[AffectedVisit] = Field(description="Visits booked into it since it was arranged")
+
+
+class ArrangeMoreIn(In):
+    arrangements: list[ArrangementIn]
 
 
 # ------------------------------------------------------------------ own customers

@@ -6,13 +6,12 @@ import { Check, Info } from "lucide-react";
 import { useState } from "react";
 import { useLocation, useParams } from "react-router";
 import { api, call } from "../../api/client";
-import { useMe } from "../../api/queries";
 import { Loading } from "../../app/Status";
 import { Button } from "../../shared/Button";
 import { Chip } from "../../shared/Chip";
 import { fmt } from "../../shared/format";
 import { Stepper } from "../../shared/Stepper";
-import { pKeys, useVisit, type FinishOut, type ProviderVisit } from "../api";
+import { pKeys, useHelperMode, useVisit, type FinishOut, type ProviderVisit } from "../api";
 import { BackLink, ErrorNote } from "../components";
 import { css } from "../util";
 
@@ -141,11 +140,10 @@ function FinishForm({ v, timerMinutes, onDone }: { v: ProviderVisit; timerMinute
 export default function Finish() {
   const { visitId } = useParams();
   const location = useLocation();
-  const { data: me } = useMe();
+  const { helper } = useHelperMode();
   const { data: v, isLoading, error } = useVisit(visitId);
   const [done, setDone] = useState<FinishOut | null>(null);
   const state = location.state as { minutes?: number } | null;
-  const helper = !!me?.helper_of;
   if (done) return <Done out={done} helper={helper} />;
   if (isLoading) return <Loading />;
   if (error || !v) return <ErrorNote error={error ?? new Error()} />;

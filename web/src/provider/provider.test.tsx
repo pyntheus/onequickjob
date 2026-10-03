@@ -238,4 +238,49 @@ describe("the provider app", () => {
     expect(screen.getByRole("button", { name: "Finish job" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Demo: add 10 min/ })).not.toBeInTheDocument();
   });
+
+  it("ignores stored demo minutes when demo mode is off", async () => {
+    sessionStorage.setItem("oqj.p.demoExtraMins.v1", "50");
+    const item = {
+      visit_id: "v1", start_time: "10:30", status: "in_progress", is_now: true, category_name: "Lawn mowing",
+      address_line: "12 Orchard Way, Hazlemere", area: "Hazlemere", customer_name: "Sarah W.", est_mins: 38,
+      minutes_actual: null, summary: "", note: "", miles_from_previous: 0.4, performer: "provider", category_id: "mowing",
+      performer_name: "Dave H.", cover_state: "none", cover_allowed: true, charge_status: "none", is_first: false,
+    };
+    mockApi({
+      "GET /api/config": () => config(false),
+      "GET /api/auth/me": () => me,
+      "GET /api/p/today": () => ({ local_date: "2026-10-03", day_text: "Saturday 3 October", items: [item], helpers: [], is_today: true, upcoming_days: [] }),
+      "GET /api/p/visits/v1": () => ({
+        id: "v1", booking_id: "b1", category_id: "mowing", category_name: "Lawn mowing", customer_name: "Sarah W.",
+        address_line: "12 Orchard Way", directions_url: "https://maps", local_date: "2026-10-03",
+        scheduled_start: "2026-10-03T09:30:00Z", status: "in_progress", est_mins: 38, started_at: new Date().toISOString(),
+        finished_at: null, minutes_actual: null, before_photos: [], after_photos: [], note: "", thread_id: null,
+        price_pence: 3000, provider_pence: 2550, charge_status: "none", performer_name: "Dave H.",
+        category_name_lower: "lawn mowing", customer_first: "Sarah", summary: "", window_text: "", is_first: false,
+        performer: "provider", elapsed_seconds: 600, can_start: false, start_note: null, early_start_demo: false,
+        flags: [], flags_none: false, minutes_from_timer: false, overrun: null, fee_percent: 15,
+      }),
+    });
+    renderAt("/p/today");
+    expect(await screen.findByRole("timer")).toHaveTextContent(/^10:0\d$/);
+    expect(screen.getByText("Estimate 38 minutes")).toBeInTheDocument();
+    sessionStorage.clear();
+  });
+
+  it("lets a helper added in the app in, as a helper", async () => {
+    mockApi({
+      "GET /api/config": () => config(false),
+      "GET /api/auth/me": () => ({ ...me, name: "Tom Hughes", roles: [], provider_id: null, helper_of: null }),
+      "GET /api/p/home": () => ({
+        greeting: "Morning, Tom", today_text: "Saturday 3 October", week_earned_pence: 0, week_jobs: 0, rating_avg: null,
+        rating_count: 0, limit, new_jobs: [], coming_up: [], status: "active", helper: true, unread_messages: 0,
+      }),
+    });
+    renderAt("/p");
+    expect(await screen.findByRole("heading", { name: "Morning, Tom" })).toBeInTheDocument();
+    expect(screen.getByText(/the visits you've been sent to/)).toBeInTheDocument();
+    expect(screen.queryByText("New jobs near you")).not.toBeInTheDocument();
+  });
 });
+

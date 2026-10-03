@@ -11,7 +11,7 @@ import { Button } from "../../shared/Button";
 import { Chip } from "../../shared/Chip";
 import { TextField } from "../../shared/Field";
 import { useToast } from "../../shared/toast-context";
-import { useHelpers, useInvalidateProvider, useTimeOff, type AffectedVisit, type HelperOut } from "../api";
+import { useHelpers, useInvalidateProvider, useTimeOff, type AffectedVisit, type HelperOut, type TimeOffOut } from "../api";
 import { BackLink, ErrorNote } from "../components";
 import { css, dateText, londonToday } from "../util";
 
@@ -132,7 +132,67 @@ function Plan({ helpers }: { helpers: HelperOut[] }) {
   );
 }
 
-function Booked() {
+function ArrangeLater({ t, helpers }: { t: TimeOffOut; helpers: HelperOut[] }) {
+  const notify = useToast();
+  const refresh = useInvalidateProvider();
+  const ready = helpers.filter((h) => h.status === "ready");
+  const [plan, setPlan] = useState<Record<string, Choice>>(() =>
+    Object.fromEntries(t.unarranged.map((v) => [v.visit_id, v.cover_allowed ? { action: "cover" } : { action: "skip" }])),
+  );
+  const save = useMutation({
+    mutationFn: () =>
+      call(
+        api.POST("/api/p/time-off/{time_off_id}/arrange", {
+          params: { path: { time_off_id: t.id } },
+          body: { arrangements: t.unarranged.map((v) => ({ visit_id: v.visit_id, ...plan[v.visit_id] })) as Schemas["ArrangementIn"][] },
+        }),
+      ),
+    onSuccess: () => {
+      notify("Arranged. Your customers have been told who's coming.");
+      void refresh();
+    },
+  });
+  return (
+    <div className="stack note-warn-card soft" style={css(10)}>
+      <b>Booked in since you arranged this</b>
+      {t.unarranged.map((v) => {
+        const c = plan[v.visit_id];
+        return (
+          <div key={v.visit_id} className="stack" style={css(6)}>
+            <span className="small">
+              {v.customer_name}: {v.category_name}, {dateText(v.local_date, { weekday: "short", day: "numeric", month: "short" })} at {v.start_time}
+            </span>
+            <div className="chips" role="group" aria-label={`What happens to ${v.customer_name}'s visit`}>
+              {v.cover_allowed && (
+                <Chip on={c?.action === "cover"} onClick={() => setPlan((p) => ({ ...p, [v.visit_id]: { action: "cover" } }))}>
+                  Local cover
+                </Chip>
+              )}
+              {ready.map((h) => (
+                <Chip
+                  key={h.user_id}
+                  on={c?.action === "helper" && c.helper_user_id === h.user_id}
+                  onClick={() => setPlan((p) => ({ ...p, [v.visit_id]: { action: "helper", helper_user_id: h.user_id } }))}
+                >
+                  Send {h.name.split(" ")[0]}
+                </Chip>
+              ))}
+              <Chip on={c?.action === "skip"} onClick={() => setPlan((p) => ({ ...p, [v.visit_id]: { action: "skip" } }))}>
+                Skip it
+              </Chip>
+            </div>
+          </div>
+        );
+      })}
+      <ErrorNote error={save.error} />
+      <Button variant="primary" block disabled={save.isPending} onClick={() => save.mutate()}>
+        Arrange {t.unarranged.length === 1 ? "it" : "them"}
+      </Button>
+    </div>
+  );
+}
+
+function Booked({ helpers }: { helpers: HelperOut[] }) {
   const { data } = useTimeOff();
   const refresh = useInvalidateProvider();
   const cancel = useMutation({
@@ -158,6 +218,7 @@ function Booked() {
               {a.detail}
             </span>
           ))}
+          {t.unarranged.length > 0 && <ArrangeLater t={t} helpers={helpers} />}
           {t.status === "planned" && (
             <Button variant="link" disabled={cancel.isPending} onClick={() => cancel.mutate(t.id)}>
               Cancel this time off
@@ -210,7 +271,7 @@ export default function TimeOff() {
       {isLoading && <Loading />}
       {error && <ErrorNote error={error} />}
       {helpers && <Plan helpers={helpers} />}
-      <Booked />
+      <Booked helpers={helpers ?? []} />
       <div className="card stack" style={css(14)}>
         <div className="row" style={css(10)}>
           <UserPlus size={20} aria-hidden="true" />

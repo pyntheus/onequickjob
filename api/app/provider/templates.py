@@ -16,6 +16,17 @@ register(
 )
 register(
     Template(
+        id="time_off_unarranged",
+        lane="L2",
+        audience="provider",
+        channels=("sms",),
+        trigger="A visit is booked into a provider's time off after they arranged it (once per visit).",
+        body="{brand}: {customer}'s {category} on {date} has been booked while you're away. "
+        "Choose cover, a helper or skip it: {link}",
+    )
+)
+register(
+    Template(
         id="cover_not_found",
         lane="L2",
         audience="provider",

@@ -2,6 +2,8 @@
 and the customer is always told who's coming. A helper signs in with their own phone; the
 app then shows them only the visits they've been sent to."""
 
+from datetime import date
+
 from fastapi import status
 from pymongo.errors import DuplicateKeyError
 
@@ -10,6 +12,7 @@ from app.core.db import Db, DbSession, transaction
 from app.core.errors import fail
 from app.core.phone import InvalidPhone, is_mobile, to_e164
 from app.core.timeutil import london_today
+from app.models.categories import Category
 from app.models.common import Related
 from app.models.providers import Helper, Provider
 from app.models.users import User
@@ -73,23 +76,44 @@ async def list_helpers(db: Db, provider: Provider) -> list[HelperOut]:
     return [helper_out(h, labels) for h in provider.helpers if h.status != "removed"]
 
 
-def ready_helper(provider: Provider, user_id: str) -> Helper:
+def helper_missing(helper: Helper, category: Category, today: date | None = None) -> list[str]:
+    """Document types the helper doesn't hold (verified and in date) for this kind of job: the
+    same rule as eligibility.can_take, on the helper's own documents. A ready helper with no
+    documents on record at all was checked before documents were kept per helper (the seed's
+    Tom); their readiness stands until documents are recorded (contract-changes/L2.md)."""
+    today = today or london_today()
+    if not helper.documents:
+        return []
+    held = {
+        d.type for d in helper.documents if d.status == "verified" and (d.expires_on is None or d.expires_on >= today)
+    }
+    return [t for t in ["identity", *category.requires] if t not in held]
+
+
+def ready_helper(provider: Provider, user_id: str, category: Category | None = None) -> Helper:
+    """The helper, if they can be sent to a visit (of this category): ready, and holding the
+    documents the job needs."""
     helper = next((h for h in provider.helpers if h.user_id == user_id), None)
     if helper is None or helper.status == "removed":
         fail(status.HTTP_404_NOT_FOUND, "not_your_helper", "That helper isn't on your list.")
+    first = helper.name.split(" ")[0]
     if helper.status != "ready":
+        fail(status.HTTP_409_CONFLICT, "helper_not_ready", f"{first} can do visits once we've checked their documents.")
+    if category is not None and helper_missing(helper, category):
         fail(
             status.HTTP_409_CONFLICT,
-            "helper_not_ready",
-            f"{helper.name.split(' ')[0]} can do visits once we've checked their documents.",
+            "helper_missing_documents",
+            f"{first} can't do {category.name.lower()} at the moment: some documents it needs aren't checked "
+            "or have run out.",
         )
     return helper
 
 
 async def add_helper(db: Db, s: Settings, provider: Provider, body: HelperNew) -> HelperOut:
-    """A new helper is a user of their own (no roles; helper_of the provider), invited by text
-    with a single-use sign-in link. A number that already has an account can't be a helper:
-    it would give that person the provider's app."""
+    """A new helper is a user of their own, invited by text with a single-use sign-in link. They
+    have no roles and no helper_of: the provider app finds them through this helper list
+    (app.provider.acting), so they never get the provider's context elsewhere (they can't accept
+    jobs for the provider). A number that already has an account can't be a helper."""
     try:
         phone = to_e164(body.phone)
     except InvalidPhone as e:
@@ -104,7 +128,7 @@ async def add_helper(db: Db, s: Settings, provider: Provider, body: HelperNew) -
             "Ring us and we'll sort it out.",
         )
     name = " ".join(body.name.split())
-    helper_user = User(name=name, phone=phone, roles=[], helper_of=provider.id)
+    helper_user = User(name=name, phone=phone, roles=[])
     helper = Helper(user_id=helper_user.id, name=name, relationship=body.relationship.strip(), status="invited")
 
     async def add(session: DbSession) -> None:

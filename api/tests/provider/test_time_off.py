@@ -162,3 +162,71 @@ async def test_get_cover_for_one_visit(dave_client, db, world):
     start = await dave_client.post(f"/api/p/visits/{world.first.id}/start")
     assert start.status_code == 409, "a visit out for cover isn't started by its regular"
     assert mike
+
+
+async def test_time_off_beyond_six_weeks_still_finds_the_regular_visits(dave_client, db, dave):
+    """Codex review (high): plans only exist six weeks ahead; time off further away must still
+    see (and arrange) every regular visit in it."""
+    customer = await make_customer(db)
+    _, first = await book(db, customer, dave, frequency="weekly")
+    start = first.local_date + timedelta(weeks=9)
+    dates = {"from_date": start.isoformat(), "to_date": (start + timedelta(days=6)).isoformat()}
+    assert await Visits(db).count({"local_date": {"$gte": dates["from_date"]}}) == 0, "not materialised yet"
+    preview = (await dave_client.post("/api/p/time-off/preview", json=dates)).json()
+    assert len(preview) == 1 and preview[0]["local_date"] == start.isoformat()
+    r = await dave_client.post(
+        "/api/p/time-off", json={**dates, "arrangements": [{"visit_id": preview[0]["visit_id"], "action": "skip"}]}
+    )
+    assert r.status_code == 201, r.text
+    assert (await Visits(db).get(preview[0]["visit_id"])).status == "skipped"
+
+
+async def test_a_visit_booked_into_time_off_later_can_be_arranged(dave_client, db, dave):
+    """Codex review: visits that appear in the range after it was arranged show as not arranged,
+    the provider is texted once, and they can be arranged the same way."""
+    from app.provider import time_off as time_off_mod
+
+    visits, dates = await _week(db, dave)
+    every = [{"visit_id": v.id, "action": "skip"} for v in visits]
+    off = (await dave_client.post("/api/p/time-off", json={**dates, "arrangements": every})).json()
+    assert off["unarranged"] == []
+    late_customer = await make_customer(db, "Denise Walsh", "+447700900141")
+    _, late = await book(db, late_customer, dave, frequency="oneoff", from_day=visits[0].local_date)
+    assert late.local_date > visits[0].local_date + timedelta(days=6), "new first visits avoid time off"
+    # A later visit landing in the range (a plan's horizon top-up does this): move it there.
+    from datetime import time
+
+    from app.core.timeutil import london_datetime
+
+    day = visits[0].local_date + timedelta(days=2)
+    late = await Visits(db).update(
+        late.id, {"local_date": day.isoformat(), "scheduled_start": london_datetime(day, time(15, 0))}
+    )
+    listed = (await dave_client.get("/api/p/time-off")).json()[0]
+    assert [u["visit_id"] for u in listed["unarranged"]] == [late.id]
+    for _ in range(2):
+        await time_off_mod.housekeeping(db, make_settings())
+    assert len(await _outbox(db, "time_off_unarranged")) == 1
+    r = await dave_client.post(
+        f"/api/p/time-off/{off['id']}/arrange", json={"arrangements": [{"visit_id": late.id, "action": "skip"}]}
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["unarranged"] == [] and len(r.json()["arrangements"]) == len(visits) + 1
+    assert (await Visits(db).get(late.id)).status == "skipped"
+
+
+async def test_cover_for_a_visit_that_isnt_happening_is_closed(dave_client, db, world, app):
+    """Codex review (medium, mitigation): a customer skipping a visit that's out for cover; the
+    shared accept doesn't check it (contract-changes/L2.md), so L2 closes the request and doesn't
+    offer it."""
+    mike = await make_provider(db, "Mike Reynolds", MIKE_PHONE, ["mowing"])
+    await dave_client.post(f"/api/p/visits/{world.first.id}/cover")
+    req = await JobRequests(db).find_one({"cover_for_visit_id": world.first.id})
+    await Visits(db).update(world.first.id, {"status": "skipped"})  # the customer skipped it (L1)
+    async with client_for(app, db, MIKE_PHONE) as mc:
+        assert (await mc.get("/api/p/jobs")).json() == []
+        o = (await mc.get(f"/api/p/requests/{req.ref}")).json()
+        assert not o["can_take"] and "isn't happening any more" in " ".join(o["not_eligible_reasons"])
+    assert await cover_mod.close_dead_covers(db) == 1
+    assert (await JobRequests(db).get(req.id)).status == "expired"
+    assert mike

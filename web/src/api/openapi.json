@@ -472,6 +472,23 @@
         "title": "AreaOptions",
         "type": "object"
       },
+      "ArrangeMoreIn": {
+        "additionalProperties": false,
+        "properties": {
+          "arrangements": {
+            "items": {
+              "$ref": "#/components/schemas/ArrangementIn"
+            },
+            "title": "Arrangements",
+            "type": "array"
+          }
+        },
+        "required": [
+          "arrangements"
+        ],
+        "title": "ArrangeMoreIn",
+        "type": "object"
+      },
       "ArrangementIn": {
         "additionalProperties": false,
         "properties": {
@@ -8758,6 +8775,14 @@
             "format": "date",
             "title": "To Date",
             "type": "string"
+          },
+          "unarranged": {
+            "description": "Visits booked into it since it was arranged",
+            "items": {
+              "$ref": "#/components/schemas/AffectedVisit"
+            },
+            "title": "Unarranged",
+            "type": "array"
           }
         },
         "required": [
@@ -8765,7 +8790,8 @@
           "from_date",
           "to_date",
           "status",
-          "arrangements"
+          "arrangements",
+          "unarranged"
         ],
         "title": "TimeOffOut",
         "type": "object"
@@ -21013,6 +21039,119 @@
           }
         },
         "summary": "Cancel Time Off",
+        "tags": [
+          "L2 provider"
+        ]
+      }
+    },
+    "/api/p/time-off/{time_off_id}/arrange": {
+      "post": {
+        "description": "Arrange visits booked into time off after it was arranged (cover, helper or skip).",
+        "operationId": "arrange_more_api_p_time_off__time_off_id__arrange_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "time_off_id",
+            "required": true,
+            "schema": {
+              "title": "Time Off Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArrangeMoreIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TimeOffOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          }
+        },
+        "summary": "Arrange More",
         "tags": [
           "L2 provider"
         ]

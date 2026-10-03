@@ -92,11 +92,12 @@ def route_hint(
 
 
 async def cover_days(db: Db, reqs: list[JobRequest]) -> dict[str, date]:
-    """request id -> the day of the visit it covers."""
+    """request id -> the day of the visit it covers, for visits still happening."""
     ids = {r.cover_for_visit_id: r.id for r in reqs if r.cover_for_visit_id}
     if not ids:
         return {}
-    return {ids[v.id]: v.local_date for v in await Visits(db).find({"_id": {"$in": list(ids)}})}
+    found = await Visits(db).find({"_id": {"$in": list(ids)}, "status": "scheduled"})
+    return {ids[v.id]: v.local_date for v in found}
 
 
 # ------------------------------------------------------------------ job cards
@@ -188,6 +189,8 @@ async def list_jobs(db: Db, s: Settings, provider: Provider, today: date | None 
             continue
         if not can_take(provider, cat, today).ok or await _cover_of_own_visit(db, provider, req):
             continue
+        if req.cover_for_visit_id and req.id not in days:
+            continue  # the visit it covers isn't happening any more
         near = miles(req.address, home.lat, home.lng) <= provider.travel_radius_miles
         alerted = req.broadcast is not None and provider.id in req.broadcast.provider_ids
         if near or alerted or req.id in mine_by_request or req.direct_provider_id == provider.id:
@@ -288,6 +291,9 @@ async def job_offer(db: Db, s: Settings, provider: Provider, ref: str) -> JobOff
     own_cover = await _cover_of_own_visit(db, provider, req)
     if own_cover:
         reasons.append("This is cover for your own visit.")
+    dead_cover = cover_visit is not None and cover_visit.status != "scheduled"
+    if dead_cover:
+        reasons.append("The visit this covers isn't happening any more.")
     booked_by_me = req.status == "booked" and req.booked is not None and req.booked.provider_id == provider.id
 
     customer = await Customers(db).get(req.customer_id)
@@ -330,7 +336,7 @@ async def job_offer(db: Db, s: Settings, provider: Provider, ref: str) -> JobOff
     lo, hi = counter_bounds(req.guide_pence)
     start = min(hi, max(lo, round_to_pound(D(req.guide_pence) * D("1.2"))))
     reasons_for = COUNTER_REASONS.get(cat.id) or COUNTER_REASONS[cat.group]
-    can = elig.ok and not own_cover and req.status == "open"
+    can = elig.ok and not own_cover and not dead_cover and req.status == "open"
     return JobOffer(
         card=the_card,
         approx=req.approx,

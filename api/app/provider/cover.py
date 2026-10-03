@@ -224,6 +224,34 @@ async def tell_customer_skipped(db: Db, s: Settings, visit: Visit, cat_name: str
     )
 
 
+async def close_dead_covers(db: Db) -> int:
+    """Cover requests whose visit isn't happening any more (the customer skipped it, or the plan
+    was cancelled): close them, so nobody takes a visit that won't happen. The shared accept
+    doesn't check this itself yet (contract-changes/L2.md)."""
+    closed = 0
+    for req in await JobRequests(db).find({"status": "open", "cover_for_visit_id": {"$type": "string"}}):
+        visit = await Visits(db).get(req.cover_for_visit_id or "")
+        if visit is not None and visit.status == "scheduled":
+            continue
+
+        async def close(session: DbSession, req: JobRequest = req) -> bool:
+            event = RequestEvent(at=utcnow(), kind="note", text="The visit isn't happening any more")
+            done = await JobRequests(db).update(
+                req.id,
+                {"status": "expired"},
+                push={"events": event.model_dump(mode="python")},
+                extra_filter={"status": "open"},
+                session=session,
+            )
+            if done is not None:
+                await Offers(db).lapse_pending(req.id, session=session)
+            return done is not None
+
+        if await transaction(db, close):
+            closed += 1
+    return closed
+
+
 async def expire_uncovered(db: Db, s: Settings, today: date | None = None) -> int:
     """Cover requests still open the day before their visit: nobody took it, so the request
     expires, the visit is skipped, and the customer and the provider are told. Each one is its

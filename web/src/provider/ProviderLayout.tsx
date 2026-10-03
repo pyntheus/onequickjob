@@ -8,6 +8,7 @@ import { Brand } from "../shared/Brand";
 import { Button } from "../shared/Button";
 import { SignInForm } from "../shared/SignInForm";
 import "./install";
+import { useHelperMode } from "./api";
 import { TABS, tabOf } from "./tabs";
 
 /** The service worker caches the app shell only (public/p/sw.js), in built apps: never in the
@@ -77,6 +78,7 @@ function useMagicLink(): { pending: boolean; error: string | null } {
 function Body({ signup }: { signup: boolean }) {
   const magic = useMagicLink();
   const { data: me, isLoading } = useMe();
+  const { helper, known } = useHelperMode();
   if (magic.pending || isLoading) return <Loading label={magic.pending ? "Signing you in…" : "Loading…"} />;
   if (!me) {
     return (
@@ -93,7 +95,8 @@ function Body({ signup }: { signup: boolean }) {
       </div>
     );
   }
-  if (!signup && !hasRole(me, "provider") && !me.helper_of) {
+  if (!signup && !hasRole(me, "provider") && !me.helper_of && !known) return <Loading />;
+  if (!signup && !hasRole(me, "provider") && !me.helper_of && !helper) {
     return (
       <Notice title="This is for providers">
         <p className="muted">Want to take local jobs? Signing up takes about 10 minutes.</p>

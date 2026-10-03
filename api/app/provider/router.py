@@ -56,6 +56,7 @@ from app.provider import (
 from app.provider.acting import Act, Owner, require_owner
 from app.provider.schemas import (
     AffectedVisit,
+    ArrangeMoreIn,
     CallbackIn,
     CounterPreview,
     DocumentIn,
@@ -302,6 +303,12 @@ async def list_time_off(provider: Owner, db: DbDep) -> list[TimeOffOut]:
 @router.post("/time-off", status_code=status.HTTP_201_CREATED)
 async def book_time_off(body: TimeOffIn, provider: Owner, db: DbDep, s: SettingsDep) -> TimeOffOut:
     return await time_off_mod.book(db, s, provider, body)
+
+
+@router.post("/time-off/{time_off_id}/arrange")
+async def arrange_more(time_off_id: str, body: ArrangeMoreIn, provider: Owner, db: DbDep, s: SettingsDep) -> TimeOffOut:
+    """Arrange visits booked into time off after it was arranged (cover, helper or skip)."""
+    return await time_off_mod.arrange_more(db, s, provider, time_off_id, body.arrangements)
 
 
 @router.delete("/time-off/{time_off_id}", status_code=status.HTTP_204_NO_CONTENT)

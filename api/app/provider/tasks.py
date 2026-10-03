@@ -16,7 +16,7 @@ from app.core.tasks import periodic
 from app.core.timeutil import add_months, london_today, tax_year, tax_year_bounds, to_london, utcnow
 from app.models.common import Related
 from app.provider import templates as _templates  # noqa: F401 (registers L2's extra outbox templates)
-from app.provider.cover import expire_uncovered
+from app.provider.cover import close_dead_covers, expire_uncovered
 from app.provider.finish import resume_pending_charges
 from app.provider.own_customers import expire_invites
 from app.provider.time_off import housekeeping
@@ -121,6 +121,7 @@ async def give_up_on_cover(db: Db, s: Settings, now: datetime | None = None) -> 
     """Nobody took a cover by 6pm the day before: skip it and tell everyone (app.provider.cover)."""
     now = now or utcnow()
     today = to_london(now).date()
+    await close_dead_covers(db)
     return await expire_uncovered(db, s, today if evening(now) else today - timedelta(days=1))
 
 

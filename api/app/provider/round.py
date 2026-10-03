@@ -25,6 +25,7 @@ from app.provider.schemas import PhotoIn, ProviderVisit, RoundItem, TodayRound
 from app.repos.bookings import Bookings
 from app.repos.customers import Customers
 from app.repos.files import Files
+from app.repos.providers import Providers
 from app.repos.series import SeriesRepo
 from app.repos.users import Users
 from app.repos.visits import Visits
@@ -226,6 +227,8 @@ async def start_visit(db: Db, s: Settings, a: Acting, visit_id: str) -> Visit:
     if v.status == "in_progress":
         return v
     can, why, _ = _start_check(v, s, london_today())
+    if can and a.as_helper is not None:  # a helper starting a visit they were sent to
+        ready_helper(a.provider, a.user_id, (await categories(db))[v.category_id])
     if not can:
         if v.status != "scheduled":
             fail(status.HTTP_409_CONFLICT, "not_scheduled", "That visit can't be started.")
@@ -265,7 +268,8 @@ async def send_helper(db: Db, s: Settings, a: Acting, visit_id: str, helper_user
         fail(status.HTTP_409_CONFLICT, "not_scheduled", "That visit isn't coming up any more.")
     if v.performer.kind == "cover" or v.cover.state != "none":
         fail(status.HTTP_409_CONFLICT, "already_offered", "That visit has gone out for cover.")
-    helper = ready_helper(a.provider, helper_user_id)
+    cat = (await categories(db))[v.category_id]
+    helper = ready_helper(a.provider, helper_user_id, cat)
     if v.performer.user_id == helper.user_id:
         return v
     performer = Performer(
@@ -275,6 +279,11 @@ async def send_helper(db: Db, s: Settings, a: Acting, visit_id: str, helper_user
     cu = await Users(db).get(customer.user_id) if customer else None
 
     async def send(session: DbSession) -> Visit:
+        # The helper as they are now, in this transaction (writing the provider makes a concurrent
+        # change to their documents or status conflict with it, and the re-run sees it).
+        now = await Providers(db).update(a.provider.id, {}, session=session)
+        assert now is not None
+        ready_helper(now, helper_user_id, cat)
         updated = await Visits(db).update(
             v.id,
             {"performer": performer.model_dump()},

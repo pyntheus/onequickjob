@@ -17,7 +17,7 @@ import { Stars } from "../../shared/Stars";
 import { Stepper } from "../../shared/Stepper";
 import { Toggle } from "../../shared/Toggle";
 import { useToast } from "../../shared/toast-context";
-import { useDebounced, useDocuments, useLimit, usePatchProfile, useProfile, type ProviderProfile } from "../api";
+import { useDebounced, useDocuments, useHelperMode, useLimit, usePatchProfile, useProfile, type ProviderProfile } from "../api";
 import { ErrorNote } from "../components";
 import { DocRow } from "../Documents";
 import { isStandalone, useInstallPrompt } from "../install";
@@ -181,7 +181,7 @@ function HelperMe() {
 
 export default function Me() {
   const { data: me } = useMe();
-  const helper = !!me?.helper_of;
+  const { helper } = useHelperMode();
   const { data: p, isLoading, error } = useProfile(!!me && !helper);
   const { data: limit } = useLimit();
   if (!me) return <Loading />;

@@ -112,3 +112,59 @@ async def test_today_shows_another_day_when_asked(dave_client, db, world):
     assert [i["visit_id"] for i in r.json()["items"]] == [world.first.id]
     nothing = await dave_client.get("/api/p/today", params={"date": (day - timedelta(days=60)).isoformat()})
     assert nothing.json()["items"] == []
+
+
+async def test_a_helper_added_in_the_app_cant_accept_or_counter_for_the_provider(app, dave_client, db, world):
+    """Codex review (high): helpers added in the app get no provider context, so the shared offer
+    endpoints refuse them; they still see their own visits and add their documents."""
+    from app.repos import Providers
+    from tests.factories import make_request
+
+    r = await dave_client.post("/api/p/helpers", json={"name": "Tom Hughes", "phone": "07700 900220"})
+    assert r.status_code == 201, r.text
+    req = await make_request(db, world.customer)
+    async with client_for(app, db, TOM_PHONE) as tc:
+        assert (await tc.post(f"/api/p/requests/{req.ref}/accept")).status_code == 403
+        assert (await tc.post(f"/api/p/requests/{req.ref}/counter", json={"price_pence": 3700})).status_code == 403
+        home = await tc.get("/api/p/home")
+        assert home.status_code == 200 and home.json()["helper"] is True and home.json()["new_jobs"] == []
+        assert (await tc.get("/api/p/jobs")).status_code == 403
+        assert (await tc.get("/api/p/today")).json()["items"] == []
+        assert (await tc.get("/api/p/documents")).status_code == 200
+    assert (await db["job_requests"].find_one({"_id": req.id}))["status"] == "open"
+    tom = (await Providers(db).get(world.dave.id)).helpers[0]
+    await db["providers"].update_one(
+        {"_id": world.dave.id, "helpers.user_id": tom.user_id}, {"$set": {"helpers.$.status": "removed"}}
+    )
+    async with client_for(app, db, TOM_PHONE) as tc:
+        assert (await tc.get("/api/p/home")).status_code == 403, "a removed helper loses access"
+
+
+async def test_a_helper_needs_the_documents_the_job_needs(dave_client, db, world, catalogue):
+    """Codex review (high): a helper whose basic DBS check has run out can't be sent to a
+    cleaning visit; with it in date, they can."""
+    from datetime import date
+
+    from app.models.providers import ProviderDocument
+
+    tom = await add_tom(db, world.dave)
+    _, cleaning = await book(db, world.customer, world.dave, category="cleaning")
+
+    async def set_docs(dbs_expires: date) -> None:
+        docs = [
+            ProviderDocument(
+                type=t, status="verified", expires_on=dbs_expires if t == "dbs_basic" else date(2030, 1, 1)
+            )
+            for t in ("identity", "insurance", "dbs_basic")
+        ]
+        await db["providers"].update_one(
+            {"_id": world.dave.id, "helpers.user_id": tom.id},
+            {"$set": {"helpers.$.documents": [d.model_dump(mode="python") for d in docs]}},
+        )
+
+    await set_docs(london_today() - timedelta(days=1))
+    r = await dave_client.post(f"/api/p/visits/{cleaning.id}/send-helper", json={"helper_user_id": tom.id})
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "helper_missing_documents"
+    await set_docs(london_today() + timedelta(days=200))
+    ok = await dave_client.post(f"/api/p/visits/{cleaning.id}/send-helper", json={"helper_user_id": tom.id})
+    assert ok.status_code == 200, ok.text

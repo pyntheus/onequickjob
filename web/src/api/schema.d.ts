@@ -1965,6 +1965,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/p/time-off/{time_off_id}/arrange": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Arrange More
+         * @description Arrange visits booked into time off after it was arranged (cover, helper or skip).
+         */
+        post: operations["arrange_more_api_p_time_off__time_off_id__arrange_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/p/today": {
         parameters: {
             query?: never;
@@ -2368,6 +2388,11 @@ export interface components {
             estimator: string;
             /** Tolerance Note */
             tolerance_note: string;
+        };
+        /** ArrangeMoreIn */
+        ArrangeMoreIn: {
+            /** Arrangements */
+            arrangements: components["schemas"]["ArrangementIn"][];
         };
         /** ArrangementIn */
         ArrangementIn: {
@@ -5643,6 +5668,11 @@ export interface components {
              * Format: date
              */
             to_date: string;
+            /**
+             * Unarranged
+             * @description Visits booked into it since it was arranged
+             */
+            unarranged: components["schemas"]["AffectedVisit"][];
         };
         /** TimeOffRange */
         TimeOffRange: {
@@ -15538,6 +15568,95 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    arrange_more_api_p_time_off__time_off_id__arrange_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                time_off_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ArrangeMoreIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TimeOffOut"];
+                };
             };
             /** @description Bad Request */
             400: {

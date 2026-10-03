@@ -5,12 +5,12 @@ import { MessageCircle, Navigation, Timer, UserPlus, Users } from "lucide-react"
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { api, call } from "../../api/client";
-import { useConfig, useMe } from "../../api/queries";
+import { useConfig } from "../../api/queries";
 import { Loading } from "../../app/Status";
 import { Button } from "../../shared/Button";
 import { Chip } from "../../shared/Chip";
 import { useToast } from "../../shared/toast-context";
-import { pKeys, useInvalidateProvider, useToday, useVisit, type RoundItem, type TodayRound } from "../api";
+import { pKeys, useHelperMode, useInvalidateProvider, useToday, useVisit, type RoundItem, type TodayRound } from "../api";
 import { ErrorNote, Note, PhotoCheck } from "../components";
 import { clock, css, dateText, errorText } from "../util";
 
@@ -62,7 +62,8 @@ function OnJob({ item, demo }: { item: RoundItem; demo: boolean }) {
   if (error) return <ErrorNote error={error} />;
   if (!v) return <Loading />;
 
-  const elapsed = (v.elapsed_seconds ?? 0) + (running ? (now - dataUpdatedAt) / 1000 : 0) + extra * 60;
+  // Demo minutes count only while DEMO_MODE is on: never in calibration data from a real round.
+  const elapsed = (v.elapsed_seconds ?? 0) + (running ? Math.max(0, now - dataUpdatedAt) / 1000 : 0) + (demo ? extra * 60 : 0);
   const mins = elapsed / 60;
   const over = mins > v.est_mins * 1.1;
   const addTen = () => {
@@ -248,7 +249,7 @@ export default function Today() {
   const [params] = useSearchParams();
   const date = params.get("date");
   const { data: config } = useConfig();
-  const { data: me } = useMe();
+  const { helper } = useHelperMode();
   const { data: round, isLoading, error } = useToday(date);
   const isToday = !date || round?.is_today;
   const heading = isToday ? "Today's round" : `${dateText(date ?? "", { weekday: "long" })}'s round`;
@@ -296,7 +297,7 @@ export default function Today() {
           ))}
         </div>
       )}
-      {round && !me?.helper_of && <CantMakeIt round={round} />}
+      {round && !helper && <CantMakeIt round={round} />}
     </>
   );
 }

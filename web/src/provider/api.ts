@@ -6,6 +6,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { api, call, toApiError, type Schemas } from "../api/client";
+import { hasRole, useMe } from "../api/queries";
 
 export type ProviderHome = Schemas["ProviderHome"];
 export type JobCard = Schemas["JobCard"];
@@ -65,6 +66,20 @@ export function useDebounced<T>(value: T, ms = 250): T {
 
 export function useHome() {
   return useQuery({ queryKey: pKeys.home, queryFn: () => call(api.GET("/api/p/home")), refetchInterval: 60_000 });
+}
+
+/** Is a helper using the app? Helpers added in the app have no provider role and no helper_of
+ * (so the shared offer endpoints refuse them): the API recognises them through the provider's
+ * helper list, and /api/p/home says so. */
+export function useHelperMode(): { helper: boolean; known: boolean } {
+  const { data: me } = useMe();
+  const provider = hasRole(me, "provider") && !me?.helper_of;
+  const ask = !!me && !provider && !me.helper_of;
+  const home = useQuery({ queryKey: pKeys.home, queryFn: () => call(api.GET("/api/p/home")), enabled: ask, retry: false });
+  if (!me) return { helper: false, known: false };
+  if (me.helper_of) return { helper: true, known: true };
+  if (provider) return { helper: false, known: true };
+  return { helper: !!home.data?.helper, known: !home.isLoading };
 }
 
 export function useOffer(ref: string) {
