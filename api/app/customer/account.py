@@ -187,6 +187,7 @@ def _tags(tags: list[str]) -> list[str]:
 
 
 TIP_RETRY_AFTER = timedelta(minutes=5)
+RECONCILE_BATCH = 100
 log = logging.getLogger("oqj.tips")
 
 
@@ -301,9 +302,9 @@ async def settle_tip(db: Db, s: Settings, gateway: PaymentGateway, visit_id: str
         )
     except Exception:  # outcome unknown: stays pending, and the same key is retried later
         log.exception("tip charge for visit %s failed to complete", visit.id)
-        return "pending"
+        return await _still_pending(db, visit.id)
     if result.status == "pending":
-        return "pending"
+        return await _still_pending(db, visit.id)
     ok = result.status == "succeeded"
     charge = Charge(
         status="succeeded" if ok else "failed",
@@ -340,11 +341,21 @@ async def settle_tip(db: Db, s: Settings, gateway: PaymentGateway, visit_id: str
     return "charged" if stored and stored.tip_charge and stored.tip_charge.status == "succeeded" else "failed"
 
 
+async def _still_pending(db: Db, visit_id: str) -> str:
+    """Push the tip to the back of the retry queue (its updated_at), so tips that keep coming back
+    pending can't crowd out the rest."""
+    await Visits(db).update(visit_id, {}, extra_filter={"tip_charge.status": "pending"})
+    return "pending"
+
+
 async def reconcile_tips(db: Db, s: Settings, gateway: PaymentGateway) -> int:
     """Tips still pending a few minutes after the rating (a crash or gateway error between the
-    two steps): settle them with the same idempotency key. Returns how many settled."""
+    two steps): settle them with the same idempotency key, longest-waiting first. Returns how many
+    settled."""
     stale = await Visits(db).find(
-        {"tip_charge.status": "pending", "updated_at": {"$lt": utcnow() - TIP_RETRY_AFTER}}, limit=100
+        {"tip_charge.status": "pending", "updated_at": {"$lt": utcnow() - TIP_RETRY_AFTER}},
+        sort=[("updated_at", 1)],
+        limit=RECONCILE_BATCH,
     )
     n = 0
     for v in stale:
@@ -578,6 +589,7 @@ async def update_plan(
         return series
 
     async def apply(session: DbSession) -> Series:
+        now = utcnow()  # visits still to come, including later today; ones under way are left alone
         updated = await SeriesRepo(db).update(
             series.id, set_, extra_filter={"status": {"$ne": "cancelled"}}, session=session
         )
@@ -586,7 +598,7 @@ async def update_plan(
         future = await Visits(db).find(
             {
                 "series_id": series.id,
-                "local_date": {"$gt": today.isoformat()},
+                "scheduled_start": {"$gt": now},
                 "status": {"$in": ["scheduled", "skipped", "cancelled"]},
             },
             sort=[("local_date", 1)],
@@ -617,7 +629,7 @@ async def update_plan(
             future = await Visits(db).find(
                 {
                     "series_id": series.id,
-                    "local_date": {"$gt": today.isoformat()},
+                    "scheduled_start": {"$gt": now},
                     "status": {"$in": ["scheduled", "skipped", "cancelled"]},
                 },
                 sort=[("local_date", 1)],

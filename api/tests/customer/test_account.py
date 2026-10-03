@@ -289,6 +289,83 @@ async def test_cancelling_a_plan_cancels_a_visit_later_today(client, db, catalog
     assert (await Visits(db).get(second.id)).status == "in_progress"
 
 
+async def _first_visit_later_today(db, visit_id: str) -> None:
+    from app.core.timeutil import london_today, utcnow
+
+    await Visits(db).update(
+        visit_id, {"local_date": london_today().isoformat(), "scheduled_start": utcnow() + timedelta(minutes=30)}
+    )
+
+
+async def test_an_away_pause_from_today_skips_a_visit_later_today(client, db, catalogue):
+    """Codex re-check (medium)."""
+    _dave, booking, first = await _booked(client, db, "cleaning")
+    await _first_visit_later_today(db, first.id)
+    today = london_today().isoformat()
+    body = {"away_from": today, "away_to": (london_today() + timedelta(days=3)).isoformat()}
+    assert (await client.patch(f"/api/c/plans/{booking.series_id}", json=body)).status_code == 200
+    assert (await Visits(db).get(first.id)).status == "skipped"
+
+
+async def test_a_frequency_change_keeps_a_visit_later_today_as_the_anchor(client, db, catalogue):
+    """Codex re-check (medium): fortnightly to weekly before today's visit keeps next week's."""
+    _dave, booking, first = await _booked(client, db)
+    await _first_visit_later_today(db, first.id)
+    assert (await client.patch(f"/api/c/plans/{booking.series_id}", json={"frequency": "weekly"})).status_code == 200
+    scheduled = [
+        v.local_date
+        for v in await Visits(db).find(
+            {"series_id": booking.series_id, "status": "scheduled"}, sort=[("local_date", 1)]
+        )
+    ]
+    assert scheduled[0] == london_today() and scheduled[1] == london_today() + timedelta(days=7), scheduled
+
+
+async def test_stuck_tips_cannot_starve_the_rest(client, db, catalogue, monkeypatch):
+    """Codex re-check (medium): 100 tips that keep failing ahead of one that can be settled."""
+    from app.adapters.payments.fake import FakeGateway
+    from app.core.ids import new_id
+    from app.core.timeutil import utcnow
+    from app.customer import account
+    from app.models.visits import Charge
+    from tests.conftest import make_settings
+
+    _dave, _booking, first = await _booked(client, db)
+    base = await Visits(db).get(first.id)
+    old = utcnow() - timedelta(hours=1)
+    stuck = set()
+    for i in range(101):
+        v = base.model_copy(
+            update={
+                "id": new_id(),
+                "series_id": None,
+                "is_first": False,
+                "status": "finished",
+                "tip_pence": 200,
+                "tip_charge": Charge(status="pending", amount_pence=200, idempotency_key=f"t{i}"),
+            }
+        )
+        await Visits(db).insert(v)
+        await Visits(db).coll.update_one({"_id": v.id}, {"$set": {"updated_at": old + timedelta(seconds=i)}})
+        if i < 100:
+            stuck.add(v.id)
+    last = v.id
+    real = FakeGateway.charge_visit
+
+    async def flaky(self, visit, *a, **kw):
+        if visit.visit_id in stuck:
+            raise TimeoutError("no answer")
+        return await real(self, visit, *a, **kw)
+
+    monkeypatch.setattr(FakeGateway, "charge_visit", flaky)
+    monkeypatch.setattr(account, "RECONCILE_BATCH", 10)
+    monkeypatch.setattr(account, "TIP_RETRY_AFTER", timedelta(0))
+    settled = 0
+    for _ in range(11):
+        settled += await account.reconcile_tips(db, make_settings(), FakeGateway(db))
+    assert settled == 1 and (await Visits(db).get(last)).tip_charge.status == "succeeded"
+
+
 async def test_cancelling_a_plan_cancels_future_visits_with_no_fee(client, db, catalogue):
     _dave, booking, _first = await _booked(client, db)
     r = await client.post(f"/api/c/plans/{booking.series_id}/cancel")
