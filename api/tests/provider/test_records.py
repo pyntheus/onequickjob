@@ -1,7 +1,7 @@
 """Mileage, the tax summary and pack, and expenses: everything derived from ledger_entries,
 mileage_logs and expenses."""
 
-from datetime import timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 
 from app.core import money
@@ -160,3 +160,27 @@ async def test_earnings_show_eight_weeks_and_this_weeks_jobs(dave_client, db, wo
     assert e["week_net_pence"] == 2550 and e["week_jobs"] == 1
     assert sum(w["net_pence"] for w in e["weekly"]) == 5100
     assert e["limit"]["on"] is False and e["own_customers_active"] == 0
+
+
+async def test_mileage_days_add_up_to_the_years_allowance(dave_client, db, world):
+    """Codex third review (medium): each day's amount is its share of the year's allowance, so
+    the rows in the tax pack reconcile exactly with the summary, across the 10,000-mile drop to
+    25p and with rounding."""
+    today = london_today()
+    start = date(int(tax_year(today)[:4]), 4, 6)
+    for i, miles in enumerate([0.1, 0.1, 9999.9, 1000.0, 0.3]):
+        day = start + timedelta(days=i)
+        await MileageLogs(db).insert(
+            MileageLog(
+                provider_id=world.dave.id, local_date=day, tax_year=tax_year(day), legs=[], miles=miles, amount_pence=0
+            )
+        )
+    t = (await dave_client.get("/api/p/tax")).json()
+    amounts = [d["amount_pence"] for d in sorted(t["trips"], key=lambda d: d["local_date"])]
+    assert amounts[:2] == [5, 4], "0.1 miles is 4.5p (5p); 0.2 is 9p, so the second day is 4p"
+    assert sum(amounts) == t["mileage_pence"] == year_mileage_pence(Decimal("11000.4"))
+    assert t["mileage_pence"] == 10_000 * 45 + round(Decimal("1000.4") * 25)  # 450,000p + 25,010p
+    days = (await dave_client.get("/api/p/mileage")).json()
+    assert sorted(d["amount_pence"] for d in days) == sorted(amounts)
+    pack = (await dave_client.get("/api/p/tax/pack.csv")).text
+    assert f"{t['mileage_pence'] // 100}.{t['mileage_pence'] % 100:02d}" in pack

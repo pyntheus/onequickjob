@@ -1,6 +1,6 @@
 """The Jobs tab's header: greeting, this week's earnings, rating, the limit and coming up."""
 
-from datetime import timedelta
+from datetime import date, timedelta
 
 from app.core.config import Settings
 from app.core.db import Db
@@ -9,7 +9,7 @@ from app.provider.acting import Acting
 from app.provider.common import categories
 from app.provider.jobs import list_jobs
 from app.provider.limit import get_limit
-from app.provider.schemas import ProviderHome, UpcomingVisit
+from app.provider.schemas import LimitView, ProviderHome, UpcomingVisit
 from app.provider.threads import unread_total
 from app.repos.bookings import Bookings
 from app.repos.ledger_entries import LedgerEntries
@@ -17,6 +17,20 @@ from app.repos.visits import Visits
 from app.services import wording
 
 COMING_UP = 4
+
+
+def _no_limit(today: date) -> LimitView:
+    """A helper sees nothing of the provider's money: not even their earnings limit."""
+    return LimitView(
+        on=False,
+        period="week",
+        amount_pence=0,
+        earned_pence=0,
+        remaining_pence=None,
+        reached=False,
+        resumes_on=today,
+        used_percent=0,
+    )
 
 
 def greeting(name: str) -> str:
@@ -64,7 +78,7 @@ async def home(db: Db, s: Settings, a: Acting) -> ProviderHome:
         week_jobs=0 if a.helper else sum(1 for e in week if e.kind == "charge"),
         rating_avg=p.stats.rating_avg,
         rating_count=p.stats.rating_count,
-        limit=await get_limit(db, p, today),
+        limit=_no_limit(today) if a.helper else await get_limit(db, p, today),
         new_jobs=[] if a.helper else await list_jobs(db, s, p, today),
         coming_up=coming,
         status=p.status,

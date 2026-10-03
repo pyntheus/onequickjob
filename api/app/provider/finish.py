@@ -49,7 +49,10 @@ from app.services.notify import link, notify, recipient_for
 
 log = logging.getLogger("oqj.provider.finish")
 
-RESUME_AFTER = timedelta(minutes=2)  # a charge in flight is left alone this long
+# A claimed charge is left alone this long before another request may resume it: far longer than
+# any gateway call can take (Stripe's client gives up well before), so the first call has ended.
+# (L3's fake gateway also makes one charge per key even for concurrent calls.)
+RESUME_AFTER = timedelta(minutes=10)
 
 
 def charge_key(visit_id: str) -> str:

@@ -98,11 +98,30 @@ def day_mileage(home: Point, stops: list[Point], rate_pence: int = MILEAGE_RATE_
     return DayMileage(legs=legs, miles=miles, amount_pence=round_half_up(miles * rate_pence))
 
 
-def year_mileage_pence(miles: Decimal) -> int:
-    """HMRC's rate for a tax year's business miles: 45p for the first 10,000, 25p after."""
+def _allowance(miles: Decimal) -> Decimal:
     first = min(miles, Decimal(MILEAGE_THRESHOLD))
     rest = max(Decimal(0), miles - MILEAGE_THRESHOLD)
-    return round_half_up(first * MILEAGE_RATE_PENCE + rest * MILEAGE_RATE_AFTER_PENCE)
+    return first * MILEAGE_RATE_PENCE + rest * MILEAGE_RATE_AFTER_PENCE
+
+
+def year_mileage_pence(miles: Decimal) -> int:
+    """HMRC's rate for a tax year's business miles: 45p for the first 10,000, 25p after."""
+    return round_half_up(_allowance(miles))
+
+
+def allowance_by_day(logs: list[MileageLog]) -> dict[date, int]:
+    """Each day's share of the tax year's mileage allowance, in date order: the allowance on the
+    year's running total after that day (rounded half-up) less what the days before it already
+    had. So the days add up exactly to year_mileage_pence of the year's miles, and the rate drops
+    to 25p from the 10,001st mile."""
+    out: dict[date, int] = {}
+    running, given = Decimal(0), 0
+    for log in sorted(logs, key=lambda x: x.local_date):
+        running += D(log.miles)
+        total = year_mileage_pence(running)
+        out[log.local_date] = total - given
+        given = total
+    return out
 
 
 async def record_mileage_day(db: Db, provider_id: str, day: date, *, session: DbSession) -> MileageLog | None:
@@ -166,16 +185,16 @@ def route_text(log: MileageLog) -> str:
     return ", ".join(names)
 
 
-def mileage_day(log: MileageLog) -> MileageDay:
-    return MileageDay(
-        local_date=log.local_date, route_text=route_text(log), miles=log.miles, amount_pence=log.amount_pence
-    )
+def mileage_day(log: MileageLog, amount_pence: int) -> MileageDay:
+    """One day's trip, with its share of the year's allowance (allowance_by_day)."""
+    return MileageDay(local_date=log.local_date, route_text=route_text(log), miles=log.miles, amount_pence=amount_pence)
 
 
 async def mileage(db: Db, provider: Provider, label: str | None = None) -> list[MileageDay]:
     label = label or tax_year(london_today())
     logs = await MileageLogs(db).find({"provider_id": provider.id, "tax_year": label}, sort=[("local_date", -1)])
-    return [mileage_day(log) for log in logs]
+    amounts = allowance_by_day(logs)
+    return [mileage_day(log, amounts[log.local_date]) for log in logs]
 
 
 # ------------------------------------------------------------------ earnings
@@ -287,6 +306,7 @@ async def tax_summary(db: Db, provider: Provider, label: str | None = None) -> T
     logs = await MileageLogs(db).find({"provider_id": provider.id, "tax_year": label}, sort=[("local_date", -1)])
     miles_total = sum((D(log.miles) for log in logs), Decimal(0))
     mileage_pence = year_mileage_pence(miles_total)
+    amounts = allowance_by_day(logs)
     expenses = await Expenses(db).find({"provider_id": provider.id, "tax_year": label}, sort=[("local_date", -1)])
     expenses_pence = sum(e.amount_pence for e in expenses)
     costs = fees + mileage_pence + expenses_pence
@@ -311,7 +331,7 @@ async def tax_summary(db: Db, provider: Provider, label: str | None = None) -> T
         costs_profit_pence=costs_profit,
         better=better,
         difference_pence=abs(allowance_profit - costs_profit),
-        trips=[mileage_day(log) for log in logs],
+        trips=[mileage_day(log, amounts[log.local_date]) for log in logs],
         expenses=[await expense_out(db, e) for e in expenses],
         key_dates=key_dates(label),
         ends_on=ends,
@@ -426,7 +446,7 @@ async def tax_pack_csv(db: Db, provider: Provider, label: str | None = None) -> 
         )
     w.writerow([])
     w.writerow(["Mileage (a calculated estimate: straight-line distance x 1.25 for roads)"])
-    w.writerow(["Date", "Route", "Miles", "Amount at 45p a mile"])
+    w.writerow(["Date", "Route", "Miles", "Allowance"])
     for d in reversed(t.trips):
         w.writerow([d.local_date.isoformat(), safe_cell(d.route_text), f"{d.miles:g}", pounds(d.amount_pence)])
     w.writerow([])

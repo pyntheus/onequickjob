@@ -222,3 +222,17 @@ async def test_a_pending_offer_appears_on_the_offer(dave_client, db, dave):
     await dave_client.post(f"/api/p/requests/{req.ref}/counter", json={"price_pence": 3700})
     stored = await Offers(db).find_one({"request_id": req.id})
     assert isinstance(stored, Offer) and stored.status == "pending"
+
+
+async def test_a_helper_sees_none_of_the_providers_money(app, db, dave):
+    """Codex third review (medium): no earnings and no limit on a helper's home."""
+    from tests.provider.conftest import TOM_PHONE, add_tom
+
+    await db["providers"].update_one(
+        {"_id": dave.id}, {"$set": {"earnings_limit": {"on": True, "period": "week", "amount_pence": 25000}}}
+    )
+    await add_tom(db, dave)
+    async with client_for(app, db, TOM_PHONE) as tc:
+        home = (await tc.get("/api/p/home")).json()
+    assert home["week_earned_pence"] == 0 and home["limit"]["on"] is False
+    assert home["limit"]["amount_pence"] == 0 and home["limit"]["earned_pence"] == 0
