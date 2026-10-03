@@ -6,6 +6,7 @@ from datetime import timedelta
 from app.core.timeutil import add_months, london_today
 from app.repos import Providers
 from app.services.eligibility import can_take
+from tests.admin.conftest import jo  # noqa: F401 (the signed-in admin client)
 from tests.provider.conftest import TOM_PHONE, add_tom, client_for
 
 
@@ -57,8 +58,27 @@ async def test_a_renewal_keeps_the_provider_eligible_while_it_is_checked(dave_cl
         json={"type": "dbs_basic", "file_id": await _upload(dave_client), "issued_on": london_today().isoformat()},
     )
     p = await Providers(db).get(dave.id)
-    assert [d.status for d in p.documents if d.type == "dbs_basic"] == ["verified", "pending"]
+    assert sorted(d.status for d in p.documents if d.type == "dbs_basic") == ["pending", "verified"]
     assert can_take(p, catalogue["cleaning"]).ok
+
+
+async def test_an_admin_checking_a_renewal_checks_the_upload_not_the_old_copy(dave_client, db, dave, jo):  # noqa: F811
+    """L3's verify takes the first document of a type: the renewal, so its file and dates are
+    the ones checked, and it replaces the old copy."""
+    old = next(d for d in dave.documents if d.type == "insurance")
+    until = london_today() + timedelta(days=400)
+    fid = await _upload(dave_client)
+    r = await dave_client.post(
+        "/api/p/documents", json={"type": "insurance", "file_id": fid, "expires_on": until.isoformat()}
+    )
+    assert r.status_code == 201 and r.json()["renewal"]["status"] == "pending"
+    detail = (await jo.get(f"/api/admin/providers/{dave.id}")).json()
+    shown = next(d for d in detail["documents"] if d["type"] == "insurance")
+    assert shown["status"] == "pending" and shown["expires_on"] == until.isoformat(), "the admin sees the upload"
+    v = await jo.post(f"/api/admin/providers/{dave.id}/documents/insurance/verify", json={})
+    assert v.status_code == 200, v.text
+    [doc] = [d for d in (await Providers(db).get(dave.id)).documents if d.type == "insurance"]
+    assert (doc.status, doc.file_id, doc.expires_on) == ("verified", fid, until) and doc.file_id != old.file_id
 
 
 async def test_dates_are_checked_and_insurance_needs_its_expiry(dave_client, db, dave):

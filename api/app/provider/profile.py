@@ -158,9 +158,10 @@ async def update_profile(db: Db, provider: Provider, body: ProfilePatch) -> Prov
 
 def with_upload(docs: list[ProviderDocument], new: ProviderDocument, today: date) -> list[ProviderDocument]:
     """The document list after an upload: a verified, in-date copy stays (the upload waits
-    beside it as its renewal); anything else of that type is replaced by the upload."""
+    beside it as its renewal); anything else of that type is replaced by the upload. The upload
+    goes first, so an admin checking that type (L3 takes the first of a type) checks it."""
     keep = [d for d in docs if d.type != new.type or _in_date(d, today)]
-    return [*keep, new]
+    return [new, *keep]
 
 
 async def upload_document(db: Db, a: Acting, body: DocumentIn) -> DocumentOut:
