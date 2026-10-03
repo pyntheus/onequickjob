@@ -11,6 +11,7 @@ from app.core.config import Settings
 from app.core.db import Db
 from app.core.geo import miles_between
 from app.core.phone import to_national
+from app.core.rounding import round_half_up_to
 from app.core.timeutil import london_today, utcnow
 from app.customer.schemas import (
     Badge,
@@ -97,7 +98,7 @@ def provider_card(p: Provider, cat: Category | None, at: Address | None) -> Prov
         badges.append(Badge(kind="insured", label=label))
     miles = None
     if at is not None:
-        miles = round(miles_between(p.home.location.lat, p.home.location.lng, at.lat, at.lng), 1)
+        miles = float(round_half_up_to(miles_between(p.home.location.lat, p.home.location.lng, at.lat, at.lng), "0.1"))
         badges.append(Badge(kind="distance", label=f"Lives {miles_text(miles)} away", tone="plain"))
     return ProviderCard(
         provider_id=p.id,
