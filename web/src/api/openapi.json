@@ -8164,7 +8164,7 @@
         "type": "object"
       },
       "RenewalOut": {
-        "description": "A new copy uploaded while the current one is still valid: it waits for checks, and the\ncurrent one keeps counting until then.",
+        "description": "A new copy uploaded while the current one is still valid: it waits for checks, and the\ncurrent one keeps counting until then (and after, if the new copy isn't accepted).",
         "properties": {
           "expires_on": {
             "anyOf": [
@@ -8200,6 +8200,18 @@
               }
             ],
             "title": "Issued On"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why it wasn't accepted, when rejected",
+            "title": "Note"
           },
           "status": {
             "enum": [

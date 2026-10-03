@@ -28,11 +28,21 @@ class Providers(Repo[Provider]):
     async def set_document(
         self, provider_id: str, doc: ProviderDocument, *, session: DbSession | None = None
     ) -> Provider | None:
-        """Insert or replace the provider's document of doc.type."""
+        """Insert or replace the provider's document of doc.type (L3's verify and reject send the
+        document they read, changed). A verified one replaces every copy of its type, so a checked
+        renewal supersedes the old copy. A rejected renewal replaces only itself (the upload with
+        its file): the verified copy beside it stays, first, and still counts."""
         p = await self.get(provider_id, session=session)
         if p is None:
             return None
-        docs = [d for d in p.documents if d.type != doc.type] + [doc]
+        same = [d for d in p.documents if d.type == doc.type]
+        renewal = (
+            next((d for d in same if d.file_id == doc.file_id and d.status != "verified"), None)
+            if doc.status == "rejected" and doc.file_id
+            else None
+        )
+        kept = [d for d in same if d is not renewal and d.status == "verified"] if renewal else []
+        docs = [d for d in p.documents if d.type != doc.type] + kept + [doc]
         return await self.update(
             provider_id, {"documents": [d.model_dump(mode="python") for d in docs]}, session=session
         )

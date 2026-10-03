@@ -4,7 +4,8 @@ Documents: an upload is pending until an admin checks it (L3). Its expiry comes 
 rule, services.documents.expiry_for (a basic DBS check: 12 months from its issue date;
 others: the stated expiry). A new copy uploaded while the current one is verified and in date
 is kept alongside it as a pending renewal, so the provider can keep taking jobs while it's
-checked; verifying it (Providers.set_document, L3) replaces both. A helper's documents are
+checked; verifying it (Providers.set_document, L3) replaces both, and rejecting it leaves the
+current one counting (the provider sees why and can upload again). A helper's documents are
 kept on their entry in the provider's helper list.
 """
 
@@ -75,7 +76,7 @@ async def documents_out(
             continue
         mine = [d for d in docs if d.type == t]
         current = next((d for d in mine if d.status == "verified"), mine[-1] if mine else None)
-        renewal = next((d for d in mine if d is not current and d.status == "pending"), None)
+        renewal = next((d for d in mine if d is not current and d.status in ("pending", "rejected")), None)
         state = current.status if current else "missing"
         if current and current.status == "verified" and current.expires_on and current.expires_on < today:
             state = "expired"
@@ -99,6 +100,7 @@ async def documents_out(
                     issued_on=renewal.issued_on,
                     expires_on=renewal.expires_on,
                     file_url=await _url(db, renewal.file_id),
+                    note=renewal.note if renewal.status == "rejected" else None,
                 )
                 if renewal
                 else None,

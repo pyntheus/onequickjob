@@ -1,8 +1,8 @@
-import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useState, type CSSProperties, type MutableRefObject } from "react";
 import { Link, Outlet, useLocation, useNavigate, useSearchParams } from "react-router";
 import { ApiError, api, call } from "../api/client";
-import { hasRole, queryKeys, useMe } from "../api/queries";
+import { hasRole, queryKeys, useMe, type Me } from "../api/queries";
 import { Loading, Notice } from "../app/Status";
 import { Brand } from "../shared/Brand";
 import { Button } from "../shared/Button";
@@ -42,8 +42,29 @@ function useProviderManifest() {
   }, []);
 }
 
+/** Everything cached but the config and who's signed in: reset (data dropped, active queries
+ * fetched again), so a refused refetch can't leave the last user's figures on screen. */
+function forgetPrivate(qc: QueryClient) {
+  const kept = new Set<unknown>([queryKeys.config[0], queryKeys.me[0]]);
+  return qc.resetQueries({ predicate: (q) => !kept.has(q.queryKey[0]) });
+}
+
+/** Who the provider app last saw signed in: undefined until known, null when signed out. */
+type LastUser = MutableRefObject<string | null | undefined>;
+
+/** Whoever signs in or out (the sign-in form after a session ran out, switching user), the
+ * provider app drops what it cached for the last user. Not on the first load. */
+function useForgetOnUserChange(userId: string | null | undefined, lastRef: LastUser) {
+  const qc = useQueryClient();
+  useEffect(() => {
+    if (userId === undefined) return;
+    if (lastRef.current !== undefined && lastRef.current !== userId) void forgetPrivate(qc);
+    lastRef.current = userId;
+  }, [userId, lastRef, qc]);
+}
+
 /** Job-alert links carry ?t=<token>: sign in with it once, then drop it from the address bar. */
-function useMagicLink(): { pending: boolean; error: string | null } {
+function useMagicLink(lastRef: LastUser): { pending: boolean; error: string | null } {
   const [params] = useSearchParams();
   const token = params.get("t");
   const location = useLocation();
@@ -57,8 +78,15 @@ function useMagicLink(): { pending: boolean; error: string | null } {
     inFlight.current = token;
     call(api.POST("/api/auth/magic", { body: { token } }))
       .then(async (res) => {
+        const before = qc.getQueryData<Me>(queryKeys.me)?.user_id ?? null;
         qc.setQueryData(queryKeys.me, res.me);
-        await qc.invalidateQueries();
+        if (before === res.me.user_id) {
+          await qc.invalidateQueries();
+        } else {
+          // Someone else: nothing cached for the last user may show, even if a refetch is refused.
+          lastRef.current = res.me.user_id;
+          await forgetPrivate(qc);
+        }
         setDone({ token, error: null });
       })
       .catch((e: unknown) => {
@@ -70,7 +98,7 @@ function useMagicLink(): { pending: boolean; error: string | null } {
         const q = rest.toString();
         navigate({ pathname: location.pathname, search: q ? `?${q}` : "" }, { replace: true });
       });
-  }, [token, params, location.pathname, navigate, qc]);
+  }, [token, params, location.pathname, navigate, qc, lastRef]);
 
   return { pending: !!token && done.token !== token, error: done.error };
 }
@@ -79,8 +107,10 @@ function useMagicLink(): { pending: boolean; error: string | null } {
 const TOKEN_PAGES = ["/p/plan-change/"];
 
 function Body({ signup, open }: { signup: boolean; open: boolean }) {
-  const magic = useMagicLink();
+  const lastUserRef = useRef<string | null | undefined>(undefined);
+  const magic = useMagicLink(lastUserRef);
   const { data: me, isLoading } = useMe();
+  useForgetOnUserChange(isLoading ? undefined : (me?.user_id ?? null), lastUserRef);
   const { helper, known } = useHelperMode();
   if (open) return <Outlet />;
   if (magic.pending || isLoading) return <Loading label={magic.pending ? "Signing you in…" : "Loading…"} />;

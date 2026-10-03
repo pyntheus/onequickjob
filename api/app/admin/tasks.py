@@ -26,7 +26,7 @@ async def settle_pending_payments(db: Db, s: Settings) -> None:
     a refund still processing, our fee still to return): ask again, safely. Finished visits
     whose charge never started (the finishing request stopped first) are started (L2)."""
     gateway = make_payment_gateway(s, db)
-    await charging.start_unstarted(db, s, gateway, older_than=SETTLE_AFTER, look_back=LOOK_BACK)
+    await charging.start_unstarted(db, s, gateway, older_than=SETTLE_AFTER)
     now = utcnow()
     for purpose in ("visit", "tip"):
         field = charging.field_for(purpose)

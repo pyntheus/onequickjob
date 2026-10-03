@@ -25,6 +25,10 @@ function longDate(iso: string): string {
 }
 
 function detail(d: DocumentOut): string {
+  if (d.renewal?.status === "rejected") {
+    const until = d.expires_on ? ` until ${longDate(d.expires_on)}` : "";
+    return `We couldn't accept your new copy: ${d.renewal.note ?? "please upload it again."} Your current one counts${until}.`;
+  }
   if (d.renewal) {
     const until = d.renewal.expires_on ? `, valid to ${longDate(d.renewal.expires_on)}` : "";
     return `Your new copy is being checked${until}. Your current one counts until then.`;
@@ -43,6 +47,7 @@ function detail(d: DocumentOut): string {
 }
 
 function needsUpload(d: DocumentOut): boolean {
+  if (d.renewal?.status === "rejected") return true;
   if (d.renewal) return false;
   return d.status !== "pending" && (d.status !== "verified" || d.expiring_soon);
 }

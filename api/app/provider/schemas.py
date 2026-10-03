@@ -328,12 +328,13 @@ class LimitIn(In):
 
 class RenewalOut(BaseModel):
     """A new copy uploaded while the current one is still valid: it waits for checks, and the
-    current one keeps counting until then."""
+    current one keeps counting until then (and after, if the new copy isn't accepted)."""
 
     status: DocStatus
     issued_on: date | None
     expires_on: date | None
     file_url: str | None
+    note: str | None = Field(default=None, description="Why it wasn't accepted, when rejected")
 
 
 class DocumentOut(BaseModel):

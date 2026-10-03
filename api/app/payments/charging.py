@@ -337,18 +337,17 @@ async def charge_visit(
     return await _attempt(db, s, gateway, visit, purpose, split, key)
 
 
-async def start_unstarted(
-    db: Db, s: Settings, gateway: PaymentGateway, *, older_than: timedelta, look_back: timedelta
-) -> int:
-    """For the periodic task: visits finished between look_back and older_than ago whose charge
-    never started (the request that finished one stopped before charge_visit recorded its
-    intent). Each is charged the normal way; a first attempt, so nothing can be paid twice.
-    Returns how many it tried."""
-    now = utcnow()
+async def start_unstarted(db: Db, s: Settings, gateway: PaymentGateway, *, older_than: timedelta) -> int:
+    """For the periodic task: visits finished more than older_than ago whose charge never started
+    (the request that finished one stopped before charge_visit recorded its intent), oldest
+    first, however old: finished work is never left unpaid because nobody started its charge.
+    Each is charged the normal way; a first attempt, so nothing can be paid twice. Returns how
+    many it tried."""
     tried = 0
-    window = {"$lte": now - older_than, "$gte": now - look_back}
     for visit in await Visits(db).find(
-        {"status": "finished", "charge.status": "none", "finished_at": window}, limit=50
+        {"status": "finished", "charge.status": "none", "finished_at": {"$lte": utcnow() - older_than}},
+        sort=[("finished_at", 1)],
+        limit=50,
     ):
         tried += 1
         try:

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -284,6 +284,32 @@ describe("the provider app", () => {
   });
 });
 
+
+describe("a link that signs in someone else", () => {
+  it("drops the last user's figures, even when the new user's refetch is refused", async () => {
+    let who: "dave" | "tom" = "dave";
+    const tom = { ...me, user_id: "u2", name: "Tom Hughes", roles: [], provider_id: null, helper_of: "p1" };
+    const earnings = {
+      week_net_pence: 21250, week_jobs: 7, weekly: [], payouts: [], next_payout_date: null, limit,
+      own_customers_active: 0, bank_last4: "4321", pending_pence: 0,
+    };
+    mockApi({
+      "GET /api/config": () => config(false),
+      "GET /api/auth/me": () => (who === "dave" ? me : tom),
+      "GET /api/p/earnings": () =>
+        who === "dave"
+          ? earnings
+          : jsonResponse(403, { detail: { code: "helpers_cant", message: "This part of the app is for Dave. You can see your visits on Today." } }),
+      "POST /api/auth/magic": () => ((who = "tom"), { me: tom, next: "/p/earnings" }),
+    });
+    const router = renderAt("/p/earnings");
+    expect(await screen.findByText("£212.50")).toBeInTheDocument();
+    await act(() => router.navigate("/p/earnings?t=tok"));
+    expect(await screen.findByText(/This part of the app is for Dave/)).toBeInTheDocument();
+    expect(screen.queryByText("£212.50")).not.toBeInTheDocument();
+    expect(router.state.location.search).toBe("");
+  });
+});
 
 describe("a plan change, answered in the provider app (A10)", () => {
   const change = {

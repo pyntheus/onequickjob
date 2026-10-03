@@ -5483,7 +5483,7 @@ export interface components {
         /**
          * RenewalOut
          * @description A new copy uploaded while the current one is still valid: it waits for checks, and the
-         *     current one keeps counting until then.
+         *     current one keeps counting until then (and after, if the new copy isn't accepted).
          */
         RenewalOut: {
             /** Expires On */
@@ -5492,6 +5492,11 @@ export interface components {
             file_url: string | null;
             /** Issued On */
             issued_on: string | null;
+            /**
+             * Note
+             * @description Why it wasn't accepted, when rejected
+             */
+            note?: string | null;
             /**
              * Status
              * @enum {string}

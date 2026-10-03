@@ -176,3 +176,46 @@ async def test_a_new_provider_is_asked_for_insurance_before_choosing_jobs(client
     docs = {d["type"]: d for d in (await client.get("/api/p/documents")).json()}
     assert set(docs) == {"identity", "insurance"}, "every job needs insurance, so it's asked for straight away"
     assert docs["insurance"]["status"] == "missing" and docs["insurance"]["needs_expiry_date"]
+
+
+async def test_rejecting_a_renewal_keeps_the_current_copy_counting(dave_client, db, dave, jo, catalogue):  # noqa: F811
+    """L3's reject replaces only the renewal (Providers.set_document): the verified, in-date copy
+    stays, so the provider can still take jobs, sees why, and can upload again."""
+    old = next(d for d in dave.documents if d.type == "insurance")
+    fid = await _upload(dave_client)
+    until = (london_today() + timedelta(days=400)).isoformat()
+    await dave_client.post("/api/p/documents", json={"type": "insurance", "file_id": fid, "expires_on": until})
+    r = await jo.post(
+        f"/api/admin/providers/{dave.id}/documents/insurance/reject", json={"reason": "The name doesn't match"}
+    )
+    assert r.status_code == 200, r.text
+    p = await Providers(db).get(dave.id)
+    insurance = [d for d in p.documents if d.type == "insurance"]
+    assert [(d.status, d.file_id) for d in insurance] == [("verified", old.file_id), ("rejected", fid)]
+    assert can_take(p, catalogue["mowing"]).ok, "the current copy still counts"
+    detail = (await jo.get(f"/api/admin/providers/{dave.id}")).json()
+    assert next(d for d in detail["documents"] if d["type"] == "insurance")["status"] == "verified"
+
+    listed = {d["type"]: d for d in (await dave_client.get("/api/p/documents")).json()}
+    assert listed["insurance"]["status"] == "verified"
+    assert listed["insurance"]["renewal"]["status"] == "rejected"
+    assert listed["insurance"]["renewal"]["note"].startswith("The name doesn't match")
+    again = await dave_client.post(
+        "/api/p/documents", json={"type": "insurance", "file_id": await _upload(dave_client), "expires_on": until}
+    )
+    assert again.json()["renewal"]["status"] == "pending"
+    p = await Providers(db).get(dave.id)
+    assert sorted(d.status for d in p.documents if d.type == "insurance") == ["pending", "verified"]
+
+
+async def test_rejecting_the_only_copy_still_replaces_it(dave_client, db, dave, jo):  # noqa: F811
+    docs = [d for d in dave.documents if d.type != "dbs_basic"]
+    await Providers(db).patch(dave.id, {"documents": [d.model_dump(mode="python") for d in docs]})
+    await dave_client.post(
+        "/api/p/documents",
+        json={"type": "dbs_basic", "file_id": await _upload(dave_client), "issued_on": london_today().isoformat()},
+    )
+    r = await jo.post(f"/api/admin/providers/{dave.id}/documents/dbs_basic/reject", json={"reason": "Too blurry"})
+    assert r.status_code == 200, r.text
+    [only] = [d for d in (await Providers(db).get(dave.id)).documents if d.type == "dbs_basic"]
+    assert only.status == "rejected" and only.note == "Too blurry"

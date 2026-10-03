@@ -9,7 +9,7 @@ import pytest
 
 from app.adapters.payments.base import ChargeResult
 from app.adapters.payments.fake import FakeGateway
-from app.admin.tasks import LOOK_BACK, SETTLE_AFTER
+from app.admin.tasks import SETTLE_AFTER
 from app.core.db import transaction
 from app.core.timeutil import london_today, utcnow
 from app.models.visits import Performer
@@ -190,7 +190,7 @@ async def test_a_charge_that_never_started_is_started_once(db, world, monkeypatc
     assert stored.charge.status == "none"
 
     def start():
-        return charging.start_unstarted(db, s, FakeGateway(db), older_than=SETTLE_AFTER, look_back=LOOK_BACK)
+        return charging.start_unstarted(db, s, FakeGateway(db), older_than=SETTLE_AFTER)
 
     assert await start() == 0, "too soon: the finishing request may still be charging it"
     await Visits(db).update(v.id, {"finished_at": utcnow() - SETTLE_AFTER - timedelta(seconds=1)})
@@ -218,13 +218,15 @@ async def test_finishing_again_starts_a_charge_that_never_started(dave_client, d
     assert await LedgerEntries(db).count({"visit_id": v.id}) == 1
 
 
-async def test_a_visit_finished_long_ago_is_left_to_the_admin(db, world):
-    """start_unstarted looks back a week, like the settle task; older ones are the admin's retry."""
+async def test_a_charge_that_never_started_is_started_however_long_ago(db, world):
+    """No look-back: a visit finished eight days ago with no charge is still started (the settle
+    task's 7-day window is for repeating attempts, which a first attempt isn't)."""
     v = await move_to_today(db, world.first)
-    await Visits(db).update(v.id, {"status": "finished", "finished_at": utcnow() - LOOK_BACK - timedelta(hours=1)})
+    await Visits(db).update(v.id, {"status": "finished", "finished_at": utcnow() - timedelta(days=8)})
     s = make_settings()
-    assert await charging.start_unstarted(db, s, FakeGateway(db), older_than=SETTLE_AFTER, look_back=LOOK_BACK) == 0
-    assert (await Visits(db).get(v.id)).charge.status == "none"
+    assert await charging.start_unstarted(db, s, FakeGateway(db), older_than=SETTLE_AFTER) == 1
+    assert (await Visits(db).get(v.id)).charge.status == "succeeded"
+    assert await LedgerEntries(db).count({"visit_id": v.id}) == 1
 
 
 async def test_a_one_off_booking_completes_when_its_visit_is_charged(dave_client, db, dave):
