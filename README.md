@@ -46,7 +46,7 @@ is a ten-minute tour.
 | `make down` | Stop the development API and web |
 | `make test` | All tests: pytest in the API container (database `<MONGO_DB>_test`) and vitest |
 | `make test-api ARGS="tests/shared/test_marketplace.py -x"` | A subset of the API tests |
-| `make e2e` | Playwright journeys and accessibility checks at 375px and desktop against the production-style stack (re-seeds) |
+| `make e2e` | Playwright journeys and accessibility checks at 375px and desktop against the production-style stack (re-seeds; failures leave a screenshot and page snapshot in `e2e/results/<width>`, never a trace, which would hold the site password) |
 | `make lint` | ruff, eslint, TypeScript, and a check that generated API types are current |
 | `make types` | Regenerate `web/src/api/schema.d.ts` from the API's OpenAPI schema |
 | `make seed` | Reset the demo: removes what demo runs created and loads the demo data (idempotent; keeps admins' pricing versions) |
@@ -107,7 +107,9 @@ Several sessions at once? `docs/spec/lanes.md` explains worktrees and ownership.
 A systemd timer (`oqj-backup.timer`, installed by `make backup-timer`) dumps the database every
 night at 03:00 London time into `/srv/oqj/backups` as a gzipped `mongodump` archive
 (`oqj_main-<UTC time>.archive.gz`, readable only by you), and removes archives 14 or more days
-old. A night missed while the droplet was off runs at the next boot.
+old. A night missed while the droplet was off runs at the next boot. For the second or two the
+dump takes, the APIs writing to the database are paused (requests wait, nothing fails), so a
+transaction is never half in the archive.
 
 - `systemctl list-timers oqj-backup.timer` shows the next run; `journalctl -u oqj-backup` the last ones.
 - `make backup-now` takes one immediately.

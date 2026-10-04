@@ -166,13 +166,22 @@ rotate-tax-key: check-env infra-up ## New tax data key: make it current, re-encr
 	  [ $$rc -ne 75 ] || echo "Another make rotate-tax-key is running in this worktree: wait for it." >&2; exit $$rc
 
 # One rotation at a time (the lock above). reencrypt and retire act only on the key add made.
+# Every running API on this database (this worktree's dev API, and in main the production-style
+# one) reloads .env with both keys before re-encrypting, so none seals with or needs a key it
+# lacks, and again once the old key is retired. The periodic tasks stay with prod when it's up.
 rotate-tax-key-locked:
 	@set -e; kid=$$(cd api && uv run --quiet python -m app.cli.tax_keys add --env-file ../.env); \
 	  api=$$($(DOCKER) ps -q -f name=^oqj-$(INSTANCE)-api$$); \
-	  if [ -n "$$api" ]; then $(APP) up -d api; fi; \
+	  prod=$$(if [ "$(INSTANCE)" = main ]; then $(DOCKER) ps -q -f name=^oqj-prod-api$$; fi); \
+	  tasks=$$(if [ -n "$$prod" ]; then echo false; else echo true; fi); \
+	  reload() { \
+	    if [ -n "$$prod" ]; then $(PROD) up -d --wait api; fi; \
+	    if [ -n "$$api" ]; then DEV_TASKS_ENABLED=$$tasks $(APP) up -d api; fi; \
+	  }; \
+	  reload; \
 	  $(APP) run --rm --no-deps api python -m app.cli.tax_keys reencrypt --expect-current $$kid; \
 	  (cd api && uv run --quiet python -m app.cli.tax_keys retire --env-file ../.env --keep $$kid); \
-	  if [ -n "$$api" ]; then $(APP) up -d api; fi
+	  reload
 
 check: ## Fail if anything but Caddy (80, 443) and sshd is exposed publicly
 	@DOCKER="$(DOCKER)" infra/check-ports.sh

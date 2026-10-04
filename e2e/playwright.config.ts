@@ -24,7 +24,10 @@ export default defineConfig({
     timezoneId: "Europe/London",
     actionTimeout: 20_000,
     navigationTimeout: 30_000,
-    trace: "retain-on-failure",
+    // No traces: they record the context's httpCredentials and every request's Authorization
+    // header, so a failure would leave the site password on disk. A failure keeps a screenshot
+    // and error-context.md (the page's accessibility snapshot), which hold neither.
+    trace: "off",
     screenshot: "only-on-failure",
   },
   projects: [
