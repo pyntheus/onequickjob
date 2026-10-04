@@ -281,11 +281,50 @@ describe("the provider app", () => {
     expect(await screen.findByRole("heading", { name: "Morning, Tom" })).toBeInTheDocument();
     expect(screen.getByText(/the visits you've been sent to/)).toBeInTheDocument();
     expect(screen.queryByText("New jobs near you")).not.toBeInTheDocument();
+    // No jobs list and no money in the nav (A17): Home, Today and Me.
+    const nav = screen.getByRole("navigation", { name: "Provider" });
+    expect(within(nav).getAllByRole("link").map((a) => a.textContent)).toEqual(["Home", "Today", "Me"]);
   });
 });
 
 
 describe("a link that signs in someone else", () => {
+  it("keeps the new user when the old session's /me answers after the link signed them in", async () => {
+    // Sarah is signed in on this phone and taps Dave's job alert: the app asks who's signed in
+    // (with Sarah's cookie) while the link signs Dave in, and Sarah's answer lands last.
+    const sarah = { ...me, user_id: "u9", name: "Sarah Whitfield", roles: ["customer"], provider_id: null, home_path: "/" };
+    let who: "sarah" | "dave" = "sarah";
+    let release = () => {};
+    const held = new Promise<void>((r) => (release = r));
+    let asked = 0;
+    mockApi({
+      "GET /api/config": () => config(false),
+      "GET /api/auth/me": async () => {
+        asked += 1;
+        if (asked > 1) return who === "dave" ? me : sarah;
+        await held; // the first ask, sent on page load with Sarah's cookie, answers last
+        return sarah;
+      },
+      "POST /api/auth/magic": () => {
+        who = "dave";
+        setTimeout(release, 20);
+        return { me, next: "/p/earnings" };
+      },
+      "GET /api/p/earnings": () => ({
+        week_net_pence: 21250, week_jobs: 7, weekly: [], payouts: [], next_payout_date: null, limit,
+        own_customers_active: 0, bank_last4: "4321", pending_pence: 0,
+      }),
+    });
+    renderAt("/p/earnings?t=tok");
+    expect(await screen.findByText("£212.50")).toBeInTheDocument();
+    await act(async () => {
+      await held;
+      await new Promise((r) => setTimeout(r, 30));
+    });
+    expect(screen.getByText("£212.50")).toBeInTheDocument();
+    expect(screen.queryByText("This is for providers")).not.toBeInTheDocument();
+  });
+
   it("drops the last user's figures, even when the new user's refetch is refused", async () => {
     let who: "dave" | "tom" = "dave";
     const tom = { ...me, user_id: "u2", name: "Tom Hughes", roles: [], provider_id: null, helper_of: "p1" };

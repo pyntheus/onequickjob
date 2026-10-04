@@ -5,7 +5,9 @@ import { signInAs } from "./helpers";
 
 test("G (A17): a helper is refused on the offer endpoints and sees no jobs", async ({ page }) => {
   await signInAs(page, "tom", "/p");
-  await expect(page.getByRole("link", { name: "Jobs" })).toHaveCount(0);
+  await expect(page.getByText("These are the visits you've been sent to.")).toBeVisible();
+  // Loaded, so the nav is drawn: his tabs, with no jobs list and no money.
+  await expect(page.getByRole("navigation", { name: "Provider" }).getByRole("link")).toHaveText(["Home", "Today", "Me"]);
   for (const [path, data] of [
     ["/api/p/requests/R-2292/accept", undefined],
     ["/api/p/requests/R-2292/counter", { price_pence: 9000, reasons: [] }],

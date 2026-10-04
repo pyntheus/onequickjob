@@ -72,7 +72,8 @@ test("the demo script's tour works as written", async ({ page }) => {
     await expect(page.getByRole("button", { name: "Send Tom" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Get cover" })).toBeVisible();
     await signInAs(page, "tom", "/p");
-    await expect(page.getByRole("link", { name: "Jobs" })).toHaveCount(0);
+    await expect(page.getByText("These are the visits you've been sent to.")).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "Provider" }).getByRole("link")).toHaveText(["Home", "Today", "Me"]);
   });
 
   await test.step("6. pricing and calibration, as Jo", async () => {

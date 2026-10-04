@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useState, type CSSProperties, type FormEvent } from "react";
 import { api, call } from "../../api/client";
-import { queryKeys, useConfig, type Me } from "../../api/queries";
+import { setSignedIn, useConfig, type Me } from "../../api/queries";
 import { Button } from "../../shared/Button";
 import { TextField } from "../../shared/Field";
 import { errorText } from "../api";
@@ -60,7 +60,7 @@ export function InlineSignIn({
           body: { identifier: number.trim(), code: code.trim(), name: name?.trim() || null },
         }),
       );
-      qc.setQueryData(queryKeys.me, me);
+      await setSignedIn(qc, me);
       await qc.invalidateQueries({ queryKey: ["c"] });
       onSignedIn(me);
     } catch (err) {

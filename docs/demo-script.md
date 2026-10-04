@@ -90,8 +90,8 @@ casual work safe to take on.
    **Send Tom** (his son, his helper) or **Get cover** from another local provider.
 2. Tap **Get cover**: the alerts go to other checked providers. A covered visit is charged
    at the standard 15% to the provider who does it, and the customer stays Dave's.
-3. **Switch user** to **Tom**: his app shows only the visits he's been sent to, with no jobs
-   list, no prices and no money.
+3. **Switch user** to **Tom**: his app shows only the visits he's been sent to (his tabs are
+   Home, Today and Me), with no jobs list, no prices and no money.
 
 **Why it matters:** regulars don't lose their visits when a provider is ill or away, and a
 provider can grow with family help without handing over the business.
