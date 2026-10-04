@@ -33,7 +33,7 @@ Generated from the Pydantic models (`api/app/models/`) and repositories (`api/ap
 | `excluded_jobs` | L3 | Seed only |
 | `pricing_versions` | L3 | L3 drafts and approves; seed inserts version 1 |
 | `quotes` | F | F (POST /api/quotes); L1 sets request_id |
-| `job_requests` | L1 | L1 creates, cancels and answers raises; F marketplace claims (status open -> booked) and withdraws a waiting raise (A16); L2 records views and creates cover requests; L3 proposes raises (app.customer.price_changes.propose) |
+| `job_requests` | L1 | L1 creates, cancels and answers raises; F marketplace claims (status open -> booked) and withdraws a waiting raise (A16); L2 records views and creates cover requests; L3 proposes raises (app.services.guide_raises.propose) |
 | `offers` | F | F marketplace (counter, accept, decline, lapse) |
 | `bookings` | F | F services.bookings.create_booking (marketplace, L1's invite acceptance, L2's own customers); L1 cancels and changes frequency; app.payments.charging completes a one-off once its visit is paid |
 | `series` | F | F creates; L1 pauses, changes frequency, cancels; F task tops up the horizon |
