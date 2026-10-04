@@ -567,7 +567,8 @@ async def apply_frequency_change(
     # makes a booking or another change for them committing meanwhile conflict with this one, so
     # the re-run sees it.
     await Providers(db).update(provider.id, {}, session=session)
-    if (clash := await schedule.first_clash(db, updated, anchor, session=session)) is not None:
+    fill_from = nxt.local_date if nxt else today  # where the fill below starts: the same dates are checked
+    if (clash := await schedule.first_clash(db, updated, fill_from, session=session)) is not None:
         fail(
             status.HTTP_409_CONFLICT,
             "time_taken",
@@ -593,9 +594,7 @@ async def apply_frequency_change(
                 )
         elif not v.is_first and v.price_pence != price_pence:
             await Visits(db).update(v.id, {"price_pence": price_pence}, session=session)
-    await schedule.ensure_horizon(
-        db, updated, provider, from_day=nxt.local_date if nxt else today, source=booking.source, session=session
-    )
+    await schedule.ensure_horizon(db, updated, provider, from_day=fill_from, source=booking.source, session=session)
     nxt = await Visits(db).find_one(
         {"series_id": series.id, "status": "scheduled", "scheduled_start": {"$gt": now}},
         sort=[("scheduled_start", 1)],

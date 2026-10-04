@@ -409,3 +409,45 @@ async def test_a_change_of_frequency_cant_double_book_the_provider(db, catalogue
     await db["visits"].delete_many({"series_id": plans[1].id})
     await transaction(db, weekly)
     assert (await SeriesRepo(db).get(first.id)).frequency == "weekly"
+
+
+async def test_a_change_of_frequency_checks_the_new_anchor_day_too(db, catalogue):
+    """Codex re-check (high): with every upcoming visit skipped by the customer, the changed plan
+    starts tomorrow. That day is checked like the rest: another visit at 9:00 tomorrow refuses the
+    change, and nothing is written (plan, visits, messages)."""
+    import pytest
+    from fastapi import HTTPException
+
+    from app.core.db import transaction
+    from app.customer import account
+    from app.models.bookings import Booking
+    from app.repos import SeriesRepo
+    from tests.factories import HAZLEMERE
+
+    dave = await make_provider(db, "Dave Hughes", "+447700900201", ["mowing"])
+    tomorrow = london_today() + timedelta(days=1)
+    # The plan's own day is three days on, so tomorrow isn't one of its (skipped) dates.
+    plan = _series("fortnightly", tomorrow + timedelta(days=2)).model_copy(
+        update={"provider_id": dave.id, "est_mins": 60, "booking_id": "b0"}
+    )
+    await SeriesRepo(db).insert(plan)
+    await schedule.ensure_horizon(db, plan, dave)
+    skip = {"$set": {"status": "skipped", "skipped_reason": "customer"}}
+    await db["visits"].update_many({"series_id": plan.id}, skip)
+    await Visits(db).insert(_visit(dave, tomorrow, "09:00", 60))  # another customer's visit
+    before = await db["visits"].count_documents({})
+    booking = Booking(
+        id="b0", ref="B-1101", source="own_customer", customer_id="c", provider_id=dave.id, category_id="mowing",
+        via="invite", price_pence=3000, unit="a visit", recurring=True, frequency="fortnightly", address=HAZLEMERE,
+        series_id=plan.id,
+    )  # fmt: skip
+
+    async def weekly(session):
+        fresh = await SeriesRepo(db).get(plan.id, session=session)
+        return await account.apply_frequency_change(db, fresh, booking, dave, "weekly", 2800, session=session)
+
+    with pytest.raises(HTTPException) as e:
+        await transaction(db, weekly)
+    assert e.value.status_code == 409 and e.value.detail["code"] == "time_taken"
+    assert (await SeriesRepo(db).get(plan.id)).frequency == "fortnightly"
+    assert await db["visits"].count_documents({}) == before and await db["outbox"].count_documents({}) == 0
