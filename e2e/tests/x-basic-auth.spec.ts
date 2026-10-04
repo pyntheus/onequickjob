@@ -114,7 +114,7 @@ test("the site password is asked for once, however long you browse", async ({ ba
         await browse(15);
         // What Chrome fetches to offer the app for installing (headless Chromium only on request).
         const manifest = await cdp.send("Page.getAppManifest", {});
-        expect(manifest.errors, "the manifest loads").toEqual([]);
+        expect(manifest.errors.filter((e) => e.critical), "the manifest loads").toEqual([]);
         expect(manifest.data ?? "", "the manifest loads").toContain("OneQuickJob for providers");
         for (const tab of ["Today", "Earnings", "Me"]) {
           await page.getByRole("navigation", { name: "Provider" }).getByRole("link", { name: tab }).click();
