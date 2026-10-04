@@ -66,10 +66,10 @@ def not_implemented(lane: Lane) -> NoReturn:
     )
 
 
-# Documented on every route so the generated client knows the error shape.
+# Documented on every route so the generated client knows the error shape. No 401: signed out
+# is a 403 with the code "not_signed_in" (app.core.deps.current_user says why).
 ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
     400: {"model": ErrorResponse},
-    401: {"model": ErrorResponse},
     403: {"model": ErrorResponse},
     404: {"model": ErrorResponse},
     409: {"model": ErrorResponse},

@@ -69,8 +69,11 @@ async def current_user_optional(
 
 
 async def current_user(cu: CurrentUser | None = Depends(current_user_optional)) -> CurrentUser:
+    # 403, never 401. The site sits behind HTTP basic auth (Caddy), and a browser takes a 401 to
+    # a request that carried its Basic credentials as the site password being refused: it
+    # forgets it and asks for it again on the next request. Clients check the code instead.
     if cu is None:
-        fail(status.HTTP_401_UNAUTHORIZED, "not_signed_in", "Please sign in.")
+        fail(status.HTTP_403_FORBIDDEN, "not_signed_in", "Please sign in.")
     return cu
 
 

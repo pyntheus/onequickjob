@@ -7,7 +7,7 @@ from fastapi import HTTPException
 
 from app.core.timeutil import utcnow
 from app.services import auth
-from tests.conftest import latest_code, make_settings, new_client, sign_in
+from tests.conftest import latest_code, make_settings, new_client, sign_in, signed_out
 
 PHONE = "07700 900456"
 
@@ -143,19 +143,19 @@ async def test_logout_ends_the_session(client, db):
     assert (await client.get("/api/auth/me")).status_code == 200
     assert (await client.post("/api/auth/logout")).status_code == 204
     assert await db["sessions"].count_documents({}) == 0
-    assert (await client.get("/api/auth/me")).status_code == 401
+    assert signed_out(await client.get("/api/auth/me"))
 
 
 async def test_expired_session_is_not_accepted(client, db):
     await sign_in(client, db, PHONE)
     await db["sessions"].update_many({}, {"$set": {"expires_at": utcnow() - timedelta(seconds=1)}})
-    assert (await client.get("/api/auth/me")).status_code == 401
+    assert signed_out(await client.get("/api/auth/me"))
 
 
 async def test_suspended_user_cannot_sign_in(client, db):
     await sign_in(client, db, PHONE)
     await db["users"].update_many({}, {"$set": {"status": "suspended"}})
-    assert (await client.get("/api/auth/me")).status_code == 401
+    assert signed_out(await client.get("/api/auth/me"))
     await client.post("/api/auth/code", json={"identifier": PHONE})
     r = await client.post("/api/auth/verify", json={"identifier": PHONE, "code": await latest_code(db)})
     assert r.status_code == 403
@@ -190,8 +190,8 @@ async def test_demo_sessions_end_when_demo_mode_is_turned_off(client, db):
         httpx.AsyncClient(transport=httpx.ASGITransport(app=off), base_url="https://test") as c,
     ):
         c.cookies.set("oqj_session", demo_cookie)
-        assert (await c.get("/api/auth/me")).status_code == 401
-        assert (await c.get("/api/admin/outbox")).status_code == 401
+        assert signed_out(await c.get("/api/auth/me"))
+        assert signed_out(await c.get("/api/admin/outbox"))
         c.cookies.set("oqj_session", code_user)
         assert (await c.get("/api/auth/me")).status_code == 200, "ordinary sessions are unaffected"
     assert await db["sessions"].count_documents({"via": "demo"}) == 0

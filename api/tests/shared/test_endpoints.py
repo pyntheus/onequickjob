@@ -6,7 +6,7 @@ import pytest
 from app.adapters.address.ideal_postcodes import IdealPostcodesLookup
 from app.main import create_app
 from app.repos import Quotes, Users
-from tests.conftest import make_settings, sign_in
+from tests.conftest import make_settings, sign_in, signed_out
 from tests.factories import make_user
 
 
@@ -186,9 +186,10 @@ async def test_ideal_postcodes_adapter_spends_a_credit_only_on_resolve_and_cache
 async def test_admin_outbox_requires_admin_and_searches(client, db):
     await client.post("/api/auth/code", json={"identifier": "07700 900111"})
     await client.post("/api/auth/code", json={"identifier": "pat@example.com"})
-    assert (await client.get("/api/admin/outbox")).status_code == 401
+    assert signed_out(await client.get("/api/admin/outbox"))
     await sign_in(client, db, "07700 900999")
-    assert (await client.get("/api/admin/outbox")).status_code == 403
+    r = await client.get("/api/admin/outbox")
+    assert r.status_code == 403 and r.json()["detail"]["code"] == "admins_only"
     await Users(db).add_role((await Users(db).by_phone("+447700900999")).id, "admin")
     page = (await client.get("/api/admin/outbox")).json()
     assert len(page["items"]) == 3 and page["next_before"] is None
@@ -265,7 +266,7 @@ async def test_demo_endpoints_vanish_when_demo_mode_is_off(db):
 
 async def test_file_upload(client, db, tmp_path, app):
     files = {"file": ("after.jpg", b"\xff\xd8\xff\xe0fakejpeg", "image/jpeg")}
-    assert (await client.post("/api/files", files=files, data={"kind": "visit_after"})).status_code == 401
+    assert signed_out(await client.post("/api/files", files=files, data={"kind": "visit_after"}))
     await sign_in(client, db, "07700 900456")
     r = await client.post("/api/files", files=files, data={"kind": "visit_after"})
     assert r.status_code == 201, r.text

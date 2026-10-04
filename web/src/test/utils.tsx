@@ -28,7 +28,7 @@ export function jsonResponse(status: number, body: unknown) {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 }
 
-export const unauthorised = () => jsonResponse(401, { detail: { code: "not_signed_in", message: "Please sign in." } });
+export const unauthorised = () => jsonResponse(403, { detail: { code: "not_signed_in", message: "Please sign in." } });
 
 export function config(demo: boolean) {
   return {

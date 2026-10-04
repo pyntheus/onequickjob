@@ -86,6 +86,12 @@ async def latest_code(db: Db) -> str:
     return m.group(1)
 
 
+def signed_out(r: httpx.Response) -> bool:
+    """The API's answer to someone not signed in: a 403 with its code, never a 401 (see
+    app.core.deps.current_user)."""
+    return r.status_code == 403 and r.json()["detail"]["code"] == "not_signed_in"
+
+
 async def sign_in(client: httpx.AsyncClient, db: Db, identifier: str, name: str = "Test Person") -> dict:
     r = await client.post("/api/auth/code", json={"identifier": identifier})
     assert r.status_code == 202, r.text
