@@ -86,8 +86,9 @@ oqj-prod-api ──> oqj-mongo (single-node replica set rs0; no published port; 
 `make dev` runs this worktree's API (auto-reload) and the Vite dev server, bound to
 127.0.0.1:8000 and :5170, against the same database and files as the production-style stack.
 The two never compete for ports, and only the production-style API runs the periodic tasks when
-both are up (start prod after dev? run `make dev` again). The public site always serves the
-built app; view the dev server from your Mac through a tunnel and open http://localhost:5170:
+both are up, whichever started first (`make prod-down` says to run `make dev` again to hand them
+back). The public site always serves the built app; view the dev server from your Mac through
+a tunnel and open http://localhost:5170:
 
 ```bash
 ssh -N -L 5170:127.0.0.1:5170 oqj-dev

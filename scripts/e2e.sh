@@ -28,7 +28,8 @@ status=0
 for project in $PROJECTS; do
   echo "== $project: re-seeding the demo"
   make --no-print-directory seed >/dev/null 2>&1 || { echo "make seed failed" >&2; exit 1; }
-  run npx playwright test --project="$project" "$@" || status=1
+  # Each width keeps its own failure screenshots and traces (e2e/results/<width>).
+  run npx playwright test --project="$project" --output="results/$project" "$@" || status=1
 done
 echo "== leaving the demo freshly seeded"
 make --no-print-directory seed >/dev/null 2>&1 || { echo "make seed failed" >&2; exit 1; }

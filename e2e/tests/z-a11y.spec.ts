@@ -151,14 +151,16 @@ test("screens inside flows: the quote steps, the finish screen, the plan-change 
   await expect(page.getByRole("button", { name: "Send my request" })).toBeVisible();
   await note("customer: contact and card");
 
-  // Margaret asks for weekly: the plan-change page Dave's text links to.
+  // Margaret asks for a new frequency (journey F1 may already have made her weekly): the
+  // plan-change page Dave's text links to.
   await signInAs(page, "margaret", "/account?tab=plan");
   const [plan] = await api(page, "GET", "/api/c/plans");
-  const priced = await api(page, "GET", `/api/c/plans/${plan.series_id}/reprice?frequency=weekly`);
-  await api(page, "PATCH", `/api/c/plans/${plan.series_id}`, { frequency: "weekly", expected_price_pence: priced.price_pence });
+  const frequency = plan.frequency === "weekly" ? "fortnightly" : "weekly";
+  const priced = await api(page, "GET", `/api/c/plans/${plan.series_id}/reprice?frequency=${frequency}`);
+  await api(page, "PATCH", `/api/c/plans/${plan.series_id}`, { frequency, expected_price_pence: priced.price_pence });
   const text = await message(page, "plan_change_proposed", PHONES.dave);
   await signInAs(page, "dave", linkIn(text.body));
-  await expect(page.getByRole("heading", { name: /would like visits every week/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /would like visits every/ })).toBeVisible();
   await note("provider: plan-change page", true);
 
   // The finish screen, on a visit started early (DEMO_MODE).

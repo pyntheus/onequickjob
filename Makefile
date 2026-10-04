@@ -63,7 +63,7 @@ infra-down: ## Stop the shared Mongo and Caddy (affects every worktree)
 dev: infra-up ## Bring up this worktree's API and web (and shared services)
 	@mkdir -p web/node_modules  # yours, before Docker can create the mount point as root
 	@# The dev API shares oqj_main with the production-style API: only one of them runs the
-	@# periodic tasks. (Start prod while dev is up? Run make dev again.)
+	@# periodic tasks (prod-up turns them off in a dev API that's already running).
 	@tasks=true; if $(DOCKER) ps -q -f name=^oqj-prod-api$$ | grep -q .; then tasks=false; \
 	  echo "The production-style API is running and does the periodic tasks, so this dev API won't."; fi; \
 	  DEV_TASKS_ENABLED=$$tasks $(APP) up -d --build --renew-anon-volumes
@@ -85,10 +85,16 @@ prod-web: ## Build the web app into var/www, where Caddy serves it
 
 prod-up: infra-up prod-web ## Production-style: the built web app via Caddy, the API without reload (restarts on its own, also after a reboot)
 	$(PROD) up -d --build --wait --remove-orphans
+	@# Only one API runs the periodic tasks on oqj_main: a dev API started earlier hands them over.
+	@if [ "$$($(DOCKER) inspect -f '{{range .Config.Env}}{{println .}}{{end}}' oqj-$(INSTANCE)-api 2>/dev/null | grep -x TASKS_ENABLED=true)" ]; then \
+	  echo "The dev API was running the periodic tasks: restarting it without them."; \
+	  DEV_TASKS_ENABLED=false $(APP) up -d --no-deps --no-build api; fi
 	@$(MAKE) --no-print-directory status
 
 prod-down: ## Stop the production-style API (Caddy keeps serving the built app; /api answers 502 until prod-up)
 	$(PROD) down
+	@if $(DOCKER) ps -q -f name=^oqj-$(INSTANCE)-api$$ | grep -q .; then \
+	  echo "The dev API is still up without the periodic tasks: run make dev again to give them to it."; fi
 
 prod-logs: ## Follow the production-style API's logs
 	$(PROD) logs -f --tail=100

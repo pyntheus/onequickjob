@@ -81,9 +81,12 @@ export async function finishVisit(
   await page.goto(`/p/today?date=${opts.day}`);
   for (let i = 0; i < 8; i++) {
     const card = page.locator(".round-item.now");
-    await expect(card).toBeVisible();
+    // The card shows "Loading…" until the visit's details arrive with its start button: only then
+    // does it say whose visit it is.
+    const start = card.getByRole("button", { name: /start it now|start the job/ });
+    await expect(start).toBeVisible();
     const mine = (await card.innerText()).includes(`for ${opts.customer}`);
-    await card.getByRole("button", { name: /start it now|start the job/ }).click();
+    await start.click();
     await expect(card.getByRole("timer")).toBeVisible();
     if (mine && opts.photos !== false) {
       await page.getByLabel("Before photo").setInputFiles(FIXTURES + "lawn-before.png");
