@@ -112,7 +112,21 @@ def doc_state(doc: ProviderDocument | None, today: date | None = None) -> str:
 
 
 def doc_of(provider: Provider, doc_type: str) -> ProviderDocument | None:
+    """The first copy of a type: the one an admin checks next (a waiting upload comes first)."""
     return next((d for d in provider.documents if d.type == doc_type), None)
+
+
+def counting_doc(docs: list[ProviderDocument], doc_type: str) -> ProviderDocument | None:
+    """The copy that counts: the verified one if there is one, else the first (an upload waiting
+    for a check, or a rejected one). Show this one's state, not a renewal's."""
+    same = [d for d in docs if d.type == doc_type]
+    return next((d for d in same if d.status == "verified"), same[0] if same else None)
+
+
+def renewal_waiting(docs: list[ProviderDocument], doc_type: str) -> bool:
+    """A newer upload is waiting for a check beside a verified copy."""
+    same = [d for d in docs if d.type == doc_type]
+    return any(d.status == "pending" for d in same) and any(d.status == "verified" for d in same)
 
 
 def money(pence: int) -> str:

@@ -5,7 +5,13 @@
 - First visit: the earliest day from tomorrow that the provider works, suits the
   customer (any / weekdays / weekends) and isn't in the provider's time off, at the first
   free half-hour in the window: after the provider's previous visit that day ends plus a
-  30-minute travel buffer ("10:30, straight after Widmer End" in the prototype).
+  30-minute travel buffer ("10:30, straight after Widmer End" in the prototype). A visit
+  ends by its window's end, except one longer than its window (a first regular clean is
+  four hours; the morning is three), which starts at the window's start on a day with room
+  for all of it and runs over (decisions.md A14). If nothing fits within six months, the
+  first working day with room, whatever the customer's days: the provider rearranges by
+  message. Never a day the provider doesn't work or is away; with no working day that has room
+  in six months, nothing is booked (409 no_free_day).
 - Recurring visits keep the first visit's weekday and time; materialised 6 weeks ahead
   (at least the next two), idempotently (unique series_id + local_date).
 - Frequencies: weekly 7 days, fortnightly 14, threeweekly 21, fourweekly 28,
@@ -15,14 +21,17 @@
 """
 
 from datetime import UTC, date, datetime, time, timedelta
-from typing import Literal
+from typing import Literal, NamedTuple
 
-from app.core.db import Db, DbSession
+from app.core.db import Db, DbSession, transaction
+from app.core.errors import Conflict
 from app.core.timeutil import add_months, london_datetime, london_today, to_london, weekday_key
 from app.models.bookings import Frequency, Series
 from app.models.common import DaysPref, TimePref, Weekday
 from app.models.providers import Provider
 from app.models.visits import Performer, Visit
+from app.repos.bookings import Bookings
+from app.repos.providers import Providers
 from app.repos.series import SeriesRepo
 from app.repos.time_off import TimeOffRepo
 from app.repos.visits import Visits
@@ -38,7 +47,7 @@ WINDOW_COPY = {
     "either": "time confirmed the day before",
 }
 TRAVEL_BUFFER = timedelta(minutes=30)
-SEARCH_DAYS = 28
+SEARCH_DAYS = 182  # how far ahead a first visit is looked for
 HORIZON_DAYS = 42
 MIN_UPCOMING = 2
 INTERVAL_DAYS: dict[str, int] = {"weekly": 7, "fortnightly": 14, "threeweekly": 21, "fourweekly": 28, "eightweekly": 56}
@@ -66,35 +75,28 @@ def _round_up_half_hour(dt: datetime) -> datetime:
     return local + timedelta(minutes=(-local.minute) % 30)
 
 
-async def _away(db: Db, provider_id: str, day: date, *, session: DbSession | None = None) -> bool:
-    iso = day.isoformat()
-    return (
-        await TimeOffRepo(db).count(
-            {
-                "provider_id": provider_id,
-                "status": {"$in": ["planned", "active"]},
-                "from_date": {"$lte": iso},
-                "to_date": {"$gte": iso},
-            },
-            session=session,
-        )
-        > 0
-    )
+class Busy(NamedTuple):
+    """Time the provider is already taken: a stored visit, or a regular's date not yet made."""
+
+    scheduled_start: datetime
+    est_mins: int
 
 
-async def free_slot_on(
-    db: Db, provider: Provider, day: date, window: TimePref, mins: int, *, session: DbSession | None = None
-) -> datetime | None:
-    """First start time on day in window that fits mins, after the provider's other visits."""
+def slot_on(day: date, window: TimePref, mins: int, busy: list[Busy] | list[Visit]) -> datetime | None:
+    """First start time on day in window that fits mins around the provider's other visits that
+    day (busy), with the travel buffer either side. A visit ends by the window's end; one longer
+    than the window may only start at the window's start, and runs over."""
     start_t, end_t = WINDOWS[window]
-    window_end = london_datetime(day, end_t)
-    candidate = to_london(london_datetime(day, start_t))
-    for v in await Visits(db).for_provider_day(provider.id, day, session=session):
+    window_start = to_london(london_datetime(day, start_t))
+    length = timedelta(minutes=mins)
+    latest = max(window_start, to_london(london_datetime(day, end_t)) - length)
+    candidate = window_start
+    for v in sorted(busy, key=lambda b: b.scheduled_start):
         v_start = v.scheduled_start
         v_end = v_start + timedelta(minutes=v.est_mins)
-        if candidate < v_end + TRAVEL_BUFFER and candidate + timedelta(minutes=mins) + TRAVEL_BUFFER > v_start:
+        if candidate < v_end + TRAVEL_BUFFER and candidate + length + TRAVEL_BUFFER > v_start:
             candidate = _round_up_half_hour(v_end + TRAVEL_BUFFER)
-    if candidate + timedelta(minutes=mins) > window_end:
+    if candidate > latest:
         return None
     return candidate.astimezone(UTC)
 
@@ -109,21 +111,134 @@ async def first_slot(
     *,
     session: DbSession | None = None,
 ) -> datetime:
-    day = from_day or (london_today() + timedelta(days=1))
-    for _ in range(SEARCH_DAYS):
-        if (
-            weekday_key(day) in provider.working_days
-            and suits(day, days)
-            and not await _away(db, provider.id, day, session=session)
-        ):
-            slot = await free_slot_on(db, provider, day, window, mins, session=session)
-            if slot is not None:
+    """The first visit's start: the earliest day from from_day (tomorrow by default) that the
+    provider works, isn't away, suits the customer and has room in the window (slot_on). If no
+    such day comes within SEARCH_DAYS, the provider's first working day with room, whatever the
+    customer's days (they can rearrange by message); never a day they don't work or are away. If
+    there's none at all, it raises Conflict no_free_day, which undoes the booking (409)."""
+    first = from_day or (london_today() + timedelta(days=1))
+    last = first + timedelta(days=SEARCH_DAYS - 1)
+    away = [
+        (t.from_date, t.to_date)
+        for t in await TimeOffRepo(db).find(
+            {
+                "provider_id": provider.id,
+                "status": {"$in": ["planned", "active"]},
+                "from_date": {"$lte": last.isoformat()},
+                "to_date": {"$gte": first.isoformat()},
+            },
+            session=session,
+        )
+    ]
+    busy = await provider_busy(db, provider.id, first, last, session=session)
+    working = [
+        d
+        for d in (first + timedelta(days=k) for k in range(SEARCH_DAYS))
+        if weekday_key(d) in provider.working_days and not any(a <= d <= b for a, b in away)
+    ]
+    for candidates in ([d for d in working if suits(d, days)], working):
+        for d in candidates:
+            if (slot := slot_on(d, window, mins, busy.get(d, []))) is not None:
                 return slot
-        day += timedelta(days=1)
-    # Nothing free in four weeks: first suitable day at the start of the window; the
-    # provider can rearrange by message.
-    fallback = from_day or (london_today() + timedelta(days=1))
-    return london_datetime(fallback, WINDOWS[window][0])
+    # No working day with room in six months (none at all, away throughout, or every one full):
+    # nothing can be booked, so the booking's transaction is undone (409).
+    raise Conflict(
+        "no_free_day", f"{provider.short} has no free day for this in the next six months, so it can't be booked."
+    )
+
+
+async def provider_busy(
+    db: Db,
+    provider_id: str,
+    first: date,
+    last: date,
+    *,
+    except_series: str | None = None,
+    session: DbSession | None = None,
+) -> dict[date, list[Busy]]:
+    """The provider's time already taken, by day, from first to last: their visits going ahead, and
+    every date of their active plans that has no visit stored yet. Regular plans are made only some
+    weeks ahead, and not always every date (a change of frequency fills six weeks, leaving gaps
+    before visits made further out), so a plan date counts as taken unless the plan has a visit
+    stored for it, which says what really happens (a cancelled or skipped one frees it). Leaves
+    out the plan except_series. (Codex reviews of A14.)"""
+    span = {"$gte": first.isoformat(), "$lte": last.isoformat()}
+    busy: dict[date, list[Busy]] = {}
+    for v in await Visits(db).find(
+        {"provider_id": provider_id, "local_date": span, "status": {"$nin": ["cancelled", "skipped"]}},
+        session=session,
+    ):
+        if except_series is None or v.series_id != except_series:
+            busy.setdefault(v.local_date, []).append(Busy(v.scheduled_start, v.est_mins))
+    plans = [
+        p
+        for p in await SeriesRepo(db).find({"provider_id": provider_id, "status": "active"}, session=session)
+        if p.id != except_series
+    ]
+    stored = (
+        {
+            (v.series_id, v.local_date)
+            for v in await Visits(db).find(
+                {"series_id": {"$in": [p.id for p in plans]}, "local_date": span}, session=session
+            )
+        }
+        if plans
+        else set()
+    )
+    for series in plans:
+        hh, mm = (int(x) for x in series.start_time.split(":"))
+        for d in occurrences(series, first - timedelta(days=1), last):
+            if (series.id, d) not in stored:
+                busy.setdefault(d, []).append(Busy(london_datetime(d, time(hh, mm)), series.est_mins))
+    return busy
+
+
+def overlaps(start: datetime, mins: int, busy: list[Busy]) -> bool:
+    """Would a visit at start for mins run into any of busy, travel time included?"""
+    end = start + timedelta(minutes=mins)
+    for b in busy:
+        b_end = b.scheduled_start + timedelta(minutes=b.est_mins)
+        if start < b_end + TRAVEL_BUFFER and end + TRAVEL_BUFFER > b.scheduled_start:
+            return True
+    return False
+
+
+def fill_dates(series: Series, after: date, today: date, upcoming: int = 0) -> list[date]:
+    """The dates ensure_horizon makes after `after`: up to the horizon (six weeks from today), or, if
+    that leaves fewer than MIN_UPCOMING with the `upcoming` ones already made, the next ones looking
+    up to 400 days further (past a long pause)."""
+    until = today + timedelta(days=HORIZON_DAYS)
+    dates = occurrences(series, after, until)
+    if upcoming + len(dates) < MIN_UPCOMING:
+        dates = occurrences(series, after, until + timedelta(days=400))[: MIN_UPCOMING - upcoming] or dates
+    return dates
+
+
+async def first_clash(
+    db: Db, series: Series, after: date, *, today: date | None = None, session: DbSession | None = None
+) -> date | None:
+    """The first date after `after` that the plan would add (it has no visit going ahead on it yet)
+    and that runs into the provider's other visits or plans: a change of frequency mustn't
+    double-book them (Codex reviews of A22). It checks every date the fill from `after` makes now
+    (fill_dates, so past a long pause too) and every plan date in the six months after `after`,
+    which later top-ups make. None if there's none."""
+    today = today or london_today()
+    window = occurrences(series, after, after + timedelta(days=SEARCH_DAYS))
+    candidates = sorted(set(window) | set(fill_dates(series, after, today)))
+    own = {
+        v.local_date
+        for v in await Visits(db).find(
+            {"series_id": series.id, "local_date": {"$gt": after.isoformat()}, "status": {"$nin": ["cancelled"]}},
+            session=session,
+        )
+    }
+    dates = [d for d in candidates if d not in own]
+    if not dates:
+        return None
+    busy = await provider_busy(db, series.provider_id, dates[0], dates[-1], except_series=series.id, session=session)
+    hh, mm = (int(x) for x in series.start_time.split(":"))
+    clashes = (d for d in dates if overlaps(london_datetime(d, time(hh, mm)), series.est_mins, busy.get(d, [])))
+    return next(clashes, None)
 
 
 def occurrences(series: Series, after: date, until: date) -> list[date]:
@@ -176,24 +291,33 @@ async def ensure_horizon(
     provider: Provider,
     *,
     today: date | None = None,
+    from_day: date | None = None,
     source: Literal["platform", "own_customer"] = "platform",
     session: DbSession | None = None,
 ) -> list[Visit]:
     """Create the series' visits up to the horizon. Safe to call repeatedly and concurrently
-    (one visit per plan and day is a unique index; existing days are left as they are)."""
+    (one visit per plan and day is a unique index; existing days are left as they are).
+
+    Normally it adds the plan's dates after its latest visit. With from_day (after a change of
+    frequency) it makes every plan date after from_day instead: a date's existing visit stays as
+    it is, except one an earlier change of frequency cancelled, which comes back at the plan's
+    price. Returns the visits it added or brought back. When it adds any, it writes the plan
+    (horizon_until), so inside a transaction a concurrent change to the plan conflicts with it."""
     if series.status != "active":
         return []
     today = today or london_today()
     visits = Visits(db)
-    last = await visits.find_one({"series_id": series.id}, sort=[("local_date", -1)], session=session)
-    after = max(last.local_date if last else series.anchor_date - timedelta(days=1), today)
-    until = today + timedelta(days=HORIZON_DAYS)
-    upcoming = await visits.count({"series_id": series.id, "local_date": {"$gt": today.isoformat()}}, session=session)
-    dates = occurrences(series, after, until)
-    if upcoming + len(dates) < MIN_UPCOMING:
-        dates = occurrences(series, after, until + timedelta(days=400))[: MIN_UPCOMING - upcoming] or dates
+    if from_day is None:
+        last = await visits.find_one({"series_id": series.id}, sort=[("local_date", -1)], session=session)
+        after = max(last.local_date if last else series.anchor_date - timedelta(days=1), today)
+        upcoming = await visits.count(
+            {"series_id": series.id, "local_date": {"$gt": today.isoformat()}}, session=session
+        )
+    else:
+        after, upcoming = from_day, 0
+    dates = fill_dates(series, after, today, upcoming)
     hh, mm = (int(x) for x in series.start_time.split(":"))
-    created: list[Visit] = []
+    made: list[Visit] = []
     for d in dates:
         v = Visit(
             booking_id=series.booking_id,
@@ -214,7 +338,37 @@ async def ensure_horizon(
         )
         stored = await visits.insert_once(v, {"series_id": series.id, "local_date": d.isoformat()}, session=session)
         if stored.id == v.id:
-            created.append(v)
+            made.append(v)
+        elif from_day is not None and stored.status == "cancelled" and stored.skipped_reason == "plan_change":
+            back = await visits.update(
+                stored.id,
+                {"status": "scheduled", "skipped_reason": None, "price_pence": series.price_pence},
+                extra_filter={"status": "cancelled"},
+                session=session,
+            )
+            if back is not None:
+                made.append(back)
     if dates:
-        await SeriesRepo(db).update(series.id, {"horizon_until": max(dates).isoformat()}, session=session)
-    return created
+        horizon = max(dates) if series.horizon_until is None else max(max(dates), series.horizon_until)
+        await SeriesRepo(db).update(series.id, {"horizon_until": horizon.isoformat()}, session=session)
+    return made
+
+
+async def top_up(db: Db, series_id: str, *, today: date | None = None) -> list[Visit]:
+    """ensure_horizon for one plan, in a transaction of its own that reads the plan (and its
+    provider and booking) as they are now, so it never adds a visit at a frequency or price that
+    a committed change has replaced. ensure_horizon writes the plan whenever it adds a visit, so
+    a change of frequency, a pause or a cancellation committing meanwhile conflicts with it and
+    the driver re-runs it on the plan as changed (decisions.md A13)."""
+
+    async def fill(session: DbSession) -> list[Visit]:
+        series = await SeriesRepo(db).get(series_id, session=session)
+        if series is None or series.status != "active":
+            return []
+        provider = await Providers(db).get(series.provider_id, session=session)
+        booking = await Bookings(db).get(series.booking_id, session=session)
+        if provider is None or booking is None:
+            return []
+        return await ensure_horizon(db, series, provider, today=today, source=booking.source, session=session)
+
+    return await transaction(db, fill)

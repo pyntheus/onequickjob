@@ -74,6 +74,27 @@ async def test_failed_charges_show_for_a_retry(jo, db, catalogue):
     assert ok(await jo.get("/api/admin/overview"))["payments"] == []
 
 
+async def test_a_charge_that_never_started_shows_for_a_retry(jo, db, catalogue):
+    """L2's filing: a finished visit whose charge never started (and whose start keeps failing) is
+    listed once it's past the settle task's first chance, and Retry charge starts it."""
+    customer = await card_customer(db)
+    v = await finished_visit(db, customer, await payable_provider(db))
+    assert v.charge.status == "none"
+    await Visits(db).update(v.id, {"finished_at": utcnow()})
+    assert ok(await jo.get("/api/admin/overview"))["payments"] == [], "just finished: the settle task starts it"
+    await Visits(db).update(v.id, {"finished_at": utcnow() - timedelta(minutes=11)})
+    [issue] = ok(await jo.get("/api/admin/overview"))["payments"]
+    assert (issue["visit_id"], issue["status"], issue["kind"], issue["amount_pence"]) == (
+        v.id,
+        "not_started",
+        "charge",
+        3000,
+    )
+    st = ok(await jo.post(f"/api/admin/visits/{v.id}/retry-charge"))
+    assert st["status"] == "succeeded"
+    assert ok(await jo.get("/api/admin/overview"))["payments"] == []
+
+
 async def test_whatsapp_text_for_the_providers_group(jo, db, catalogue):
     customer = await make_customer(db)
     req = await make_request(db, customer, "hedges", {"length": 20, "height": "above", "sides": "both"})

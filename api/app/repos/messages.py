@@ -59,3 +59,14 @@ class Messages(Repo[Message]):
             session=self.s(session),
         )
         return msg
+
+    async def mark_read(
+        self, thread_id: str, user_id: str, message_ids: list[str] | None = None, *, session: DbSession | None = None
+    ) -> int:
+        """Add the user to read_by on the thread's messages (only these, if message_ids is given).
+        Returns how many were newly marked."""
+        flt: dict = {"thread_id": thread_id, "read_by": {"$ne": user_id}}
+        if message_ids is not None:
+            flt["_id"] = {"$in": message_ids}
+        res = await self.coll.update_many(flt, {"$addToSet": {"read_by": user_id}}, session=self.s(session))
+        return res.modified_count

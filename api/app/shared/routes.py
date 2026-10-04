@@ -2,6 +2,7 @@
 quotes, address lookup, outbox, files. Lanes don't edit this file (docs/spec/lanes.md)."""
 
 import re
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, Response, UploadFile, status
@@ -215,7 +216,7 @@ async def admin_outbox(
     channel: Annotated[str | None, Query(pattern="^(sms|whatsapp|email)$")] = None,
     template_id: str | None = None,
     user_id: str | None = None,
-    before: Annotated[str | None, Query(description="id of the last item on the previous page")] = None,
+    before: Annotated[str | None, Query(description="next_before from the previous page")] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> OutboxPage:
     """Every message, newest first, searchable. L3 builds the admin view on this."""
@@ -224,13 +225,23 @@ async def admin_outbox(
         channel=channel,
         template_id=template_id,
         user_id=user_id,
-        before_id=before,
+        before=_outbox_cursor(before) if before else None,
         limit=limit,
         search_login_codes=s.demo_mode,
     )
     # Outside DEMO_MODE, staff never see live sign-in codes.
     items_out = [_outbox_item(m, redact_codes=not s.demo_mode) for m in items]
-    return OutboxPage(items=items_out, next_before=items[-1].id if len(items) == limit else None)
+    last = items[-1] if len(items) == limit else None
+    return OutboxPage(items=items_out, next_before=f"{last.created_at.isoformat()}~{last.id}" if last else None)
+
+
+def _outbox_cursor(before: str) -> tuple[datetime, str]:
+    """The (created_at, _id) a page ended on, from next_before."""
+    at, _, id_ = before.rpartition("~")
+    try:
+        return datetime.fromisoformat(at), id_
+    except ValueError:
+        fail(status.HTTP_422_UNPROCESSABLE_CONTENT, "bad_cursor", "That page link isn't valid. Start again.")
 
 
 # ------------------------------------------------------------------------- catalogue

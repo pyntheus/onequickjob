@@ -1,14 +1,13 @@
-"""providers and tax_identities. Owner: L2. L3 verifies documents and suspends
-providers through set_document and set_status; L1 updates ratings via apply_rating."""
+"""providers and tax_identities. Owner: L2. L3 verifies documents (a provider's and their
+helpers') and suspends providers through set_document, set_helper_document, set_helper_status and
+set_status; L1 updates ratings via apply_rating."""
 
 from typing import Any
 
-from fastapi import status
-
 from app.core.db import DbSession
-from app.core.errors import fail
+from app.core.errors import Conflict
 from app.core.timeutil import utcnow
-from app.models.providers import Provider, ProviderDocument, ProviderStatus, TaxIdentity
+from app.models.providers import HelperStatus, Provider, ProviderDocument, ProviderStatus, TaxIdentity
 from app.repos.base import Repo, idx
 
 
@@ -37,26 +36,52 @@ class Providers(Repo[Provider]):
         old copy, while a newer upload still waiting stays; a rejected one replaces only itself, so
         rejecting a renewal leaves the verified copy counting. Waiting copies come first (L3 checks
         the first of a type), then the one that counts. If the copy L3 read isn't on record any
-        more (the provider replaced it since), nothing changes: 409, which undoes L3's transaction."""
+        more (the provider replaced it since), nothing changes: it raises Conflict document_changed,
+        which undoes L3's transaction and answers 409."""
         p = await self.get(provider_id, session=session)
         if p is None:
             return None
-        same = [d for d in p.documents if d.type == doc.type]
-        read = next((d for d in same if d.file_id == doc.file_id), None)
-        if same and read is None:
-            fail(
-                status.HTTP_409_CONFLICT,
-                "document_changed",
-                "That document has been replaced since you opened it. Have another look.",
-            )
-        rest = [d for d in same if d is not read]
-        if doc.status == "verified":
-            rest = [d for d in rest if d.status == "pending"]
-        first = {"pending": 0, "verified": 1}
-        kept = sorted([*rest, doc], key=lambda d: first.get(d.status, 2))
-        docs = [d for d in p.documents if d.type != doc.type] + kept
+        docs = with_verdict(p.documents, doc)
         return await self.update(
             provider_id, {"documents": [d.model_dump(mode="python") for d in docs]}, session=session
+        )
+
+    async def set_helper_document(
+        self, provider_id: str, user_id: str, doc: ProviderDocument, *, session: DbSession | None = None
+    ) -> Provider | None:
+        """L3's verdict on one of a helper's documents (Provider.helpers[].documents), by the same rule
+        as set_document. None if the provider doesn't list that helper (or has removed them)."""
+        p = await self.get(provider_id, session=session)
+        helper = next((h for h in p.helpers if h.user_id == user_id and h.status != "removed"), None) if p else None
+        if helper is None:
+            return None
+        docs = with_verdict(helper.documents, doc)
+        return await self.find_one_and_update(
+            {"_id": provider_id, "helpers": {"$elemMatch": {"user_id": user_id, "status": helper.status}}},
+            {
+                "$set": {
+                    "helpers.$.documents": [d.model_dump(mode="python") for d in docs],
+                    "updated_at": utcnow(),
+                }
+            },
+            session=session,
+        )
+
+    async def set_helper_status(
+        self,
+        provider_id: str,
+        user_id: str,
+        status: HelperStatus,
+        *,
+        expect: tuple[HelperStatus, ...],
+        session: DbSession | None = None,
+    ) -> Provider | None:
+        """L3 marks a helper ready (guarded on the statuses it expects them to be in). None if the
+        helper isn't listed in one of those statuses."""
+        return await self.find_one_and_update(
+            {"_id": provider_id, "helpers": {"$elemMatch": {"user_id": user_id, "status": {"$in": list(expect)}}}},
+            {"$set": {"helpers.$.status": status, "updated_at": utcnow()}},
+            session=session,
         )
 
     async def set_status(
@@ -79,6 +104,21 @@ class Providers(Repo[Provider]):
         self, provider_id: str, fields: dict[str, Any], *, session: DbSession | None = None
     ) -> Provider | None:
         return await self.update(provider_id, fields, session=session)
+
+
+def with_verdict(documents: list[ProviderDocument], doc: ProviderDocument) -> list[ProviderDocument]:
+    """The document list after a verdict on doc (the copy L3 read, found by its file): see
+    Providers.set_document. Raises Conflict document_changed if that copy isn't there any more."""
+    same = [d for d in documents if d.type == doc.type]
+    read = next((d for d in same if d.file_id == doc.file_id), None)
+    if same and read is None:
+        raise Conflict("document_changed", "That document has been replaced since you opened it. Have another look.")
+    rest = [d for d in same if d is not read]
+    if doc.status == "verified":
+        rest = [d for d in rest if d.status == "pending"]
+    first = {"pending": 0, "verified": 1}
+    kept = sorted([*rest, doc], key=lambda d: first.get(d.status, 2))
+    return [d for d in documents if d.type != doc.type] + kept
 
 
 class TaxIdentities(Repo[TaxIdentity]):

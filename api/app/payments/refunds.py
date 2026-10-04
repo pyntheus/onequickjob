@@ -54,14 +54,6 @@ BY_HAND = (
 )
 
 
-def refund_split_for(original: money.Split, already_pence: int, amount_pence: int) -> money.Split:
-    """The split of a refund of amount_pence when already_pence has been refunded before."""
-    before = money.refund_split(original, already_pence)
-    after = money.refund_split(original, already_pence + amount_pence)
-    fee = after.fee_pence - before.fee_pence
-    return money.Split(amount_pence, fee, amount_pence - fee, original.mode, original.rate)
-
-
 def intent_split(visit: Visit, intent: RefundIntent, s: Settings) -> money.Split:
     original = charged_split(visit, visit.charge, "visit", s)
     return money.Split(intent.amount_pence, intent.fee_pence, intent.provider_pence, original.mode, original.rate)
@@ -150,7 +142,7 @@ async def refund_visit(
                 f"That's more than is left to refund ({wording.money(left)}).",
                 left_pence=left,
             )
-        split = refund_split_for(original, v.charge.refunded_pence, amount_pence)
+        split = money.refund_split_after(original, v.charge.refunded_pence, amount_pence)
         intent = RefundIntent(
             visit_id=visit_id,
             charge_id=v.charge.charge_id or "",

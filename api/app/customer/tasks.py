@@ -6,7 +6,6 @@ from app.adapters.payments import make_payment_gateway
 from app.core.config import Settings
 from app.core.db import Db
 from app.core.tasks import periodic
-from app.customer import templates as _templates  # noqa: F401 (registers L1's outbox templates)
 from app.customer.account import start_orphaned_tips as start_tips
 from app.customer.plan_changes import lapse_stale
 from app.customer.requests import expire_stale

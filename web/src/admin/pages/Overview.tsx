@@ -171,9 +171,9 @@ function Attention({ d }: { d: OverviewData }) {
             {a.short}
           </Link>
           <span className="grow small">{a.issue}</span>
-          {a.action === "Ring them" ? (
+          {a.action === "Ring them" || a.action === "Check it" ? (
             <Link to={`/admin/providers/${a.provider_id}`} className="btn btn-ghost btn-sm">
-              Ring them
+              {a.action}
             </Link>
           ) : (
             <button
@@ -202,6 +202,7 @@ const CHARGE_WORDS: Record<string, string> = {
   failed: "Card declined",
   requires_action: "Waiting for the customer to confirm",
   pending: "Not confirmed yet",
+  not_started: "Finished, but the charge never started",
   refund_pending: "Refund not confirmed yet",
   refund_fee_pending: "Refund made; our fee still to return to the provider",
   refund_restore: "Refund failed; giving the provider back what it took from them",

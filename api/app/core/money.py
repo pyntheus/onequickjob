@@ -111,6 +111,16 @@ def refund_split(original: Split, refund_pence: int) -> Split:
     return Split(refund_pence, fee, refund_pence - fee, original.mode, original.rate)
 
 
+def refund_split_after(original: Split, already_refunded_pence: int, refund_pence: int) -> Split:
+    """The split of a further refund of refund_pence when already_refunded_pence of the charge has
+    been refunded before: the difference of the cumulative splits, so several partial refunds of
+    one charge always add up exactly to refund_split of their total."""
+    before = refund_split(original, already_refunded_pence)
+    after = refund_split(original, already_refunded_pence + refund_pence)
+    fee = after.fee_pence - before.fee_pence
+    return Split(refund_pence, fee, refund_pence - fee, original.mode, original.rate)
+
+
 def format_pounds(pence: int) -> str:
     """£30, £25.50, £1,742 - as the prototype's fmt(), for outbox message bodies."""
     _check(abs(pence))

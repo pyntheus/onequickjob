@@ -1,8 +1,8 @@
 """Payment gateway webhooks (/api/payments). Owner: L3.
 
 The router's lifespan runs at API start-up: it refuses to start with a live Stripe key while
-DEMO_MODE is on (or PAYMENT_GATEWAY=stripe without a usable key), and creates the payments
-collections.
+DEMO_MODE is on (or PAYMENT_GATEWAY=stripe without a usable key). The payments collections are
+created with every other (app.repos.ALL).
 """
 
 from collections.abc import AsyncIterator
@@ -19,7 +19,6 @@ from app.core.db import Db, get_db
 from app.core.deps import settings_dep
 from app.core.errors import ERROR_RESPONSES, ErrorResponse, fail
 from app.payments import webhooks
-from app.payments.store import ensure_payment_collections
 
 
 @asynccontextmanager
@@ -27,7 +26,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     s: Settings = app.state.settings
     check_payment_config(s)
     warn_about_payment_config(s)
-    await ensure_payment_collections(app.state.db)
     yield
 
 

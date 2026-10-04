@@ -1,9 +1,7 @@
 """The provider's message threads with customers (one per booking), through Messages.post.
 
-Unread: messages from the other side since the provider last wrote or opened the thread.
-Marking a message read is a write to F's messages collection that no repo function offers
-yet (docs/spec/contract-changes/L2.md), so "opened" is the provider's own last message or,
-failing that, the read_by list as the poster left it.
+Unread: messages from the other side since the provider last wrote or opened the thread
+(opening it marks its messages read: Messages.mark_read).
 """
 
 from fastapi import status
@@ -69,6 +67,7 @@ async def unread_total(db: Db, user_id: str) -> int:
 
 async def messages(db: Db, user_id: str, thread_id: str) -> list[MessageOut]:
     t = await _thread_for(db, user_id, thread_id)
+    await Messages(db).mark_read(t.id, user_id)
     names = {p.user_id: p.name for p in t.participants}
     return [
         MessageOut(

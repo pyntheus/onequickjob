@@ -180,7 +180,7 @@ export default function Invite() {
               }}
             />
           )}
-          {profileLoaded && <CardCapture key={savedCard?.last4 ?? "none"} saved={savedCard} onSaved={setCard} />}
+          {profileLoaded && <CardCapture saved={savedCard} onSaved={setCard} />}
         </>
       )}
       <CheckRow on={agree} onChange={setAgree}>

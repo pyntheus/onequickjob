@@ -16,6 +16,7 @@ of them hits a write conflict; the driver re-runs it, it finds the request booke
 """
 
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import NoReturn
 
 from fastapi import HTTPException, status
@@ -46,11 +47,17 @@ from app.repos.users import Users
 from app.repos.visits import Visits
 from app.services import wording
 from app.services.bookings import create_booking
-from app.services.eligibility import can_take
+from app.services.eligibility import can_take_request
 from app.services.notify import link, notify, recipient_for
 
-COUNTER_MIN_RATIO = 0.8  # the prototype's stepper: 80% of the guide ...
+COUNTER_MIN_RATIO = Decimal("0.8")  # the prototype's stepper: 80% of the guide ...
 COUNTER_MAX_RATIO = 3  # ... to three times it, in whole pounds
+
+
+def counter_bounds(guide_pence: int) -> tuple[int, int]:
+    """The range a counter may take: whole pounds from 80% of the guide (half-up to the pound) up
+    to three times it. make_counter checks it; the provider app's stepper and preview show it."""
+    return round_to_pound(D(guide_pence) * COUNTER_MIN_RATIO), guide_pence * COUNTER_MAX_RATIO
 
 
 @dataclass(frozen=True)
@@ -83,19 +90,28 @@ def _taken(req: JobRequest) -> None:
 def _check_can_take(provider: Provider, cat: Category, req: JobRequest) -> None:
     if req.direct_provider_id and req.direct_provider_id != provider.id:
         fail(status.HTTP_403_FORBIDDEN, "not_offered_to_you", "This job was offered to someone else.")
-    elig = can_take(provider, cat)
+    elig = can_take_request(provider, cat, req)
     if not elig.ok:
         fail(
             status.HTTP_403_FORBIDDEN, "not_eligible", " ".join(elig.reasons), missing_documents=elig.missing_documents
         )
 
 
-async def _provider_now(db: Db, provider_id: str, session: DbSession) -> Provider:
+async def provider_for_booking(db: Db, provider_id: str, session: DbSession) -> Provider:
     """Inside the transaction, on every attempt: the provider as they are now, for the
-    eligibility check. It writes last_booked_at first, so a suspension or document change that
-    commits while this transaction runs conflicts with it: the driver re-runs the attempt,
-    which then sees the change and refuses."""
+    eligibility check (L1's invite acceptance, which books outside the marketplace, uses it too).
+    It writes last_booked_at first, so a suspension or document change that commits while this
+    transaction runs conflicts with it: the driver re-runs the attempt, which then sees the
+    change and refuses."""
     provider = await Providers(db).update(provider_id, {"last_booked_at": utcnow()}, session=session)
+    assert provider is not None, provider_id
+    return provider
+
+
+async def provider_locked(db: Db, provider_id: str, session: DbSession) -> Provider:
+    """Inside a transaction that doesn't book (a counter): the provider as they are now, written so a
+    profile or document change committing meanwhile conflicts with it and the re-run sees it."""
+    provider = await Providers(db).update(provider_id, {}, session=session)
     assert provider is not None, provider_id
     return provider
 
@@ -184,7 +200,48 @@ async def _book(db: Db, s: Settings, req: JobRequest, session: DbSession) -> Boo
     )
     await _lapse_others(db, s, req, cat, session)
     await _notify_booked(db, s, req, cat, customer, provider, booking, first, session)
+    await _withdraw_raise(db, s, req, cat, provider, booking, session)
     return BookingOutcome(request=req, booking=booking, first_visit=first, via=b.via)
+
+
+async def _withdraw_raise(
+    db: Db, s: Settings, req: JobRequest, cat: Category, provider: Provider, booking: Booking, session: DbSession
+) -> None:
+    """A16 (to A12): a raised guide still waiting for the customer when the request is booked, by any
+    route, no longer applies. In the booking's transaction it's withdrawn and the customer is told
+    the price they're booked at: their original guide, or the counter they accepted."""
+    change = req.price_change
+    if change is None or change.status != "pending":
+        return
+    now = utcnow()
+    event = RequestEvent(at=now, kind="price_change_withdrawn", price_pence=change.guide_pence)
+    withdrawn = await JobRequests(db).update(
+        req.id,
+        {"price_change.status": "withdrawn", "price_change.decided_at": now},
+        extra_filter={"price_change.id": change.id, "price_change.status": "pending"},
+        push={"events": event.model_dump(mode="python")},
+        session=session,
+    )
+    customer = await Customers(db).get(req.customer_id, session=session)
+    cu = await Users(db).get(customer.user_id, session=session) if customer else None
+    if withdrawn is None or not (cu and cu.phone):
+        return
+    price = wording.money(booking.price_pence)
+    await notify(
+        db,
+        "guide_raise_withdrawn",
+        to=recipient_for(cu),
+        settings=s,
+        related=Related(request_id=req.id, booking_id=booking.id, customer_id=req.customer_id),
+        idempotency_key=f"request:{req.id}:guide_raise_withdrawn:{change.id}",
+        data={
+            "provider": provider.short,
+            "category": wording.lower_name(cat),
+            "booked_at": f"the {price} you accepted" if booking.via == "counter" else f"your original price, {price}",
+            "proposed": wording.money(change.guide_pence),
+        },
+        session=session,
+    )
 
 
 async def _cover(db: Db, s: Settings, req: JobRequest, session: DbSession) -> BookingOutcome:
@@ -205,10 +262,14 @@ async def _cover(db: Db, s: Settings, req: JobRequest, session: DbSession) -> Bo
             ).model_dump(),
             "cover": {"state": "covered", "request_id": req.id, "original_provider_id": visit.provider_id},
         },
-        extra_filter={"cover.state": {"$ne": "covered"}},
+        # Still scheduled (not skipped, cancelled or under way) and not covered already, as read in
+        # this transaction: a visit the customer skipped meanwhile can't be "taken".
+        extra_filter={"status": "scheduled", "cover.state": {"$ne": "covered"}},
         session=session,
     )
-    if covered is None:  # covered through another request already: undo this claim
+    if covered is None:  # covered through another request already, or no longer happening: undo this claim
+        if visit.status != "scheduled":
+            fail(status.HTTP_409_CONFLICT, "visit_not_scheduled", "The visit this covers isn't happening any more.")
         fail(status.HTTP_409_CONFLICT, "not_open", "This job isn't open any more.")
     booking = await Bookings(db).get(covered.booking_id, session=session)
     assert booking is not None
@@ -300,14 +361,14 @@ async def accept_at_guide(db: Db, s: Settings, ref: str, provider: Provider) -> 
         _taken(req)
 
     async def accept(session: DbSession) -> BookingOutcome:
-        _check_can_take(await _provider_now(db, provider.id, session), cat, req)
+        _check_can_take(await provider_for_booking(db, provider.id, session), cat, req)
         claimed = await claim_request(
             db,
             req.id,
             provider_id=provider.id,
             price_pence=req.guide_pence,
             first_price_pence=req.first_pence,
-            via="guide",
+            via="direct" if req.direct_provider_id else "guide",  # Book again: offered to them only
             expect_guide_pence=req.guide_pence,
             session=session,
         )
@@ -339,8 +400,7 @@ async def make_counter(
         _taken(req)
     if req.cover_for_visit_id:
         fail(status.HTTP_422_UNPROCESSABLE_CONTENT, "cover_is_fixed_price", "Cover is at the regular price.")
-    lo = round(req.guide_pence * COUNTER_MIN_RATIO / 100) * 100
-    hi = req.guide_pence * COUNTER_MAX_RATIO
+    lo, hi = counter_bounds(req.guide_pence)
     if price_pence % 100 or not lo <= price_pence <= hi:
         fail(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -354,6 +414,9 @@ async def make_counter(
     cu = await Users(db).get(customer.user_id) if customer else None
 
     async def counter(session: DbSession) -> Offer:
+        # Eligibility again, on the provider as they are in this transaction (A23: their working days
+        # can change meanwhile).
+        _check_can_take(await provider_locked(db, provider.id, session), cat, req)
         # Offers are immutable: a changed price withdraws the old offer and makes a new one, so
         # a customer accepting an offer id always gets exactly the price that offer showed.
         offers = Offers(db)
@@ -438,11 +501,11 @@ async def accept_counter(db: Db, s: Settings, offer_id: str, customer: Customer)
         _taken(req)
     provider = await Providers(db).get(offer.provider_id)
     cat = await _category(db, req.category_id)
-    if provider is None or not can_take(provider, cat).ok:
+    if provider is None or not can_take_request(provider, cat, req).ok:
         await _lapse_unavailable(db, s, offer, req, cat, customer)
 
     async def accept(session: DbSession) -> BookingOutcome:
-        if not can_take(await _provider_now(db, offer.provider_id, session), cat).ok:
+        if not can_take_request(await provider_for_booking(db, offer.provider_id, session), cat, req).ok:
             fail(status.HTTP_409_CONFLICT, "provider_unavailable", "That provider can't take this job any more.")
         accepted = await Offers(db).update(
             offer.id,
@@ -495,7 +558,7 @@ async def _lapse_unavailable(
         if await JobRequests(db).add_event(req.id, event, extra_filter={"status": "open"}, session=session) is None:
             _taken(await _request(db, req.ref, session))
         if provider is not None:
-            reasons = can_take(provider, cat).reasons
+            reasons = can_take_request(provider, cat, req).reasons
             await _notify_provider(
                 db,
                 s,

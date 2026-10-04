@@ -1,5 +1,6 @@
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { config, jsonResponse, mockApi, renderWithProviders } from "../test/utils";
 import { CardCapture } from "./CardCapture";
@@ -22,6 +23,30 @@ describe("CardCapture", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Use test card 4242" }));
     expect(await screen.findByText("•••• •••• •••• 4242")).toBeInTheDocument();
     expect(onSaved).toHaveBeenCalledWith(card);
+  });
+
+  it("follows its saved prop when the customer's card loads after it mounts", async () => {
+    mockApi({ "GET /api/config": () => config(true) });
+    function Harness() {
+      const [saved, setSaved] = useState<typeof card | null>(null);
+      return (
+        <>
+          <button type="button" onClick={() => setSaved(card)}>
+            Profile loaded
+          </button>
+          <button type="button" onClick={() => setSaved({ ...card, last4: "1881" })}>
+            Card changed
+          </button>
+          <CardCapture onSaved={() => {}} saved={saved} />
+        </>
+      );
+    }
+    renderWithProviders(<Harness />);
+    expect(await screen.findByRole("button", { name: "Use test card 4242" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Profile loaded" }));
+    expect(await screen.findByText("•••• •••• •••• 4242")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Card changed" }));
+    expect(await screen.findByText("•••• •••• •••• 1881")).toBeInTheDocument();
   });
 
   it("with Stripe, says so when card entry isn't configured rather than failing silently", async () => {

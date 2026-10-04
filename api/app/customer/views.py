@@ -232,6 +232,8 @@ async def request_detail(
                 if b and b.via == "counter":
                     first = b.first_price_pence if b.first_price_pence != b.price_pence else None
                     text = f"You accepted {pc.short}'s price of {wording.money(b.price_pence)}{_first_text(first)}"
+                elif b and b.via == "direct":
+                    text = f"{pc.short} accepted your request to book them again"
                 else:
                     text = f"{pc.short} accepted your guide price"
                 timeline.append(TimelineEvent(at=e.at, kind="accepted", text=text, provider=pc))
@@ -240,6 +242,10 @@ async def request_detail(
                 timeline.append(TimelineEvent(at=e.at, kind="note", text=text))
             case "price_change_declined":
                 text = f"You kept the guide price at {wording.money(e.price_pence or req.guide_pence)}"
+                timeline.append(TimelineEvent(at=e.at, kind="note", text=text))
+            case "price_change_withdrawn":
+                proposed = wording.money(e.price_pence or 0)
+                text = f"Booked before you answered, so the suggested {proposed} no longer applies"
                 timeline.append(TimelineEvent(at=e.at, kind="note", text=text))
             case "guide_raised" if e.text == "Approved by the customer":
                 again = (
@@ -450,7 +456,7 @@ async def visit_views(db: Db, visits: list[Visit], look: Lookup, bookings: dict[
 # --------------------------------------------------------------------------------- plans
 
 
-async def plan_view(db: Db, series: Series, booking: Booking, look: Lookup) -> PlanOut:
+async def plan_view(db: Db, series: Series, booking: Booking, look: Lookup, s: Settings) -> PlanOut:
     cat = await look.cat(series.category_id)
     provider = await look.provider(series.provider_id)
     assert provider is not None
@@ -477,13 +483,20 @@ async def plan_view(db: Db, series: Series, booking: Booking, look: Lookup) -> P
         cover_when_away=series.cover_when_away,
         next_visit_date=nxt.local_date if nxt else None,
         pending_change=PendingPlanChange(
+            change_id=pc.id,
+            kind=pc.kind,
+            awaiting=pc.awaiting,
             to_frequency=pc.to_frequency,
             to_frequency_label=frequency_label(pc.to_frequency) or "",
             to_price_pence=pc.to_price_pence,
+            split=fee_split(pc.to_price_pence, money.mode_for_source(booking.source), s)
+            if pc.to_price_pence is not None
+            else None,
             expires_at=pc.expires_at,
         )
         if (pc := await PlanChanges(db).pending_for(series.id))
         else None,
+        provider_sets_price=booking.source == "own_customer",
         frequency_options=[
             FrequencyOption(value=f, label=frequency_label(f) or f)
             for f in plan_frequencies(cat)

@@ -12,3 +12,7 @@ Each request:
     - Why: the screen or rule that needs it.
     - Workaround now: what you did inside your own package meanwhile.
     - Breaking? yes/no, and who else is affected.
+
+Session S (shared fixes, after the three lanes) marked every request with a **Status** line:
+resolved, with the commit on `s/shared-fixes` that did it, or declined, with the reason. New
+requests go below them in the same format.

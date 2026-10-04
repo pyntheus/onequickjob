@@ -138,7 +138,7 @@ function Status({ req }: { req: RequestDetail }) {
           <div className="stack" style={g(2)}>
             <h1 className="h2">You're booked with {p.short}</h1>
             <span className="small muted">
-              {req.booked_via === "guide"
+              {req.booked_via === "guide" || req.booked_via === "direct"
                 ? `They accepted your guide price of ${fmt(req.booked_price_pence ?? req.guide_pence)}.`
                 : `You accepted ${priceText(req.booked_price_pence ?? 0, req.unit, req.booked_first_price_pence)}.`}
             </span>

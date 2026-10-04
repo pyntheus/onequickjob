@@ -30,7 +30,7 @@ from app.repos.providers import Providers
 from app.repos.quotes import Quotes
 from app.repos.visits import Visits
 from app.services import marketplace, schedule, wording
-from app.services.eligibility import LimitStatus, can_take, limit_status, over_limit
+from app.services.eligibility import LimitStatus, can_take_request, limit_status, over_limit
 
 RECENT = timedelta(days=3)  # how long a job you booked, or lost, stays on your list
 ROUTE_DAYS = 14  # how far ahead "fits your round" looks
@@ -101,13 +101,6 @@ async def cover_days(db: Db, reqs: list[JobRequest]) -> dict[str, date]:
 
 
 # ------------------------------------------------------------------ job cards
-
-
-def counter_bounds(guide_pence: int) -> tuple[int, int]:
-    """The whole-pound range a counter may take, as marketplace.make_counter checks it:
-    80% of the guide (to the nearest pound) up to three times it."""
-    lo = round_to_pound(D(guide_pence) * D(marketplace.COUNTER_MIN_RATIO))
-    return lo, guide_pence * marketplace.COUNTER_MAX_RATIO
 
 
 def _state(req: JobRequest, provider: Provider, mine: Offer | None) -> str | None:
@@ -187,7 +180,7 @@ async def list_jobs(db: Db, s: Settings, provider: Provider, today: date | None 
         cat = cats.get(req.category_id)
         if cat is None or (req.direct_provider_id and req.direct_provider_id != provider.id):
             continue
-        if not can_take(provider, cat, today).ok or await _cover_of_own_visit(db, provider, req):
+        if not can_take_request(provider, cat, req, today).ok or await _cover_of_own_visit(db, provider, req):
             continue
         if req.cover_for_visit_id and req.id not in days:
             continue  # the visit it covers isn't happening any more
@@ -260,7 +253,7 @@ def _counter_note(req: JobRequest, mine: Offer | None, provider: Provider, cat: 
             f"The job's still open if you'd like it at {wording.money(req.guide_pence)}."
         )
     if mine.status == "lapsed" and req.status == "open":
-        if can_take(provider, cat).ok:
+        if can_take_request(provider, cat, req).ok:
             return (
                 f"Your suggested price of {price} lapsed while you couldn't take jobs like this. "
                 "You can accept the guide price, or suggest a price again."
@@ -286,7 +279,7 @@ async def job_offer(db: Db, s: Settings, provider: Provider, ref: str) -> JobOff
     cover_day = cover_visit.local_date if cover_visit else None
     the_card = card(s, req, cat, provider, lim, stops, mine, today, cover_day)
 
-    elig = can_take(provider, cat, today)
+    elig = can_take_request(provider, cat, req, today)
     reasons = list(elig.reasons)
     own_cover = await _cover_of_own_visit(db, provider, req)
     if own_cover:
@@ -333,7 +326,7 @@ async def job_offer(db: Db, s: Settings, provider: Provider, ref: str) -> JobOff
             f"at the usual price. They stay {who.split(' ')[0]}'s customer afterwards."
         )
 
-    lo, hi = counter_bounds(req.guide_pence)
+    lo, hi = marketplace.counter_bounds(req.guide_pence)
     start = min(hi, max(lo, round_to_pound(D(req.guide_pence) * D("1.2"))))
     reasons_for = COUNTER_REASONS.get(cat.id) or COUNTER_REASONS[cat.group]
     can = elig.ok and not own_cover and not dead_cover and req.status == "open"
@@ -378,7 +371,7 @@ async def counter_preview(db: Db, s: Settings, provider: Provider, ref: str, pri
     sets, the first-visit price it scales to (marketplace.scaled_first_price) and what the
     provider would get for each (money.split)."""
     req = await _request_for(db, provider, ref)
-    lo, hi = counter_bounds(req.guide_pence)
+    lo, hi = marketplace.counter_bounds(req.guide_pence)
     problem = None
     if price_pence % 100 or not lo <= price_pence <= hi:
         problem = f"Suggest a whole-pound price between {wording.money(lo)} and {wording.money(hi)}."

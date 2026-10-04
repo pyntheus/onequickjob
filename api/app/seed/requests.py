@@ -12,7 +12,6 @@ from app.models.job_requests import Broadcast, JobRequest, RequestEvent, When
 from app.models.offers import Offer
 from app.models.providers import Provider
 from app.repos.quotes import Quotes
-from app.seed.cleanup import clear_children_of_requests
 from app.seed.context import Ctx, sid
 from app.services.eligibility import alert_targets
 from app.services.quotes import create_quote
@@ -118,6 +117,5 @@ async def seed_requests(ctx: Ctx) -> list[SeededRequest]:
                 request=req, spec=spec, targets=targets, counter=counter, route_hints=spec.get("route_hint", {})
             )
         )
-    await clear_children_of_requests(ctx, ctx.request_ids)
     await ctx.w.flush()
     return out

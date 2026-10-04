@@ -30,7 +30,7 @@ from app.models.providers import Provider
 from app.repos.providers import Providers
 from app.repos.users import Users
 from app.services.auth import create_session, end_session
-from app.services.eligibility import can_take
+from app.services.eligibility import can_take_request
 
 COUNTER_AFTER = 4  # seconds after the tap: the nearest provider suggests a price
 ACCEPT_AFTER = 15  # seconds after the tap: the next accepts the guide price
@@ -66,7 +66,7 @@ async def candidates(db: Db, req: JobRequest, cat: Category) -> list[Provider]:
         p
         for p in await Providers(db).with_skill(cat.id)
         if p.user_id in seeded
-        and can_take(p, cat).ok
+        and can_take_request(p, cat, req).ok
         and (req.direct_provider_id is None or p.id == req.direct_provider_id)
     ]
 

@@ -1,6 +1,7 @@
 """outbox. Owner: F. Written only by app.services.notify."""
 
 import re
+from datetime import datetime
 
 from pymongo import DESCENDING
 
@@ -13,7 +14,7 @@ class Outbox(Repo[OutboxMessage]):
     model = OutboxMessage
     touch_updated_at = False
     indexes = [
-        idx(("created_at", DESCENDING)),
+        idx(("created_at", DESCENDING), ("_id", DESCENDING)),
         idx("recipient.user_id", ("created_at", DESCENDING)),
         idx("template_id", ("created_at", DESCENDING)),
         idx("related.request_id"),
@@ -30,12 +31,14 @@ class Outbox(Repo[OutboxMessage]):
         channel: str | None = None,
         template_id: str | None = None,
         user_id: str | None = None,
-        before_id: str | None = None,
+        before: tuple[datetime, str] | None = None,
         limit: int = 50,
         search_login_codes: bool = True,
         session: DbSession | None = None,
     ) -> list[OutboxMessage]:
-        """search_login_codes=False (outside DEMO_MODE): free text never matches the body of a
+        """Newest first by created_at (seeded messages' ids don't follow time), then _id; `before`
+        is the (created_at, _id) of the last message on the previous page.
+        search_login_codes=False (outside DEMO_MODE): free text never matches the body of a
         login_code message, so search results can't be used to probe a masked code."""
         flt: dict = {}
         if q:
@@ -54,6 +57,9 @@ class Outbox(Repo[OutboxMessage]):
             flt["template_id"] = template_id
         if user_id:
             flt["recipient.user_id"] = user_id
-        if before_id:
-            flt["_id"] = {"$lt": before_id}
-        return await self.find(flt, sort=[("_id", DESCENDING)], limit=limit, session=session)
+        if before:
+            at, id_ = before
+            page = {"$or": [{"created_at": {"$lt": at}}, {"created_at": at, "_id": {"$lt": id_}}]}
+            flt = {"$and": [flt, page]} if flt else page
+        newest = [("created_at", DESCENDING), ("_id", DESCENDING)]
+        return await self.find(flt, sort=newest, limit=limit, session=session)

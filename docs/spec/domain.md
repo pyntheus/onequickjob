@@ -7,8 +7,8 @@ Generated from the Pydantic models (`api/app/models/`) and repositories (`api/ap
 - Money is integer pence in fields ending `_pence`; `SignedPence` may be negative (refunds).
 - Datetimes are timezone-aware UTC. `IsoDate` fields are London calendar dates stored as
   `YYYY-MM-DD` strings. Phones are E.164.
-- Seeded documents carry `_seed: true` (ignored by the models) so `make seed` can replace
-  them without touching data people created.
+- Seeded documents carry `_seed: true` (ignored by the models). `make seed` resets the demo:
+  it removes what demo runs created and writes the seeded documents again (decisions.md A21).
 - **Owner** decides the schema and adds repo functions; changes by anyone else go through
   `docs/spec/contract-changes/<lane>.md`. **Writers** lists who else writes and how.
 - One repository class per collection in `api/app/repos/` (the catalogue's four are in
@@ -25,7 +25,7 @@ Generated from the Pydantic models (`api/app/models/`) and repositories (`api/ap
 | `login_codes` | F | F only (services.auth) |
 | `magic_links` | F | F mints and consumes; L1 (job alerts) and L2 (helper invites) mint via create_magic_link |
 | `customers` | L1 | L1; F test factories; L1 invite acceptance creates own-customer customers |
-| `providers` | L2 | L2 (self-service, sign-up); L3 via Providers.set_document / set_status; L1 via apply_rating |
+| `providers` | L2 | L2 (self-service, sign-up); L3 via Providers.set_document / set_helper_document / set_helper_status / set_status, and patch(payment_account) on account.updated, admin onboarding and Check status; services.lifecycle activates (A19); L1 via apply_rating |
 | `tax_identities` | L2 | L2 writes (sign-up, sealed); L3 reads for the HMRC export |
 | `categories` | L3 | Seed only in the prototype (viewing only); L3 owns future editing |
 | `category_groups` | L3 | Seed only |
@@ -33,9 +33,9 @@ Generated from the Pydantic models (`api/app/models/`) and repositories (`api/ap
 | `excluded_jobs` | L3 | Seed only |
 | `pricing_versions` | L3 | L3 drafts and approves; seed inserts version 1 |
 | `quotes` | F | F (POST /api/quotes); L1 sets request_id |
-| `job_requests` | L1 | L1 creates and cancels; F marketplace claims (status open -> booked); L2 records views; L3 raises guides |
+| `job_requests` | L1 | L1 creates, cancels and answers raises; F marketplace claims (status open -> booked) and withdraws a waiting raise (A16); L2 records views and creates cover requests; L3 proposes raises (app.services.guide_raises.propose) |
 | `offers` | F | F marketplace (counter, accept, decline, lapse) |
-| `bookings` | F | F services.bookings.create_booking (marketplace, and L1's invite acceptance); L1 cancels |
+| `bookings` | F | F services.bookings.create_booking (marketplace, L1's invite acceptance, L2's own customers); L1 cancels and changes frequency; app.payments.charging completes a one-off once its visit is paid |
 | `series` | F | F creates; L1 pauses, changes frequency, cancels; F task tops up the horizon |
 | `visits` | L2 | F creates (services.schedule / bookings); L2 starts, photos, finishes, helper, cover; L1 skips; L3 writes charge state from webhooks and refunds |
 | `ratings` | L1 | L1 |
@@ -48,6 +48,10 @@ Generated from the Pydantic models (`api/app/models/`) and repositories (`api/ap
 | `expenses` | L2 | L2 |
 | `time_off` | L2 | L2 |
 | `own_customer_invites` | L2 | L2 creates (and records blocked attempts); L1 accepts |
+| `plan_changes` | L1 | L1 (app.customer.plan_changes): asked, answered by the provider's link, lapsed (A10) |
+| `payment_events` | L3 | L3 (app.payments.webhooks): each Stripe event once, with its outcome |
+| `payment_refunds` | L3 | L3 (app.payments.refunds): each refund's intent, gateway result and fee return |
+| `payment_attempts` | L3 | L3 (app.payments.charging): each charge attempt's intent, by idempotency key |
 | `audit_log` | F | Every lane via services.audit.audit (admin actions, pricing, money changes) |
 | `files` | F | F (POST /api/files) for every lane |
 | `counters` | F | core.ids.next_ref: {_id: request, booking or dispute; seq}, atomic $inc for human refs |
@@ -681,7 +685,7 @@ Model `app.models.system.OutboxMessage`; repo `app.repos.outbox.Outbox`. Owner F
 | `created_at` | datetime |  |
 
 Indexes:
-- `created_at desc`
+- `created_at desc, _id desc`
 - `recipient.user_id, created_at desc`
 - `template_id, created_at desc`
 - `related.request_id`
@@ -817,6 +821,120 @@ Indexes:
 - `phone`
 - `token_hash` (unique; partial {'token_hash': {'$type': 'string'}})
 
+## `plan_changes`
+
+plan_changes: a customer's request to change how often a plan's visits happen. Owner: L1.
+
+Model `app.models.plan_changes.PlanChange`; repo `app.repos.plan_changes.PlanChanges`. Owner L1.
+
+| Field | Type | Notes |
+|---|---|---|
+| `_id` | str |  |
+| `created_at` | datetime |  |
+| `updated_at` | datetime |  |
+| `series_id` | str |  |
+| `booking_id` | str |  |
+| `customer_id` | str |  |
+| `provider_id` | str |  |
+| `category_id` | str |  |
+| `from_frequency` | Literal['oneoff', 'weekly', 'fortnightly', 'threeweekly', 'fourweekly', 'eightweekly', 'monthly', 'threemonthly', 'weekdays', 'someweekdays'] |  |
+| `to_frequency` | Literal['oneoff', 'weekly', 'fortnightly', 'threeweekly', 'fourweekly', 'eightweekly', 'monthly', 'threemonthly', 'weekdays', 'someweekdays'] |  |
+| `from_price_pence` | int | The plan's price per visit when the change was asked for |
+| `kind` | Literal['reprice', 'provider_price'] | reprice: priced by the engine, the provider accepts (A10); provider_price: an own customer's plan, the provider names the price and the customer approves (A22) |
+| `to_price_pence` | int \| None | A10: new guide x agreed price / original guide, half-up to whole pounds. A22: the provider's price, once they've named it |
+| `new_guide_pence` | int \| None (optional) | A10: the engine's price at the new frequency |
+| `original_guide_pence` | int \| None (optional) | A10: the guide the agreed price was set against (the request's guide) |
+| `quote_id` | str \| None (optional) | A10: the quote for the new frequency |
+| `reference_quote_id` | str \| None (optional) |  |
+| `status` | Literal['pending', 'accepted', 'declined', 'lapsed', 'withdrawn'] |  |
+| `awaiting` | Literal['provider', 'customer'] | While pending: whose answer it waits for (the customer's only under A22) |
+| `declined_by` | Literal['provider', 'customer'] \| None (optional) |  |
+| `token_hash` | str | HMAC of the token in the provider's link |
+| `requested_by` | str | Customer's user id |
+| `expires_at` | datetime | When the current wait lapses (48 hours from its start) |
+| `priced_at` | datetime \| None (optional) | A22: when the provider named the price |
+| `decided_at` | datetime \| None (optional) |  |
+
+Indexes:
+- `series_id` (unique; partial {'status': 'pending'})
+- `token_hash` (unique)
+- `status, expires_at`
+
+## `payment_events`
+
+_id is the gateway's event id (evt_...).
+
+Model `app.models.payments.PaymentEvent`; repo `app.repos.payments.PaymentEvents`. Owner L3.
+
+| Field | Type | Notes |
+|---|---|---|
+| `_id` | str |  |
+| `gateway` | Literal['stripe'] |  |
+| `type` | str |  |
+| `account` | str \| None (optional) | Connected account the event came from, if any |
+| `object_id` | str \| None (optional) |  |
+| `livemode` | bool |  |
+| `outcome` | Literal['applied', 'ignored', 'no_match', 'deferred'] |  |
+| `note` | str |  |
+| `received_at` | datetime |  |
+| `payment_intent` | str \| None (optional) | For deferred refund events: the charge's intent |
+| `payload` | dict[str, Any] \| None (optional) | The event's object, kept only while deferred |
+
+Indexes:
+- `received_at desc`
+- `type, received_at desc`
+- `payment_intent` (partial {'outcome': 'deferred'})
+
+## `payment_refunds`
+
+One refund of a visit's charge. Its id is the gateway idempotency key (and `<id>:fee` the fee refund's). status: pending (the customer's refund isn't confirmed yet, so nothing is recorded and the amount stays reserved), fee_pending (the customer's refund is confirmed and recorded; returning our fee to the provider still needs doing), succeeded, failed.
+
+Model `app.models.payments.RefundIntent`; repo `app.repos.payments.PaymentRefunds`. Owner L3.
+
+| Field | Type | Notes |
+|---|---|---|
+| `_id` | str |  |
+| `created_at` | datetime |  |
+| `updated_at` | datetime |  |
+| `visit_id` | str |  |
+| `charge_id` | str |  |
+| `dispute_id` | str \| None (optional) |  |
+| `gateway` | Literal['fake', 'stripe'] |  |
+| `amount_pence` | int | Integer pence |
+| `fee_pence` | int | Our fee returned (money.refund_split, cumulative) |
+| `provider_pence` | int | What comes back out of the provider's earnings |
+| `reason` | str |  |
+| `requested_by` | str \| None (optional) | Admin user id; None for the system |
+| `status` | Literal['pending', 'fee_pending', 'succeeded', 'failed'] |  |
+| `refund_id` | str \| None (optional) |  |
+| `failure_reason` | str \| None (optional) |  |
+| `recorded_at` | datetime \| None (optional) |  |
+| `restore` | Literal['none', 'needed', 'done'] | A refund that failed after it was made: its transfer reversal took the provider's money, which a failed refund returns to the platform, so it's transferred back (needed until done) |
+| `restore_transfer_id` | str \| None (optional) |  |
+
+Indexes:
+- `visit_id, created_at`
+- `status, created_at`
+- `dispute_id`
+- `refund_id`
+- `restore` (partial {'restore': 'needed'})
+
+## `payment_attempts`
+
+When a charge attempt began. _id is its idempotency key (visit:<id>:visit[:retryN]).
+
+Model `app.models.payments.ChargeAttempt`; repo `app.repos.payments.ChargeAttempts`. Owner L3.
+
+| Field | Type | Notes |
+|---|---|---|
+| `_id` | str |  |
+| `visit_id` | str |  |
+| `purpose` | Literal['visit', 'tip'] |  |
+| `created_at` | datetime |  |
+
+Indexes:
+- `visit_id`
+
 ## `audit_log`
 
 outbox, audit_log, files. Owner: F. Every lane writes through app.services.notify, app.services.audit and the FileStore adapter.
@@ -916,7 +1034,7 @@ Indexes:
 | `provider_id` | str |  |
 | `price_pence` | int | Integer pence |
 | `first_price_pence` | int \| None (optional) | First-visit price, if different |
-| `via` | Literal['guide', 'counter'] |  |
+| `via` | Literal['guide', 'counter', 'direct'] | direct: a Book again request, at its guide |
 | `offer_id` | str \| None (optional) |  |
 | `at` | datetime |  |
 
@@ -1122,7 +1240,7 @@ Indexes:
 | Field | Type | Notes |
 |---|---|---|
 | `_id` | str | Answers name it, so a stale page can't approve a newer one |
-| `status` | Literal['pending', 'approved', 'declined'] |  |
+| `status` | Literal['pending', 'approved', 'declined', 'withdrawn'] | withdrawn: the request was booked while it waited (A16) |
 | `guide_pence` | int | Integer pence |
 | `first_pence` | int \| None (optional) | Scaled by the same ratio (scaled_first_price) |
 | `from_guide_pence` | int | Integer pence |
@@ -1203,7 +1321,7 @@ Indexes:
 | Field | Type | Notes |
 |---|---|---|
 | `at` | datetime |  |
-| `kind` | Literal['created', 'broadcast', 'viewed', 'countered', 'counter_declined', 'counter_lapsed', 'accepted', 'guide_raised', 'price_change_proposed', 'price_change_declined', 'cancelled', 'expired', 'note'] |  |
+| `kind` | Literal['created', 'broadcast', 'viewed', 'countered', 'counter_declined', 'counter_lapsed', 'accepted', 'guide_raised', 'price_change_proposed', 'price_change_declined', 'price_change_withdrawn', 'cancelled', 'expired', 'note'] |  |
 | `provider_id` | str \| None (optional) |  |
 | `offer_id` | str \| None (optional) |  |
 | `price_pence` | int \| None (optional) |  |

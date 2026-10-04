@@ -384,3 +384,17 @@ async def test_a_frequency_change_keeps_a_visit_later_today_as_the_anchor(client
     await _accepted_change(client, db, booking.series_id, "weekly")
     scheduled = await _scheduled(db, booking.series_id)
     assert scheduled[0] == london_today() and scheduled[1] == london_today() + timedelta(days=7), scheduled
+
+
+async def test_booking_the_same_provider_again_books_via_direct(client, db, catalogue):
+    """Contract-changes L1 item 8: a Book again request is offered to that provider only, and
+    taking it books via "direct" (state-machines.md), at the guide."""
+    dave, booking, _first = await _booked(client, db, "hedges")
+    r = await client.post(f"/api/c/bookings/{booking.id}/rebook", json={"note": ""})
+    assert r.status_code == 201, r.text
+    again = await book_at_guide(db, r.json()["ref"], dave)
+    assert again.via == "direct" and again.booking.via == "direct"
+    assert again.request.booked.via == "direct" and again.booking.price_pence == booking.price_pence
+    detail = (await client.get(f"/api/c/requests/{r.json()['ref']}")).json()
+    assert detail["booked_via"] == "direct"
+    assert any(e["text"] == "Dave H. accepted your request to book them again" for e in detail["timeline"])

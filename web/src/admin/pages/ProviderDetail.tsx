@@ -16,8 +16,10 @@ import { AdminHeader, Dialog, FormError, QueryState, TextArea } from "../compone
 import { errorText, gap, poundsToPence, shortDate } from "../util";
 import { InsuranceBadge, StatusBadge } from "./Providers";
 
-type DocType = AdminDocument["type"];
 type Ledger = Schemas["LedgerEntry"];
+type Helper = Schemas["AdminHelper"];
+/** A document to verify or reject: the provider's own, or one of their helpers'. */
+type Target = { doc: AdminDocument; helper?: Helper };
 
 const DOC_TONE: Record<AdminDocument["status"], string> = {
   verified: "ok",
@@ -33,26 +35,41 @@ const DOC_WORD: Record<AdminDocument["status"], string> = {
   expired: "Expired",
   missing: "Not uploaded",
 };
+const HELPER_WORD: Record<Helper["status"], string> = {
+  invited: "Invited",
+  checking: "Checking documents",
+  ready: "Ready to send",
+};
 const DAYS: Record<string, string> = { mon: "Mon", tue: "Tue", wed: "Wed", thu: "Thu", fri: "Fri", sat: "Sat", sun: "Sun" };
 const KIND: Record<Ledger["kind"], string> = { charge: "Visit", tip: "Tip", refund: "Refund", adjustment: "Adjustment" };
 
-function VerifyDialog({ p, doc, onClose }: { p: Detail; doc: AdminDocument; onClose: () => void }) {
+function VerifyDialog({ p, target, onClose }: { p: Detail; target: Target; onClose: () => void }) {
+  const { doc, helper } = target;
   const notify = useToast();
   const { data: catalogue } = useCategories();
   const type = catalogue?.document_types.find((t) => t.id === doc.type);
   const [issued, setIssued] = useState(doc.issued_on ?? "");
   const [expires, setExpires] = useState(doc.expires_on ?? "");
-  const verify = useAdminAction(() =>
-    call(
-      api.POST("/api/admin/providers/{provider_id}/documents/{doc_type}/verify", {
-        params: { path: { provider_id: p.id, doc_type: doc.type } },
-        body: { issued_on: issued || null, expires_on: expires || null },
-      }),
-    ),
-  );
+  const verify = useAdminAction(() => {
+    // The upload the admin reviewed: if it's been replaced since, the API refuses (409).
+    const body = { file_id: doc.file_id ?? null, issued_on: issued || null, expires_on: expires || null };
+    return helper
+      ? call(
+          api.POST("/api/admin/providers/{provider_id}/helpers/{user_id}/documents/{doc_type}/verify", {
+            params: { path: { provider_id: p.id, user_id: helper.user_id, doc_type: doc.type } },
+            body,
+          }),
+        )
+      : call(
+          api.POST("/api/admin/providers/{provider_id}/documents/{doc_type}/verify", {
+            params: { path: { provider_id: p.id, doc_type: doc.type } },
+            body,
+          }),
+        );
+  });
   const byIssue = !!type?.valid_months;
   return (
-    <Dialog title={`Verify ${doc.label.toLowerCase()}`} onClose={onClose}>
+    <Dialog title={`Verify ${helper ? `${helper.name}'s ` : ""}${doc.label.toLowerCase()}`} onClose={onClose}>
       {doc.file_url ? (
         <a href={doc.file_url} target="_blank" rel="noreferrer" className="small">
           Open the upload <ExternalLink size={13} aria-hidden="true" />
@@ -82,7 +99,7 @@ function VerifyDialog({ p, doc, onClose }: { p: Detail; doc: AdminDocument; onCl
           onClick={async () => {
             try {
               await verify.mutateAsync(undefined);
-              notify(`${doc.label} checked. ${p.short} has been told.`);
+              notify(`${doc.label} checked. ${helper ? helper.name : p.short} has been told.`);
               onClose();
             } catch {
               // shown in the dialog
@@ -147,6 +164,115 @@ function ReasonDialog({
         </button>
       </div>
     </Dialog>
+  );
+}
+
+/** One row per document: the copy to check next, with the checked copy's expiry beside a renewal. */
+function DocTable({ docs, onPick }: { docs: AdminDocument[]; onPick: (doc: AdminDocument, action: "verify" | "reject") => void }) {
+  return (
+    <div className="table-wrap">
+      <table className="table">
+        <thead>
+          <tr>
+            <th>Document</th>
+            <th>Status</th>
+            <th>Expires</th>
+            <th>
+              <span className="sr-only">Actions</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {docs.map((d) => (
+            <tr key={d.type}>
+              <td>
+                {d.file_url ? (
+                  <a href={d.file_url} target="_blank" rel="noreferrer">
+                    {d.label}
+                  </a>
+                ) : (
+                  d.label
+                )}
+                {d.note && <div className="xs muted">{d.note}</div>}
+              </td>
+              <td>
+                {d.current_expires_on ? (
+                  <>
+                    <span className="badge warn">Renewal waiting</span>
+                    <div className="xs muted">Checked copy until {shortDate(d.current_expires_on)}</div>
+                  </>
+                ) : (
+                  <span className={`badge ${DOC_TONE[d.status]}`}>{DOC_WORD[d.status]}</span>
+                )}
+              </td>
+              <td>{d.expires_on ? shortDate(d.expires_on) : <span className="muted">n/a</span>}</td>
+              <td>
+                {d.status !== "missing" && (
+                  <div className="row" style={gap("6px")}>
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => onPick(d, "verify")}>
+                      Verify
+                    </button>
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => onPick(d, "reject")}>
+                      Reject
+                    </button>
+                  </div>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** The provider's helpers: their documents to check, and marking them ready to be sent to visits. */
+function Helpers({ p, onPick }: { p: Detail; onPick: (target: Target, action: "verify" | "reject") => void }) {
+  const notify = useToast();
+  const ready = useAdminAction((user_id: string) =>
+    call(api.POST("/api/admin/providers/{provider_id}/helpers/{user_id}/ready", { params: { path: { provider_id: p.id, user_id } } })),
+  );
+  const helpers = p.helper_checks ?? [];
+  if (helpers.length === 0) return null;
+  return (
+    <div className="card stack" style={gap("14px")}>
+      <h2 className="h3">Helpers</h2>
+      {helpers.map((h) => (
+        <div key={h.user_id} className="stack" style={gap("6px")}>
+          <div className="row between wrap" style={gap("8px")}>
+            <span className="small">
+              <b>{h.name}</b>
+              {h.relationship && <span className="muted"> ({h.relationship.toLowerCase()})</span>}
+              {h.phone && <span className="muted"> · {h.phone}</span>}
+            </span>
+            <span className={`badge ${h.status === "ready" ? "ok" : "warn"}`}>{HELPER_WORD[h.status]}</span>
+          </div>
+          {h.documents.length > 0 ? (
+            <DocTable docs={h.documents} onPick={(doc, action) => onPick({ doc, helper: h }, action)} />
+          ) : (
+            <p className="small muted">Nothing uploaded yet.</p>
+          )}
+          {h.can_mark_ready && (
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              style={{ alignSelf: "flex-start" }}
+              disabled={ready.isPending}
+              onClick={async () => {
+                try {
+                  await ready.mutateAsync(h.user_id);
+                  notify(`${h.name} is ready to send. ${p.short} has been told.`);
+                } catch (e) {
+                  notify(errorText(e));
+                }
+              }}
+            >
+              Mark ready to send
+            </button>
+          )}
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -289,8 +415,9 @@ export default function ProviderDetail() {
   const { providerId = "" } = useParams();
   const { data: p, isLoading, error } = useProvider(providerId);
   const { data: catalogue } = useCategories();
-  const [verifying, setVerifying] = useState<AdminDocument | null>(null);
-  const [rejecting, setRejecting] = useState<DocType | null>(null);
+  const [verifying, setVerifying] = useState<Target | null>(null);
+  const [rejecting, setRejecting] = useState<Target | null>(null);
+  const pick = (target: Target, action: "verify" | "reject") => (action === "verify" ? setVerifying : setRejecting)(target);
   const [suspending, setSuspending] = useState(false);
   const [refunding, setRefunding] = useState<Ledger | null>(null);
   const notify = useToast();
@@ -350,52 +477,7 @@ export default function ProviderDetail() {
               <div className="stack" style={gap("18px")}>
                 <div className="card stack" style={gap("10px")}>
                   <h2 className="h3">Documents</h2>
-                  <div className="table-wrap">
-                    <table className="table">
-                      <thead>
-                        <tr>
-                          <th>Document</th>
-                          <th>Status</th>
-                          <th>Expires</th>
-                          <th>
-                            <span className="sr-only">Actions</span>
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {p.documents.map((d) => (
-                          <tr key={d.type}>
-                            <td>
-                              {d.file_url ? (
-                                <a href={d.file_url} target="_blank" rel="noreferrer">
-                                  {d.label}
-                                </a>
-                              ) : (
-                                d.label
-                              )}
-                              {d.note && <div className="xs muted">{d.note}</div>}
-                            </td>
-                            <td>
-                              <span className={`badge ${DOC_TONE[d.status]}`}>{DOC_WORD[d.status]}</span>
-                            </td>
-                            <td>{d.expires_on ? shortDate(d.expires_on) : <span className="muted">n/a</span>}</td>
-                            <td>
-                              {d.status !== "missing" && (
-                                <div className="row" style={gap("6px")}>
-                                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => setVerifying(d)}>
-                                    Verify
-                                  </button>
-                                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => setRejecting(d.type)}>
-                                    Reject
-                                  </button>
-                                </div>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                  <DocTable docs={p.documents} onPick={(doc, action) => pick({ doc }, action)} />
                   <span className="xs muted">
                     Insurance <InsuranceBadge p={p} /> · HMRC details{" "}
                     {p.hmrc_complete ? <span className="badge ok">Complete</span> : <span className="badge danger">Missing</span>}
@@ -474,6 +556,7 @@ export default function ProviderDetail() {
                   </dl>
                   <Reminders p={p} />
                 </div>
+                <Helpers p={p} onPick={pick} />
                 <PaymentAccount p={p} />
                 <div className="card stack" style={gap("6px")}>
                   <h2 className="h3">Recent ratings</h2>
@@ -490,19 +573,26 @@ export default function ProviderDetail() {
                 </div>
               </div>
             </div>
-            {verifying && <VerifyDialog p={p} doc={verifying} onClose={() => setVerifying(null)} />}
+            {verifying && <VerifyDialog p={p} target={verifying} onClose={() => setVerifying(null)} />}
             {rejecting && (
               <ReasonDialog
                 title="Reject document"
                 label="What's wrong with it?"
-                done={`Rejected. ${p.short} has been asked to upload it again.`}
+                done={`Rejected. ${rejecting.helper ? rejecting.helper.name : p.short} has been asked to upload it again.`}
                 action={(reason) =>
-                  call(
-                    api.POST("/api/admin/providers/{provider_id}/documents/{doc_type}/reject", {
-                      params: { path: { provider_id: p.id, doc_type: rejecting } },
-                      body: { reason },
-                    }),
-                  )
+                  rejecting.helper
+                    ? call(
+                        api.POST("/api/admin/providers/{provider_id}/helpers/{user_id}/documents/{doc_type}/reject", {
+                          params: { path: { provider_id: p.id, user_id: rejecting.helper.user_id, doc_type: rejecting.doc.type } },
+                          body: { reason, file_id: rejecting.doc.file_id ?? null },
+                        }),
+                      )
+                    : call(
+                        api.POST("/api/admin/providers/{provider_id}/documents/{doc_type}/reject", {
+                          params: { path: { provider_id: p.id, doc_type: rejecting.doc.type } },
+                          body: { reason, file_id: rejecting.doc.file_id ?? null },
+                        }),
+                      )
                 }
                 onClose={() => setRejecting(null)}
               />

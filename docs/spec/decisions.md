@@ -201,10 +201,10 @@ and integration (I) folds the accepted ones in here.
   13:00–17:00, either 09:00–17:00 (customers see "morning, 8am to 12pm"). The first visit is
   the earliest day from tomorrow that the provider works, suits the customer and isn't time
   off, at the first free half hour after the provider's previous visit plus 30 minutes' travel
-  ("10:30, straight after Widmer End"). Recurring visits keep that weekday and time and are
-  materialised six weeks ahead (at least the next two). Monthly frequencies use calendar
-  months; "a few days a week" defaults to Monday, Wednesday and Friday. The winter pause skips
-  November to February.
+  ("10:30, straight after Widmer End"); visits longer than their window and the fallback: A14.
+  Recurring visits keep that weekday and time and are materialised six weeks ahead (at least
+  the next two; A13). Monthly frequencies use calendar months; "a few days a week" defaults to
+  Monday, Wednesday and Friday. The winter pause skips November to February.
 - **R23a. Time-off cover goes through the normal offer flow** (fees on covered visits: A4). L2 creates a job request with
   `cover_for_visit_id` for one visit (same price); accepting it (the shared accept endpoint)
   reassigns that visit to the covering provider (performer kind `cover`, paid for that visit)
@@ -269,10 +269,8 @@ and integration (I) folds the accepted ones in here.
   £72. Seeded dates are relative to the day of seeding, so the demo always looks current.
 - **R36a. How the seed stays idempotent.** Every seeded document has a deterministic id and a
   `_seed: true` marker; each run deletes the marked documents and writes them again, so running
-  it twice (or on another day) never accumulates anything. Data people created is kept, except
-  what would clash with the demo (bookings and offers made on seeded requests, users who signed
-  in with a seeded phone, visits the horizon task added to seeded plans...), which is removed
-  with a printed note: `make seed` puts the demo back. Magic-link and invite tokens are minted
+  it twice (or on another day) never accumulates anything. Since A21, `make seed` also removes
+  everything demo runs created, so it always puts the demo back exactly. Magic-link and invite tokens are minted
   fresh each run. Prototype document expiry dates are kept as absolute dates (only Alan's is
   relative, so he always shows as expiring), so Gary's insurance lapses on 19 November 2026.
 - **R37. Fake gateway**: every card is a Visa ending 4242 (12/28) and every charge succeeds,
@@ -398,10 +396,12 @@ Decided by Hasan after reviewing the F report; each has tests.
   (`app.customer.plan_changes.scaled_price`). The original guide is the last accepted change's new
   guide, else the guide the booking was agreed against (an accepted counter's own guide, so a raise
   approved under A12 before the counter was accepted doesn't erase the premium; else the guide it
-  was booked at), else (an own customer's plan, which has no request) the engine's price at the
-  current frequency. A dearer first visit doesn't apply to an existing plan
+  was booked at), else (a platform plan with no request) the engine's price at the current
+  frequency. An own customer's plan is never re-priced by the engine (A22). A dearer first visit
+  doesn't apply to an existing plan
   (an unstarted first visit keeps its agreed price). The provider is texted the new price
-  (`plan_change_proposed`, with a single-use link to `/plan-change/{token}`) and accepts or
+  (`plan_change_proposed`, with a single-use link to `/p/plan-change/{token}`, the provider app's
+  page; the old `/plan-change/{token}` redirects there) and accepts or
   declines; the customer is told at each step (`plan_change_requested`, `_accepted`, `_declined`,
   `_lapsed`). Until the provider accepts, the plan carries on unchanged; unanswered for 48 hours
   the change lapses (`plan_change_expiry` task). Accepting applies the frequency and price to the
@@ -428,9 +428,210 @@ Decided by Hasan after reviewing the F report; each has tests.
   team may suggest again. The customer's answer names the proposal it was shown (its id), so a
   stale page can't approve a newer raise (409; Codex review). Admin's waiting list shows
   "Awaiting customer" meanwhile. A provider who
-  accepts the old guide while it waits books at the old guide. (`app.customer.price_changes`,
-  called by `app.admin.overview.raise_guide` inside its transaction;
-  `tests/customer/test_price_changes.py`, `tests/admin/test_overview.py`.)
+  accepts the old guide while it waits books at the old guide, and the raise is withdrawn (A16).
+  (`app.services.guide_raises.propose`, called by `app.admin.overview.raise_guide` inside its
+  transaction; the answers in `app.customer.price_changes`; `tests/customer/test_price_changes.py`,
+  `tests/admin/test_overview.py`.)
+
+## 2b. Rulings made in the shared-fixes session (S)
+
+Made by session S while resolving the lanes' contract-change requests, on Hasan's brief; each
+has tests.
+
+- **A13. The horizon top-up is transactional** (contract-changes L1 item 19). `schedule.top_up`
+  tops up one plan in a transaction of its own that reads the plan, its provider and booking as
+  they are now and returns if the plan isn't active. `ensure_horizon` writes the plan
+  (`horizon_until`) whenever it adds a visit, so a change of frequency (A10), a pause or a
+  cancellation committing while it runs conflicts with it, and the driver re-runs it on the plan
+  as changed: no visit is ever added at a frequency or price a committed change replaced. The
+  hourly `series_horizon` task and L2's time-off look-ahead (`time_off.materialise_through`) both
+  use it. `ensure_horizon` also takes `from_day`: every plan date after that day is made, and a
+  date an earlier change of frequency cancelled comes back at the plan's price; L1's copy
+  (`account._fill`) is gone. (`test_scheduling.py`:
+  `test_the_horizon_top_up_rereads_a_plan_changed_while_it_runs`,
+  `test_the_horizon_top_up_adds_nothing_to_a_plan_cancelled_while_it_runs`,
+  `test_ensure_horizon_from_a_given_day`.)
+- **A14. First visits fit the provider's days and the window** (contract-changes L1 item 4). A
+  visit starts inside its window and ends by the window's end, except one longer than its window
+  (a first regular clean is four hours, the morning three), which starts at the window's start
+  on a day with room for all of it, travel included, and runs over. The search looks six months
+  ahead (it was four weeks) for the first day the provider works, isn't away, suits the customer
+  and has room; if the customer's days and the provider's never meet, it takes the provider's
+  first working day with room (they rearrange by message). It never picks a day the provider
+  doesn't work or is away, or a day without room; the old fallback (tomorrow at the window's
+  start, whatever the day) is gone. With no working day that has room in six months, nothing is
+  booked: `first_slot` raises the domain conflict `no_free_day` ("Dave H. has no free day for
+  this in the next six months, so it can't be booked."), the acceptance's transaction is undone
+  and the request stays open (Codex review). Regular plans are made only some weeks ahead, and
+  not always every date (a change of frequency fills six weeks, leaving gaps before visits made
+  further out), so the search counts every date of the provider's active plans in its span as
+  taken (pauses aside) unless the plan has a visit stored for that date, which says what really
+  happens (a cancelled or skipped one frees it); a first visit never collides with a visit a later
+  top-up or fill makes (Codex re-check and third review). Skipped visits no longer block a slot. (`test_scheduling.py`:
+  `test_a_first_visit_longer_than_its_window_starts_at_the_window_start`,
+  `test_a_long_visit_only_starts_at_the_window_start`,
+  `test_the_first_visit_keeps_to_working_days_and_time_off_beyond_four_weeks`,
+  `test_weekday_only_cleaning_and_flatpack_bookings_get_a_weekday_first_visit`,
+  `test_no_working_day_with_room_in_six_months_books_nothing`,
+  `test_a_first_visit_beyond_the_horizon_avoids_a_regulars_later_dates`,
+  `test_a_first_visit_avoids_a_regulars_dates_left_unmade_by_a_change_of_frequency`.)
+- **A15. Margaret's weekly re-price (A10) was £32 because her plan had no lawn size** (Session S
+  investigation). The seed wrote her fortnightly £32 plan (the prototype's price) with no
+  request, so A10 had no lawn size on record and priced both frequencies at the medium band
+  (about 85 m², `plan_changes.DEFAULT_BAND`). There, with kept grass and the clippings taken
+  away, fortnightly works out at £22 and weekly at £21, both below mowing's £28 minimum, so both
+  guides were £28, the ratio was 1 and £32 stayed £32. The engine was right for the size it was
+  given; the size was a guess no real booking needs, since a platform plan always comes from a
+  request. Her plan is now seeded from the booked request it would have come from: the Large
+  band (her 40-minute visits match it), the engine's £31 guide and Dave's accepted £32 counter.
+  Weekly is then £29 x 32/31 = £29.94, half-up £30. Weekly still equals fortnightly where the
+  minimum genuinely applies to both (a small lawn). Own customers' plans are priced by their
+  provider instead (A22).
+  (`test_seed.py`: `test_margarets_weekly_reprice_is_cheaper_per_visit`; `test_plan_changes.py`:
+  `test_at_the_minimum_price_weekly_costs_the_same_as_fortnightly`.)
+- **A16. Booking a request withdraws a raise still waiting for the customer** (addition to A12).
+  When a request is booked by any route (a provider accepts the guide, or the customer accepts a
+  counter) while a raised guide waits for the customer's answer, the raise is withdrawn in the
+  booking's transaction (`price_change.status` `withdrawn`, event `price_change_withdrawn`) and
+  the customer is texted `guide_raise_withdrawn`: booked "at your original price, £22" (a guide
+  acceptance) or "at the £25 you accepted" (a counter), so the suggested price no longer applies.
+  A booking that fails leaves the raise waiting. Admin's waiting list and the customer's request
+  page stop showing it. (`marketplace._withdraw_raise`; `test_price_changes.py`:
+  `test_booking_at_the_guide_withdraws_a_waiting_raise`,
+  `test_accepting_a_counter_withdraws_a_waiting_raise`,
+  `test_a_booking_that_fails_leaves_the_raise_waiting`.) Also: admin's "Payments needing a look"
+  lists a finished visit whose charge never started (`not_started`), ten minutes after it
+  finished, for Retry charge (L2's filing; `test_overview.py`:
+  `test_a_charge_that_never_started_shows_for_a_retry`).
+- **A17. Helpers only carry out visits** (Hasan, at L2's rebase; contract-changes L2). A helper
+  never accepts, counters, declines or prices a job. `User.helper_of` is the link between a
+  helper and the provider they help: it lets the provider send them to that provider's visits,
+  and nothing more. `deps.current_provider` refuses a helper (403 `helpers_cant`: "Dave takes on
+  jobs and sets the prices..."), so the shared offer endpoints do too; the provider app's round
+  and documents recognise a helper only through `helper_of` while the provider still lists them
+  (`app.provider.acting`). Helpers added in the app now get `helper_of` (L2's workaround of
+  leaving it unset is gone, and with it the look-up by helper list), so sign-up refuses them as
+  for the seed's Tom. The DEMO_MODE exception that counted a ready helper with no documents as
+  checked is removed: a helper needs every document the job needs on record, always, and the seed
+  gives Tom his (ID, basic DBS, insurance to about June 2027, as the prototype shows).
+  (`test_marketplace.py`: `test_helpers_never_accept_counter_or_price_a_job`; `test_round.py`:
+  `test_a_helper_added_in_the_app_cant_accept_or_counter_for_the_provider`,
+  `test_a_ready_helper_with_no_documents_is_never_trusted`.)
+- **A18. Guards below the routers.** A cover acceptance re-checks, inside its transaction, that
+  the visit is still scheduled (the reassignment is guarded on `status: scheduled`), so a visit the
+  customer skips while its cover request is open can't be taken: 409 `visit_not_scheduled`, and
+  the claim is undone (contract-changes L2; `test_marketplace.py`:
+  `test_a_cover_for_a_visit_no_longer_scheduled_cant_be_taken`). Repositories never raise HTTP
+  errors: `Providers.set_document` raises the domain error `app.core.errors.Conflict`
+  (`document_changed`), which aborts the caller's transaction like any exception and which the
+  app maps to the same 409 body as before (`conflict_handler`); L2's 15-minute sweep of dead
+  covers stays as tidying. (`test_documents.py`:
+  `test_a_verdict_on_a_replaced_upload_answers_409_over_http`,
+  `test_no_repository_raises_http_errors`.)
+- **A19. Providers become active automatically** (Hasan's brief to S). A provider moves from
+  `signing_up` to `active` the moment the last required check is done: identity and insurance
+  verified and in date, tax details given, a payout account the gateway has enabled (the fake
+  enables it when onboarding completes), at least one job type chosen (A24), and a basic DBS
+  check verified and in date if any of their chosen jobs needs one. `app.services.lifecycle.activate_if_ready` runs inside the
+  transaction that wrote the check, wherever that is: an admin verifying a document or syncing
+  the payout account, Stripe's `account.updated` webhook, the provider giving their tax details,
+  creating or returning from payout set-up, or changing the jobs they do. It's
+  guarded on `signing_up` (a suspended provider is never activated), texts `provider_activated`
+  and audit-logs `provider.activated`. Admins can still suspend and reinstate; the provider page
+  lists what's left ("Becomes active automatically once these are done: ..."). There was no way
+  to activate a provider before this. (`test_lifecycle.py`.)
+- **A20. Helpers' checks and renewals in admin** (contract-changes L2). Admins verify or reject
+  a helper's documents (`POST /api/admin/providers/{id}/helpers/{user_id}/documents/{type}/verify|reject`,
+  through `Providers.set_helper_document`, by the same rule as a provider's: a checked renewal
+  replaces the old copy, a rejected one replaces only itself; the helper is texted) and mark a
+  helper ready once their ID is checked (`.../helpers/{user_id}/ready`, `Providers.set_helper_status`;
+  the provider is texted `helper_ready`). Each is audit-logged. Readiness doesn't replace the
+  per-job rule: the round sends a helper only to visits whose documents they hold (A17). The
+  provider page has a Helpers card. While a renewal waits for a check, admin shows the copy that
+  counts: insurance "Until 12 Oct · Renewal waiting" rather than "Missing", the document row
+  "Renewal waiting, checked copy until ...", and the overview "Insurance renewal to check"
+  (Check it) instead of an expiry reminder. With no checked copy in date and an upload waiting,
+  insurance shows "Renewal waiting" ("Waiting for a check" while signing up), status `renewal`.
+  Every verdict, on a provider's document or a helper's, names the upload the admin reviewed
+  (`file_id`, required, from `AdminDocument.file_id`): if that upload has been replaced since the
+  page was opened, nothing changes (409 `document_changed`; inside the transaction too, through
+  the repository's check), so an unseen upload is never verified or rejected (Codex review).
+  (`test_providers.py`: `test_a_renewal_waiting_shows_beside_the_checked_copy_not_as_missing`,
+  `test_admins_check_a_helpers_documents_and_mark_them_ready`,
+  `test_a_ready_helper_with_checked_documents_can_be_sent_to_a_visit`,
+  `test_a_verdict_is_on_the_upload_the_admin_reviewed`.)
+- **A21. `make seed` resets the demo** (Hasan's brief to S; contract-changes L1 14, L2).
+  Before writing, the seed deletes every document demo runs created, in every collection (requests
+  and cover requests, offers, bookings, plans, visits, ratings, disputes, threads and messages, the
+  outbox, ledger entries, mileage, expenses, time off, plan changes, payment attempts, events and
+  refunds, uploads, the fake gateway's records, sign-ups and their sessions, the reference
+  counters...), as well as the previous run's seeded documents (`app.seed.cleanup.reset_demo`). It
+  keeps only what isn't demo state: the catalogue and address cache, pricing versions admins
+  drafted or approved with their `pricing.*` audit entries (R14), seeded providers' sealed tax
+  identities (sealing isn't deterministic), admins who aren't in the seed, and the sessions of
+  everyone who remains. A second run leaves the same state document for document (fresh outbox
+  ids and tokens aside), Mary's invite can be accepted after every re-seed, and the summary lists
+  what was removed. Uploaded files' bytes stay on the volume (only their records go). Platform
+  regulars are seeded from the booked request they came from (A15), and Tom with his documents
+  (A17). The collections L1 and L3 created at start-up (`plan_changes`, `payment_events`,
+  `payment_refunds`, `payment_attempts`) are registered in `app.repos.ALL` and documented in
+  `domain.md`; the start-up workarounds (`app/customer/store.py`, `app/payments/store.py`) are
+  gone. (`test_seed.py`: `test_seeding_twice_changes_nothing`,
+  `test_reseeding_removes_everything_demo_runs_created`,
+  `test_marys_invite_can_be_accepted_after_every_reseed`.)
+
+## 2c. Rulings after the S report
+
+Decided by Hasan after reviewing session S's report; each has tests.
+
+- **A22. Own customers' plans are priced by their provider, never by the engine.** The price of an
+  own customer's plan is the provider's to set. A change of frequency on one (`PATCH
+  /api/c/plans/{id}` with `frequency`; `GET .../reprice` answers 409 `provider_sets_price`) creates
+  a plan change of kind `provider_price` and texts the provider a single-use link
+  (`plan_change_price_asked`, `/p/plan-change/{token}`) to name the new price, in whole pounds from
+  £5 to £500 as for an invite (`POST /api/c/plan-changes/{token}/price`; what they'd keep comes from
+  `GET .../preview`, money.py), or to decline it; the customer is told (`plan_change_price_requested`).
+  Once named, the customer is texted it (`plan_change_priced`) and approves or declines it on their
+  Plan tab, naming the change they saw (`POST /api/c/plans/{id}/change/approve|decline` with
+  `change_id`). Approving applies the frequency and price to the plan, booking and visits still to
+  come in one transaction (`plan_change_agreed` to the customer, `plan_change_approved` to the
+  provider); declining texts the provider (`plan_change_price_declined`). The plan carries on
+  unchanged until it's agreed. Each wait lapses after 48 hours: unpriced, the customer is told as
+  under A10 (`plan_change_lapsed`); unanswered by the customer, both are told
+  (`plan_change_price_lapsed`, `plan_change_price_unanswered`). While open a change stays `pending`,
+  with `awaiting` saying whose answer it waits for, so asking again replaces it and cancelling the
+  plan withdraws it, as under A10. The engine is never asked (no quote is written). Before agreeing,
+  the customer sees the commission at the new price, in the invite's agency wording ("... and Dave
+  pays us a small fee of £1.10 a visit (5%). It isn't added to your price."; `PendingPlanChange.split`
+  from money.py). Applying any change of frequency (this approval, or A10's acceptance) is refused
+  with 409 `time_taken` if the dates it adds (every date its fill makes, from where the fill starts,
+  the new first day included and past a long pause too, as `schedule.fill_dates` says; and every plan
+  date in the six months after) would run into the provider's other visits or plans (`schedule.first_clash`, on the same busy times as A14); it writes the provider, so
+  a booking or another change for them committing meanwhile conflicts with it (Codex review).
+  (`test_plan_changes.py`: `test_an_own_customers_plan_is_never_repriced_by_the_engine`,
+  `test_the_provider_or_the_customer_can_keep_an_own_customers_plan_as_it_is`,
+  `test_each_wait_on_an_own_customers_change_lapses_after_48_hours`; `test_scheduling.py`:
+  `test_a_change_of_frequency_cant_double_book_the_provider`,
+  `test_a_change_of_frequency_checks_the_new_anchor_day_too`,
+  `test_a_change_of_frequency_checks_dates_made_past_a_long_pause`; web: `account.test.tsx`,
+  `provider.test.tsx`.)
+- **A23. A provider who works none of the customer's chosen days isn't eligible.** For a request
+  whose customer chose weekdays (or weekends), a provider who works none of those days gets no job
+  alert and doesn't see it in their jobs; its page says why; and, as a safety net, accepting or
+  suggesting a price is refused with 403 `not_eligible`: "This customer wants weekdays, and you
+  don't work any weekdays. You can change your working days in Me." A counter made before they
+  stopped working those days lapses when the customer accepts it (A9). One rule,
+  `eligibility.can_take_request` (`can_take` plus the days), is used by the alerts, the provider's
+  jobs and job page, every acceptance and counter (inside the transaction too, on the provider as
+  read and written there) and the demo simulator. Cover requests carry the covered visit's kind of
+  day. (`test_jobs.py`: `test_a_provider_who_works_none_of_the_customers_days_cant_take_the_job`;
+  `test_marketplace.py`: `test_a_counter_rechecks_eligibility_inside_its_transaction`.)
+- **A24. Activation needs at least one job type.** A19's checks also include at least one job
+  type chosen; choosing jobs can be the last check. The rest of A19 and A20 (helpers marked ready
+  once their ID is checked) stand. (`test_lifecycle.py`: `test_activation_needs_at_least_one_job_type`.)
+
+Also confirmed by Hasan: no room for six months refuses the acceptance (A14), the seed's keep-list
+and restarted reference counters (A21), and the web container running as the invoking user.
 
 ## 3. Open questions (for Hasan)
 

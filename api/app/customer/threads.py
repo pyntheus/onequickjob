@@ -91,13 +91,12 @@ def message_out(m: Message, names: dict[str, str], user: User) -> MessageOut:
 
 async def messages(db: Db, thread: MessageThread, user: User) -> list[MessageOut]:
     names = await _display_names(db, thread)
-    # The newest messages, oldest first; only the ones returned are marked read (contract-change
-    # request L1: Messages.mark_read).
+    # The newest messages, oldest first; only the ones returned are marked read.
     newest = await Messages(db).find({"thread_id": thread.id}, sort=[("created_at", -1), ("_id", -1)], limit=PAGE)
     found = list(reversed(newest))
     unread = [m.id for m in found if user.id not in m.read_by]
     if unread:
-        await Messages(db).coll.update_many({"_id": {"$in": unread}}, {"$addToSet": {"read_by": user.id}})
+        await Messages(db).mark_read(thread.id, user.id, unread)
     return [message_out(m, names, user) for m in found]
 
 

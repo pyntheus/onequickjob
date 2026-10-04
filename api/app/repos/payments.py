@@ -1,8 +1,5 @@
-"""payment_events, payment_refunds and payment_attempts. Owner: L3 (app.payments).
-
-Not yet in app.repos.ALL (F's registry): the payments router creates both collections and their
-indexes at start-up (app.payments.store.ensure_payment_collections) until integration adds them.
-"""
+"""payment_events, payment_refunds and payment_attempts. Owner: L3 (app.payments). Registered in
+app.repos.ALL, so ensure_indexes creates them before any transaction."""
 
 from pymongo import DESCENDING
 

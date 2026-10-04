@@ -103,6 +103,69 @@ async def test_a_booked_request_cant_take_a_waiting_raise(client, db, jo, open_w
     assert (await client.get(f"/api/c/requests/{detail['ref']}")).json()["price_change"] is None
 
 
+async def test_booking_at_the_guide_withdraws_a_waiting_raise(client, db, jo, open_windows_request):  # noqa: F811
+    """A16: booked while a raise waits, the raise is withdrawn in the booking's transaction and the
+    customer is told they're booked at their original price."""
+    detail, sue = open_windows_request
+    ref = detail["ref"]
+    await jo.post(f"/api/admin/requests/{ref}/raise-guide", json={"percent": 10})
+    await marketplace.accept_at_guide(db, make_settings(), ref, sue)
+    req = await JobRequests(db).by_ref(ref)
+    assert req.status == "booked" and req.price_change.status == "withdrawn" and req.price_change.decided_at
+    assert req.guide_pence == 2200 and req.events[-1].kind == "price_change_withdrawn"
+    msgs = await db["outbox"].find({"template_id": "guide_raise_withdrawn"}).to_list()
+    assert len(msgs) == 1 and msgs[0]["recipient"]["phone"] == "+447700900123"
+    assert (
+        "Sue P. has booked your window cleaning at your original price, £22, so the higher guide price we "
+        in (msgs[0]["body"])
+    )
+    assert "suggested (£24) no longer applies" in msgs[0]["body"]
+    view = (await client.get(f"/api/c/requests/{ref}")).json()
+    assert view["price_change"] is None
+    assert any(
+        e["text"] == "Booked before you answered, so the suggested £24 no longer applies" for e in view["timeline"]
+    )
+    overview = (await jo.get("/api/admin/overview")).json()
+    assert not [w for w in overview["waiting"] if w["request_ref"] == ref]
+
+
+async def test_accepting_a_counter_withdraws_a_waiting_raise(client, db, jo, open_windows_request):  # noqa: F811
+    detail, sue = open_windows_request
+    ref = detail["ref"]
+    offer = await marketplace.make_counter(db, make_settings(), ref, sue, price_pence=2500, reasons=[])
+    await jo.post(f"/api/admin/requests/{ref}/raise-guide", json={"percent": 10})
+    r = await client.post(f"/api/c/offers/{offer.id}/accept")
+    assert r.status_code == 200, r.text
+    req = await JobRequests(db).by_ref(ref)
+    assert req.price_change.status == "withdrawn"
+    msg = await db["outbox"].find_one({"template_id": "guide_raise_withdrawn"})
+    assert "has booked your window cleaning at the £25 you accepted" in msg["body"]
+
+
+async def test_a_booking_that_fails_leaves_the_raise_waiting(client, db, jo, open_windows_request, monkeypatch):  # noqa: F811
+    """The withdrawal is part of the booking's transaction: no booking, no withdrawal."""
+    detail, sue = open_windows_request
+    ref = detail["ref"]
+    await jo.post(f"/api/admin/requests/{ref}/raise-guide", json={"percent": 10})
+
+    async def broken(*args, **kwargs):
+        raise RuntimeError("the outbox is down")
+
+    real = marketplace.notify
+
+    async def notify_or_fail(db_, template_id, **kw):
+        if template_id == "guide_raise_withdrawn":
+            await broken()
+        return await real(db_, template_id, **kw)
+
+    monkeypatch.setattr(marketplace, "notify", notify_or_fail)
+    with pytest.raises(RuntimeError):
+        await marketplace.accept_at_guide(db, make_settings(), ref, sue)
+    req = await JobRequests(db).by_ref(ref)
+    assert req.status == "open" and req.price_change.status == "pending"
+    assert await db["bookings"].count_documents({}) == 0
+
+
 async def test_no_raise_to_answer(client, db, open_windows_request):
     detail, _sue = open_windows_request
     r = await client.post(f"/api/c/requests/{detail['ref']}/price-change/approve", json={"change_id": "x"})

@@ -206,7 +206,7 @@ async def test_a_suspension_during_invite_acceptance_is_seen_by_its_retry(client
     await signed_in_with_card(client, db, MARY, "Mary Bishop")
     invite_id = (await OwnCustomerInvites(db).find_one({})).id
     go, done = asyncio.Event(), asyncio.Event()
-    original, attempts = marketplace._provider_now, []
+    original, attempts = marketplace.provider_for_booking, []
 
     async def admin_suspends():
         await go.wait()
@@ -221,7 +221,7 @@ async def test_a_suspension_during_invite_acceptance_is_seen_by_its_retry(client
             await done.wait()
         return await original(db_, provider_id, session)
 
-    monkeypatch.setattr(marketplace, "_provider_now", provider_now)
+    monkeypatch.setattr(marketplace, "provider_for_booking", provider_now)
     admin = asyncio.create_task(admin_suspends())
     r = await client.post(f"/api/c/invites/{token}/accept", json={"agree_terms": True, "address": address()})
     await admin

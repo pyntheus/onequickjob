@@ -10,6 +10,7 @@ from app.models.common import Doc, DocType, GeoPoint, IsoDate, Model, Pence, Tim
 
 DocStatus = Literal["missing", "pending", "verified", "rejected", "expired"]
 ProviderStatus = Literal["signing_up", "active", "payouts_paused", "suspended"]
+HelperStatus = Literal["invited", "checking", "ready", "removed"]
 
 
 class ProviderDocument(Model):
@@ -55,7 +56,7 @@ class Helper(Model):
     user_id: str
     name: str
     relationship: str = ""
-    status: Literal["invited", "checking", "ready", "removed"] = "invited"
+    status: HelperStatus = "invited"
     documents: list[ProviderDocument] = Field(default_factory=list)
 
 

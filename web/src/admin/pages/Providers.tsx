@@ -24,15 +24,27 @@ const STATUS: Record<ProviderRow["status"], string> = {
   signing_up: "Signing up",
 };
 
+/** From the copy that counts: a renewal waiting for a check shows beside it, never as "Missing". */
 export function InsuranceBadge({ p }: { p: ProviderRow }) {
-  const { status, expires_on } = p.insurance;
-  if (status === "ok") return <span className="badge ok">Until {expires_on ? shortDate(expires_on) : "no expiry"}</span>;
+  const { status, expires_on, renewal_waiting } = p.insurance;
+  const renewal = renewal_waiting ? <span className="badge warn">Renewal waiting</span> : null;
+  if (status === "ok")
+    return (
+      <>
+        <span className="badge ok">Until {expires_on ? shortDate(expires_on) : "no expiry"}</span> {renewal}
+      </>
+    );
   if (status === "warn")
     return (
-      <span className="badge warn">
-        <AlertTriangle size={12} aria-hidden="true" /> Expires {expires_on ? shortDate(expires_on) : "soon"}
-      </span>
+      <>
+        <span className="badge warn">
+          <AlertTriangle size={12} aria-hidden="true" /> Expires {expires_on ? shortDate(expires_on) : "soon"}
+        </span>{" "}
+        {renewal}
+      </>
     );
+  if (status === "renewal")
+    return <span className="badge warn">{p.status === "signing_up" ? "Waiting for a check" : "Renewal waiting"}</span>;
   return <span className="badge danger">Missing</span>;
 }
 

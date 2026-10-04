@@ -20,6 +20,8 @@ from app.repos.mileage_logs import MileageLogs
 from app.repos.offers import Offers
 from app.repos.outbox import Outbox
 from app.repos.own_customer_invites import OwnCustomerInvites
+from app.repos.payments import ChargeAttempts, PaymentEvents, PaymentRefunds
+from app.repos.plan_changes import PlanChanges
 from app.repos.pricing_versions import PricingVersions
 from app.repos.providers import Providers, TaxIdentities
 from app.repos.quotes import Quotes
@@ -58,6 +60,10 @@ ALL: list[type[Repo]] = [
     Expenses,
     TimeOffRepo,
     OwnCustomerInvites,
+    PlanChanges,
+    PaymentEvents,
+    PaymentRefunds,
+    ChargeAttempts,
     AuditLog,
     Files,
 ]
@@ -81,6 +87,7 @@ __all__ = [
     "Bookings",
     "Categories",
     "CategoryGroups",
+    "ChargeAttempts",
     "Customers",
     "Disputes",
     "DocumentTypes",
@@ -97,6 +104,9 @@ __all__ = [
     "Offers",
     "Outbox",
     "OwnCustomerInvites",
+    "PaymentEvents",
+    "PaymentRefunds",
+    "PlanChanges",
     "PricingVersions",
     "Providers",
     "Quotes",

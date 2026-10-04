@@ -177,7 +177,7 @@ async def accept(db: Db, s: Settings, invite: OwnCustomerInvite, user: User, bod
         # Inside every attempt, as for a marketplace acceptance (decisions.md A7): the provider as
         # they are now, written so a suspension or document change committing meanwhile conflicts
         # with this booking and its re-run refuses it. Refusing rolls back, so the invite stays open.
-        current = await marketplace._provider_now(db, provider.id, session)
+        current = await marketplace.provider_for_booking(db, provider.id, session)
         if not can_take(current, cat).ok:
             _unavailable(current, cat)
         if await booked_through_platform(db, customer.id, session=session):

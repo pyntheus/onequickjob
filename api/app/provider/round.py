@@ -73,7 +73,7 @@ async def still_acting(db: Db, s: Settings, a: Acting, category_id: str, *, sess
         not_found("That visit")
     if a.helper:
         cat = (await categories(db, session=session))[category_id]
-        ready_helper(provider, a.user_id, cat, demo=s.demo_mode)
+        ready_helper(provider, a.user_id, cat)
 
 
 def _performs(a: Acting, v: Visit) -> bool:
@@ -301,7 +301,7 @@ async def send_helper(db: Db, s: Settings, a: Acting, visit_id: str, helper_user
     if v.performer.kind == "cover" or v.cover.state != "none":
         fail(status.HTTP_409_CONFLICT, "already_offered", "That visit has gone out for cover.")
     cat = (await categories(db))[v.category_id]
-    helper = ready_helper(a.provider, helper_user_id, cat, demo=s.demo_mode)
+    helper = ready_helper(a.provider, helper_user_id, cat)
     if v.performer.user_id == helper.user_id:
         return v
     performer = Performer(
@@ -315,7 +315,7 @@ async def send_helper(db: Db, s: Settings, a: Acting, visit_id: str, helper_user
         # change to their documents or status conflict with it, and the re-run sees it).
         now = await Providers(db).update(a.provider.id, {}, session=session)
         assert now is not None
-        ready_helper(now, helper_user_id, cat, demo=s.demo_mode)
+        ready_helper(now, helper_user_id, cat)
         updated = await Visits(db).update(
             v.id,
             {"performer": performer.model_dump()},

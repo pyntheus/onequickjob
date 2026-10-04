@@ -93,6 +93,7 @@
       "working_days": ["mon", "tue", "wed", "thu", "fri"], "joined_days_ago": 6 }
   ],
   "helpers": [
-    { "key": "tom", "name": "Tom Hughes", "phone": "+447700900220", "email": "tom.hughes@example.com", "helper_of": "dave", "relationship": "Son" }
+    { "key": "tom", "name": "Tom Hughes", "phone": "+447700900220", "email": "tom.hughes@example.com", "helper_of": "dave", "relationship": "Son",
+      "docs": ["insurance", "dbs_basic"], "dbs_issued_days_ago": 75, "insurance_expires_in_days": 270 }
   ]
 }

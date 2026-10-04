@@ -29,9 +29,14 @@ services:
     build:
       context: ..
       dockerfile: infra/web.Dockerfile
+      args:
+        UID: ${HOST_UID:-1000}
+        GID: ${HOST_GID:-1000}
     image: oqj-web:${INSTANCE}
     container_name: oqj-${INSTANCE}-web
     restart: unless-stopped
+    # The worktree owner, so files the dev server writes into the bind mount are theirs.
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     environment:
       API_UPSTREAM: http://oqj-${INSTANCE}-api:8000
       SITE_HOST: ${SITE_HOST:-dev.onequickjob.co.uk}

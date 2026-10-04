@@ -13,7 +13,7 @@ from app.core.db import transaction
 from app.core.timeutil import london_datetime, london_today
 from app.models.bookings import Booking
 from app.models.customers import Customer
-from app.models.providers import Helper, PaymentAccount, Provider
+from app.models.providers import Helper, PaymentAccount, Provider, ProviderDocument
 from app.models.users import User
 from app.models.visits import Visit
 from app.repos import Providers, Users, Visits
@@ -39,10 +39,20 @@ async def make_dave(db, **kw) -> Provider:
     return await with_account(db, p)
 
 
-async def add_tom(db, dave: Provider, status: str = "ready") -> User:
+TOM_DOCS = ("identity", "insurance", "dbs_basic")  # as the seed's Tom: ID checked, basic DBS, insured
+
+
+def checked_docs(docs: tuple[str, ...] = TOM_DOCS) -> list[ProviderDocument]:
+    return [ProviderDocument(type=t, status="verified", expires_on=date(2030, 1, 1)) for t in docs]  # type: ignore[arg-type]
+
+
+async def add_tom(db, dave: Provider, status: str = "ready", docs: tuple[str, ...] | None = None) -> User:
+    """Dave's helper. A ready helper holds checked documents by default (A17: no DEMO_MODE
+    exception); one still invited has none."""
     tom = User(name="Tom Hughes", phone=TOM_PHONE, roles=[], helper_of=dave.id)
     await Users(db).insert(tom)
-    helper = Helper(user_id=tom.id, name="Tom Hughes", relationship="Son", status=status)  # type: ignore[arg-type]
+    held = checked_docs(TOM_DOCS if docs is None and status == "ready" else docs or ())
+    helper = Helper(user_id=tom.id, name="Tom Hughes", relationship="Son", status=status, documents=held)  # type: ignore[arg-type]
     await Providers(db).update(dave.id, {}, push={"helpers": helper.model_dump(mode="python")})
     return tom
 

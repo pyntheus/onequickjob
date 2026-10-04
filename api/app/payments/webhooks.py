@@ -28,17 +28,18 @@ from app.adapters.payments.stripe_gateway import (
     ref_id,
     refund_state,
 )
+from app.core import money
 from app.core.config import Settings
 from app.core.db import Db, DbSession, transaction
 from app.core.timeutil import utcnow
 from app.models.common import Related
 from app.models.payments import PaymentEvent
 from app.payments import charging, notices
-from app.payments.refunds import apply_refund_result, refund_split_for
+from app.payments.refunds import apply_refund_result
 from app.repos.payments import PaymentEvents, PaymentRefunds
 from app.repos.providers import Providers
 from app.repos.visits import Visits
-from app.services import ledger
+from app.services import ledger, lifecycle
 from app.services.audit import SYSTEM, audit
 
 log = logging.getLogger("oqj.payments.webhooks")
@@ -108,7 +109,7 @@ async def dispatch(db: Db, s: Settings, event: Json, obj: Json, session: DbSessi
         case "refund.created" | "refund.updated" | "refund.failed" | "charge.refund.updated":
             return await refund_updated(db, s, obj, session)
         case "account.updated":
-            return await account_updated(db, obj, session)
+            return await account_updated(db, s, obj, session)
         case "payout.paid":
             return await payout_paid(db, s, event.get("account"), obj, session)
         case "payout.failed":
@@ -181,7 +182,7 @@ async def external_refund(db: Db, s: Settings, re: Json, session: DbSession) -> 
     amount = min(int(re.get("amount") or 0), charge.amount_pence - charge.refunded_pence)
     if amount <= 0:
         return "ignored", "nothing left on the charge to refund"
-    split = refund_split_for(charging.charged_split(visit, charge, "visit", s), charge.refunded_pence, amount)
+    split = money.refund_split_after(charging.charged_split(visit, charge, "visit", s), charge.refunded_pence, amount)
     refunded = charge.refunded_pence + amount
     await Visits(db).update(
         visit.id,
@@ -288,7 +289,7 @@ async def _provider_for_account(db: Db, account_id: str | None, session: DbSessi
     return await Providers(db).find_one({"payment_account.account_id": account_id}, session=session)
 
 
-async def account_updated(db: Db, acct: Json, session: DbSession) -> Outcome:
+async def account_updated(db: Db, s: Settings, acct: Json, session: DbSession) -> Outcome:
     provider = await _provider_for_account(db, acct.get("id"), session)
     if provider is None or provider.payment_account is None:
         return "no_match", "no provider with that account"
@@ -313,6 +314,7 @@ async def account_updated(db: Db, acct: Json, session: DbSession) -> Outcome:
         after=after.model_dump(mode="json"),
         session=session,
     )
+    await lifecycle.activate_if_ready(db, s, provider.id, actor=SYSTEM, session=session)
     return "applied", state.status
 
 

@@ -14,6 +14,7 @@ from app.adapters.payments.base import PaymentGateway, ProviderRef
 from app.admin.overview import attention_for
 from app.admin.schemas import (
     AdminDocument,
+    AdminHelper,
     InsuranceState,
     NudgeIn,
     OnboardingLinkOut,
@@ -21,14 +22,15 @@ from app.admin.schemas import (
     ProviderRow,
     RecentRating,
 )
-from app.admin.views import doc_of, doc_state, long_date, short_name
+from app.admin.views import counting_doc, doc_of, doc_state, long_date, renewal_waiting, short_name
 from app.core.config import Settings
 from app.core.db import Db, DbSession, transaction
-from app.core.errors import fail, not_found
+from app.core.errors import Conflict, fail, not_found
 from app.core.phone import to_national
 from app.core.timeutil import london_today, utcnow
+from app.models.categories import DocumentType
 from app.models.common import Actor, DocType, Related
-from app.models.providers import PaymentAccount, Provider, ProviderStatus
+from app.models.providers import Helper, PaymentAccount, Provider, ProviderDocument, ProviderStatus
 from app.models.system import OutboxMessage
 from app.repos import (
     AuditLog,
@@ -42,7 +44,7 @@ from app.repos import (
     Users,
     Visits,
 )
-from app.services import documents
+from app.services import documents, lifecycle
 from app.services.audit import audit
 from app.services.notify import link, notify, recipient_for
 from app.shared.schemas import OutboxItem
@@ -51,17 +53,21 @@ type Filter = Literal["all", "attention", "signup"]
 
 
 def insurance_state(p: Provider, today: date) -> InsuranceState:
-    doc = doc_of(p, "insurance")
+    """From the copy that counts, so a renewal waiting for a check shows beside an in-date copy
+    ("renewal waiting"), not as "missing"; with no checked copy in date, an upload waiting for a
+    check shows as "renewal"."""
+    doc = counting_doc(p.documents, "insurance")
     state = doc_state(doc, today)
-    return InsuranceState(
-        status="ok" if state == "ok" else "warn" if state == "warn" else "missing",
-        expires_on=doc.expires_on if doc else None,
-    )
+    waiting = any(d.type == "insurance" and d.status == "pending" for d in p.documents)
+    if doc is not None and state in ("ok", "warn"):
+        return InsuranceState(status=state, expires_on=doc.expires_on, renewal_waiting=waiting)  # type: ignore[arg-type]
+    return InsuranceState(status="renewal" if waiting else "missing", expires_on=doc.expires_on if doc else None)
 
 
 def needs_attention(p: Provider, today: date) -> bool:
-    """The prototype's rule: insurance not fine, or HMRC details missing."""
-    return insurance_state(p, today).status != "ok" or not p.tax.complete
+    """The prototype's rule: insurance not fine, or HMRC details missing; and a renewal to check."""
+    ins = insurance_state(p, today)
+    return ins.status != "ok" or ins.renewal_waiting or not p.tax.complete
 
 
 async def _jobs_30d(db: Db, provider_ids: list[str]) -> dict[str, int]:
@@ -126,33 +132,24 @@ async def detail(db: Db, provider_id: str) -> ProviderDetail:
     user = await Users(db).get(p.user_id)
     types = await DocumentTypes(db).all()
     labels = {t.id: t.label for t in types}
-    needed = {"identity"} | {d for c in await Categories(db).find({"_id": {"$in": p.skills}}) for d in c.requires}
-    files = {f.id: f.url for f in await Files(db).find({"_id": {"$in": [d.file_id for d in p.documents if d.file_id]}})}
-    docs = []
-    for t in types:
-        d = doc_of(p, t.id)
-        if d is None and t.id not in needed:
-            continue
-        docs.append(
-            AdminDocument(
-                type=t.id,  # type: ignore[arg-type]
-                label=t.label,
-                status=d.status if d else "missing",
-                issued_on=d.issued_on if d else None,
-                expires_on=d.expires_on if d else None,
-                file_url=files.get(d.file_id) if d and d.file_id else None,
-                verified_by=d.verified_by if d else None,
-                verified_at=d.verified_at if d else None,
-                note=d.note if d else None,
-            )
-        )
+    cats = await Categories(db).find({"_id": {"$in": p.skills}})
+    needed = {"identity"} | {d for c in cats for d in c.requires}
+    file_ids = [d.file_id for d in [*p.documents, *(d for h in p.helpers for d in h.documents)] if d.file_id]
+    files = {f.id: f.url for f in await Files(db).find({"_id": {"$in": file_ids}})}
+    docs = document_rows(p.documents, types, needed, files)
     ratings = await Ratings(db).find({"provider_id": p.id}, sort=[("created_at", -1)], limit=10)
     customers = {c.id: c.name for c in await Customers(db).find({"_id": {"$in": [r.customer_id for r in ratings]}})}
     account = p.payment_account
     issues = [i.issue for i in attention_for(p, labels | {"insurance": "Insurance"}, today)]
-    missing = [labels.get(t, t) for t in sorted(needed) if doc_state(doc_of(p, t), today) in ("missing", "expired")]
+    missing = [labels.get(t, t) for t in sorted(needed) if not held_in_date(p.documents, t, today)]
     if missing:
         issues.append("Not yet checked: " + ", ".join(missing))
+    if p.status == "signing_up":
+        left = await lifecycle.missing_checks(db, p, today=today)
+        if left:
+            words = [lifecycle.CHECK_WORDS[c] for c in left]
+            issues.append("Becomes active automatically once these are done: " + ", ".join(words))
+    helper_users = {u.id: u for u in await Users(db).find({"_id": {"$in": [h.user_id for h in p.helpers]}})}
     jobs = await _jobs_30d(db, [p.id])
     return ProviderDetail(
         **row(p, today, jobs).model_dump(),
@@ -173,12 +170,67 @@ async def detail(db: Db, provider_id: str) -> ProviderDetail:
             for r in ratings
         ],
         helpers=[h.name for h in p.helpers if h.status != "removed"],
+        helper_checks=[
+            AdminHelper(
+                user_id=h.user_id,
+                name=h.name,
+                relationship=h.relationship,
+                status=h.status,  # type: ignore[arg-type]
+                phone=to_national(u.phone) if (u := helper_users.get(h.user_id)) and u.phone else None,
+                documents=document_rows(h.documents, types, needed, files),
+                can_mark_ready=h.status != "ready" and held_in_date(h.documents, "identity", today),
+            )
+            for h in p.helpers
+            if h.status != "removed"
+        ],
         payout_account_status=account.status if account else "none",
         payout_account_id=account.account_id if account else None,
         payout_account_gateway=account.gateway if account else None,
         status_reason=p.status_reason,
         issues=issues,
     )
+
+
+def as_reviewed(doc: ProviderDocument, reviewed: str | None) -> None:
+    """A verdict is on the upload the admin reviewed (its file id, from AdminDocument.file_id). If
+    the copy to check is another one now (replaced since the page was opened), nothing changes:
+    409 document_changed. Inside the verdict's transaction, set_document and set_helper_document
+    refuse in the same way if it's replaced after this read."""
+    if doc.file_id != reviewed:
+        raise Conflict("document_changed", "That document has been replaced since you opened it. Have another look.")
+
+
+def held_in_date(docs: list[ProviderDocument], doc_type: str, today: date) -> bool:
+    return doc_state(counting_doc(docs, doc_type), today) in ("ok", "warn")
+
+
+def document_rows(
+    held: list[ProviderDocument], types: list[DocumentType], needed: set[str], files: dict[str, str]
+) -> list[AdminDocument]:
+    """One row per document type held or needed: the copy to check next (a waiting renewal comes
+    first, so Verify checks it), with the checked copy's expiry beside a renewal."""
+    rows = []
+    for t in types:
+        d = next((x for x in held if x.type == t.id), None)
+        if d is None and t.id not in needed:
+            continue
+        current = counting_doc(held, t.id) if d is not None and renewal_waiting(held, t.id) else None
+        rows.append(
+            AdminDocument(
+                type=t.id,  # type: ignore[arg-type]
+                label=t.label,
+                status=d.status if d else "missing",
+                issued_on=d.issued_on if d else None,
+                expires_on=d.expires_on if d else None,
+                file_url=files.get(d.file_id) if d and d.file_id else None,
+                file_id=d.file_id if d else None,
+                verified_by=d.verified_by if d else None,
+                verified_at=d.verified_at if d else None,
+                note=d.note if d else None,
+                current_expires_on=current.expires_on if current else None,
+            )
+        )
+    return rows
 
 
 async def _provider_user(db: Db, p: Provider, session: DbSession):
@@ -196,11 +248,15 @@ async def verify_document(
     issued_on: date | None,
     expires_on: date | None,
     actor: Actor,
+    *,
+    reviewed: str | None,
 ) -> None:
+    """reviewed: the upload (file id) the admin looked at; a verdict never lands on another."""
     p = await get_provider(db, provider_id)
     doc = doc_of(p, doc_type)
     if doc is None or doc.status == "missing":
         fail(status.HTTP_404_NOT_FOUND, "no_document", f"{p.short} hasn't uploaded that document yet.")
+    as_reviewed(doc, reviewed)
     dt = await DocumentTypes(db).get(doc_type)
     assert dt is not None
     issued = issued_on or doc.issued_on
@@ -247,6 +303,7 @@ async def verify_document(
             after=checked.model_dump(mode="json"),
             session=session,
         )
+        await lifecycle.activate_if_ready(db, s, p.id, actor=actor, session=session)
 
     await transaction(db, apply)
 
@@ -256,11 +313,14 @@ def sentence(text: str) -> str:
     return text if text.endswith((".", "!", "?")) else text + "."
 
 
-async def reject_document(db: Db, s: Settings, provider_id: str, doc_type: DocType, reason: str, actor: Actor) -> None:
+async def reject_document(
+    db: Db, s: Settings, provider_id: str, doc_type: DocType, reason: str, actor: Actor, *, reviewed: str | None
+) -> None:
     p = await get_provider(db, provider_id)
     doc = doc_of(p, doc_type)
     if doc is None or doc.status == "missing":
         fail(status.HTTP_404_NOT_FOUND, "no_document", f"{p.short} hasn't uploaded that document yet.")
+    as_reviewed(doc, reviewed)
     dt = await DocumentTypes(db).get(doc_type)
     assert dt is not None
     rejected = doc.model_copy(update={"status": "rejected", "note": reason, "verified_by": None, "verified_at": None})
@@ -290,6 +350,180 @@ async def reject_document(db: Db, s: Settings, provider_id: str, doc_type: DocTy
             before=doc.model_dump(mode="json"),
             after=rejected.model_dump(mode="json"),
             note=reason,
+            session=session,
+        )
+
+    await transaction(db, apply)
+
+
+# ------------------------------------------------------------------ helpers' checks (Session S)
+
+
+def _helper(p: Provider, user_id: str) -> Helper:
+    helper = next((h for h in p.helpers if h.user_id == user_id and h.status != "removed"), None)
+    if helper is None:
+        not_found("That helper")
+    return helper
+
+
+async def _helper_doc(db: Db, helper: Helper, doc_type: DocType) -> tuple[ProviderDocument, DocumentType]:
+    doc = next((d for d in helper.documents if d.type == doc_type), None)  # the copy to check next
+    if doc is None or doc.status == "missing":
+        fail(
+            status.HTTP_404_NOT_FOUND, "no_document", f"{helper.name.split(' ')[0]} hasn't uploaded that document yet."
+        )
+    dt = await DocumentTypes(db).get(doc_type)
+    assert dt is not None
+    return doc, dt
+
+
+async def _text_helper(db: Db, s: Settings, p: Provider, helper: Helper, template: str, data: dict, session) -> None:
+    user = await Users(db).get(helper.user_id, session=session)
+    if user and user.phone:
+        await notify(
+            db,
+            template,
+            to=recipient_for(user),
+            data=data,
+            related=Related(provider_id=p.id, user_id=user.id),
+            settings=s,
+            session=session,
+        )
+
+
+async def verify_helper_document(
+    db: Db,
+    s: Settings,
+    provider_id: str,
+    user_id: str,
+    doc_type: DocType,
+    issued_on: date | None,
+    expires_on: date | None,
+    actor: Actor,
+    *,
+    reviewed: str | None,
+) -> None:
+    """A helper's document, checked as a provider's is (services.documents.expiry_for), and only
+    the upload the admin reviewed; the helper is texted. Marking them ready is a separate step
+    (mark_helper_ready)."""
+    p = await get_provider(db, provider_id)
+    helper = _helper(p, user_id)
+    doc, dt = await _helper_doc(db, helper, doc_type)
+    as_reviewed(doc, reviewed)
+    issued = issued_on or doc.issued_on
+    try:
+        expiry = documents.expiry_for(dt, issued, expires_on or doc.expires_on)
+    except documents.DocumentDateError as e:
+        fail(status.HTTP_422_UNPROCESSABLE_CONTENT, "dates_needed", f"{e}.")
+    if expiry is not None and expiry < london_today():
+        fail(status.HTTP_409_CONFLICT, "expired", f"That {dt.label.lower()} ran out on {long_date(expiry)}.")
+    checked = doc.model_copy(
+        update={
+            "status": "verified",
+            "issued_on": issued,
+            "expires_on": expiry,
+            "verified_by": actor.user_id,
+            "verified_at": utcnow(),
+            "note": None,
+        }
+    )
+
+    async def apply(session: DbSession) -> None:
+        if await Providers(db).set_helper_document(p.id, helper.user_id, checked, session=session) is None:
+            fail(status.HTTP_409_CONFLICT, "helper_changed", "This helper has just changed. Have another look.")
+        data = {
+            "document": dt.label[:1].lower() + dt.label[1:],
+            "until_text": f" until {long_date(expiry)}" if expiry else "",
+        }
+        await _text_helper(db, s, p, helper, "document_verified", data, session)
+        await audit(
+            db,
+            actor,
+            "provider.helper_document_verified",
+            Related(provider_id=p.id, user_id=helper.user_id),
+            before=doc.model_dump(mode="json"),
+            after=checked.model_dump(mode="json"),
+            session=session,
+        )
+
+    await transaction(db, apply)
+
+
+async def reject_helper_document(
+    db: Db,
+    s: Settings,
+    provider_id: str,
+    user_id: str,
+    doc_type: DocType,
+    reason: str,
+    actor: Actor,
+    *,
+    reviewed: str | None,
+) -> None:
+    p = await get_provider(db, provider_id)
+    helper = _helper(p, user_id)
+    doc, dt = await _helper_doc(db, helper, doc_type)
+    as_reviewed(doc, reviewed)
+    rejected = doc.model_copy(update={"status": "rejected", "note": reason, "verified_by": None, "verified_at": None})
+
+    async def apply(session: DbSession) -> None:
+        if await Providers(db).set_helper_document(p.id, helper.user_id, rejected, session=session) is None:
+            fail(status.HTTP_409_CONFLICT, "helper_changed", "This helper has just changed. Have another look.")
+        data = {
+            "document": dt.label[:1].lower() + dt.label[1:],
+            "reason": sentence(reason),
+            "link": link("/p/me", s),
+        }
+        await _text_helper(db, s, p, helper, "document_rejected", data, session)
+        await audit(
+            db,
+            actor,
+            "provider.helper_document_rejected",
+            Related(provider_id=p.id, user_id=helper.user_id),
+            before=doc.model_dump(mode="json"),
+            after=rejected.model_dump(mode="json"),
+            note=reason,
+            session=session,
+        )
+
+    await transaction(db, apply)
+
+
+async def mark_helper_ready(db: Db, s: Settings, provider_id: str, user_id: str, actor: Actor) -> None:
+    """The helper can be sent to visits (each still needs the documents its job needs:
+    app.provider.helpers.ready_helper). Their ID must have been checked. The provider is texted."""
+    p = await get_provider(db, provider_id)
+    helper = _helper(p, user_id)
+    if helper.status == "ready":
+        fail(status.HTTP_409_CONFLICT, "already_ready", f"{helper.name} is already ready.")
+    if not held_in_date(helper.documents, "identity", london_today()):
+        fail(status.HTTP_409_CONFLICT, "identity_not_checked", f"Check {helper.name.split(' ')[0]}'s ID first.")
+
+    async def apply(session: DbSession) -> None:
+        ready = await Providers(db).set_helper_status(
+            p.id, helper.user_id, "ready", expect=(helper.status,), session=session
+        )
+        if ready is None:
+            fail(status.HTTP_409_CONFLICT, "helper_changed", "This helper has just changed. Have another look.")
+        boss = await Users(db).get(p.user_id, session=session)
+        if boss and boss.phone:
+            await notify(
+                db,
+                "helper_ready",
+                to=recipient_for(boss),
+                data={"helper": helper.name.split(" ")[0], "link": link("/p/today", s)},
+                related=Related(provider_id=p.id, user_id=helper.user_id),
+                idempotency_key=f"helper:{p.id}:{helper.user_id}:ready",
+                settings=s,
+                session=session,
+            )
+        await audit(
+            db,
+            actor,
+            "provider.helper_ready",
+            Related(provider_id=p.id, user_id=helper.user_id),
+            before={"status": helper.status},
+            after={"status": "ready"},
             session=session,
         )
 
@@ -486,6 +720,7 @@ async def payment_account_link(
                 after=account.model_dump(mode="json"),
                 session=session,
             )
+            await lifecycle.activate_if_ready(db, s, p.id, actor=actor, session=session)
 
         await transaction(db, save)
     back = f"/admin/providers/{p.id}"
@@ -497,7 +732,7 @@ async def payment_account_link(
     return OnboardingLinkOut(account_id=account.account_id, url=url, status=account.status)
 
 
-async def sync_payment_account(db: Db, gateway: PaymentGateway, provider_id: str, actor: Actor) -> None:
+async def sync_payment_account(db: Db, s: Settings, gateway: PaymentGateway, provider_id: str, actor: Actor) -> None:
     p = await get_provider(db, provider_id)
     if p.payment_account is None or p.payment_account.gateway != gateway.name:
         fail(status.HTTP_409_CONFLICT, "no_account", f"{p.short} has no {gateway.name} payment account yet.")
@@ -523,5 +758,6 @@ async def sync_payment_account(db: Db, gateway: PaymentGateway, provider_id: str
             after=after.model_dump(mode="json"),
             session=session,
         )
+        await lifecycle.activate_if_ready(db, s, p.id, actor=actor, session=session)
 
     await transaction(db, save)

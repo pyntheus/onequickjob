@@ -470,13 +470,13 @@ async def test_a_counter_lapses_when_documents_run_out_inside_the_acceptance(db,
     req = await make_request(db, customer)
     s = make_settings()
     offer = await marketplace.make_counter(db, s, req.ref, mike, price_pence=3700, reasons=[])
-    original = marketplace._provider_now
+    original = marketplace.provider_for_booking
 
     async def insurance_runs_out(db_, provider_id, session):
         provider = await original(db_, provider_id, session)
         return provider.model_copy(update={"documents": [d for d in provider.documents if d.type != "insurance"]})
 
-    monkeypatch.setattr(marketplace, "_provider_now", insurance_runs_out)
+    monkeypatch.setattr(marketplace, "provider_for_booking", insurance_runs_out)
     with pytest.raises(Exception) as e:
         await marketplace.accept_counter(db, s, offer.id, customer)
     assert (e.value.status_code, e.value.detail["code"]) == (409, "provider_unavailable")
@@ -510,7 +510,7 @@ async def test_a_suspension_during_the_transaction_is_seen_by_its_retry(db, cata
         done.set()
 
     admin = asyncio.create_task(admin_suspends())
-    original, attempts = marketplace._provider_now, []
+    original, attempts = marketplace.provider_for_booking, []
 
     async def provider_now(db_, provider_id, session):
         attempts.append(provider_id)
@@ -520,7 +520,7 @@ async def test_a_suspension_during_the_transaction_is_seen_by_its_retry(db, cata
             await done.wait()  # ... and the suspension commits after it
         return await original(db_, provider_id, session)
 
-    monkeypatch.setattr(marketplace, "_provider_now", provider_now)
+    monkeypatch.setattr(marketplace, "provider_for_booking", provider_now)
     with pytest.raises(HTTPException) as e:
         if path == "guide":
             await marketplace.accept_at_guide(db, s, req.ref, mike)
@@ -633,3 +633,84 @@ async def test_a_visit_can_only_be_covered_once(db, catalogue):
     assert e.value.status_code == 409
     assert (await JobRequests(db).get(second.id)).status == "open", "the second claim was undone"
     assert (await Visits(db).get(later.id)).provider_id == mike.id
+
+
+async def test_a_cover_for_a_visit_no_longer_scheduled_cant_be_taken(db, catalogue, monkeypatch):
+    """Contract-changes L2: cover acceptance checks, inside its transaction, that the visit is
+    still scheduled. A visit the customer skips while its cover request is open can't be taken,
+    even when the skip commits during the acceptance."""
+    from app.core.timeutil import utcnow
+    from app.repos import Providers
+
+    _, _dave, mike, later, cover = await _own_customer_cover(db)
+    real_update = Providers.update
+    skipped = False
+
+    async def update_then_skip(self, id_, set_, **kw):
+        nonlocal skipped
+        if not skipped:  # inside the acceptance's transaction: the customer skips the visit now
+            skipped = True
+            await db["visits"].update_one(
+                {"_id": later.id}, {"$set": {"status": "skipped", "skipped_reason": "customer", "updated_at": utcnow()}}
+            )
+        return await real_update(self, id_, set_, **kw)
+
+    monkeypatch.setattr(Providers, "update", update_then_skip)
+    with pytest.raises(Exception) as e:
+        await marketplace.accept_at_guide(db, make_settings(), cover.ref, mike)
+    assert skipped and e.value.status_code == 409 and e.value.detail["code"] == "visit_not_scheduled"
+    assert (await JobRequests(db).get(cover.id)).status == "open", "the claim was undone"
+    v = await Visits(db).get(later.id)
+    assert v.status == "skipped" and v.performer.kind == "provider" and v.cover.state != "covered"
+    assert await _outbox(db, "cover_coming") == 0
+
+
+async def test_helpers_never_accept_counter_or_price_a_job(app, db, catalogue):
+    """A17: helper_of links a helper to the provider whose visits they do, and nothing more. The
+    shared offer endpoints refuse a helper (even one holding every document) with helpers_cant."""
+    from app.models.providers import Helper, ProviderDocument
+    from app.models.users import User
+    from app.repos import Providers, Users
+
+    dave = await make_provider(db, "Dave Hughes", "+447700900201", ["mowing"])
+    tom = User(name="Tom Hughes", phone="+447700900220", roles=[], helper_of=dave.id)
+    await Users(db).insert(tom)
+    docs = [
+        ProviderDocument(type=t, status="verified", expires_on=dave.documents[0].expires_on)
+        for t in ("identity", "insurance")
+    ]
+    helper = Helper(user_id=tom.id, name="Tom Hughes", status="ready", documents=docs)
+    await Providers(db).update(dave.id, {}, push={"helpers": helper.model_dump(mode="python")})
+    req = await make_request(db, await make_customer(db))
+    async with await new_client(app) as tc:
+        await sign_in(tc, db, "07700 900220")
+        accept = await tc.post(f"/api/p/requests/{req.ref}/accept")
+        counter = await tc.post(f"/api/p/requests/{req.ref}/counter", json={"price_pence": 3700})
+    for r in (accept, counter):
+        assert r.status_code == 403 and r.json()["detail"]["code"] == "helpers_cant", r.text
+        assert r.json()["detail"]["message"].startswith("Dave takes on jobs and sets the prices.")
+    assert (await JobRequests(db).get(req.id)).status == "open"
+    assert await Offers(db).count({}) == 0
+
+
+def test_counter_bounds_are_whole_pounds_from_80_percent_to_three_times():
+    """Exposed for the provider app's stepper (contract-changes L2), half-up to the pound."""
+    assert marketplace.counter_bounds(3100) == (2500, 9300)
+    assert marketplace.counter_bounds(2200) == (1800, 6600)
+    assert marketplace.counter_bounds(2190) == (1800, 6570)  # 17.52 -> 18
+    assert marketplace.counter_bounds(1870) == (1500, 5610)  # 14.96 -> 15
+
+
+async def test_a_counter_rechecks_eligibility_inside_its_transaction(db, catalogue):
+    """Codex review (A23): the provider the endpoint read can be out of date by the time the counter
+    is made (Mike has just changed to weekends only). The counter's transaction reads him again, so
+    a weekdays request gets no offer and no text."""
+    from app.repos import Providers
+
+    mike = await make_provider(db, "Mike Reynolds", "+447700900202", ["mowing"], days=["mon", "tue"])
+    req = await make_request(db, await make_customer(db))  # weekdays
+    await Providers(db).patch(mike.id, {"working_days": ["sat", "sun"]})  # mike (the object) is now stale
+    with pytest.raises(Exception) as e:
+        await marketplace.make_counter(db, make_settings(), req.ref, mike, price_pence=3700, reasons=[])
+    assert e.value.status_code == 403 and e.value.detail["code"] == "not_eligible"
+    assert await Offers(db).count({}) == 0 and await db["outbox"].count_documents({"template_id": "counter_offer"}) == 0

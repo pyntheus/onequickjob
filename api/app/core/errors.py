@@ -6,7 +6,8 @@ copy safe to show to the user; `code` is stable for the web to branch on.
 
 from typing import Any, Literal, NoReturn
 
-from fastapi import HTTPException, status
+from fastapi import HTTPException, Request, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 type Lane = Literal["F", "L1", "L2", "L3"]
@@ -21,6 +22,25 @@ class ErrorDetail(BaseModel):
 
 class ErrorResponse(BaseModel):
     detail: ErrorDetail
+
+
+class Conflict(Exception):
+    """A domain error for code below the routers, which doesn't know about HTTP (repositories).
+    Like any exception it aborts an open transaction; the app maps it to 409 with the usual error
+    shape (conflict_handler, registered in app.main), so the response is what fail(409, ...) gives."""
+
+    def __init__(self, code: str, message: str, **extra: Any):
+        super().__init__(message)
+        self.code, self.message, self.extra = code, message, extra
+
+    @property
+    def detail(self) -> dict[str, Any]:
+        return ErrorDetail(code=self.code, message=self.message, extra=self.extra or None).model_dump(exclude_none=True)
+
+
+async def conflict_handler(_request: Request, exc: Exception) -> JSONResponse:
+    assert isinstance(exc, Conflict)
+    return JSONResponse(status_code=status.HTTP_409_CONFLICT, content={"detail": exc.detail})
 
 
 def fail(status_code: int, code: str, message: str, **extra: Any) -> NoReturn:

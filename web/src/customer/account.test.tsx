@@ -155,6 +155,59 @@ describe("my account", () => {
     );
   });
 
+  it("asks an own customer's provider for a price, never the pricing engine (A22)", async () => {
+    const patches: unknown[] = [];
+    let repriced = false;
+    accountApi({
+      "GET /api/c/plans": () => [{ ...plan, provider_sets_price: true }],
+      "GET /api/c/plans/s1/reprice": () => ((repriced = true), {}),
+      "PATCH /api/c/plans/s1": async (_u, req) => (patches.push(await req.json()), plan),
+    });
+    renderAt("/account?tab=plan");
+    await userEvent.click(await screen.findByRole("button", { name: "Change how often" }));
+    await userEvent.click(screen.getByRole("button", { name: "Every week" }));
+    expect(screen.getByText(/Dave sets the price for your plan/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Ask Dave for a price" }));
+    await waitFor(() => expect(patches).toEqual([{ frequency: "weekly" }]));
+    expect(repriced).toBe(false);
+  });
+
+  it("lets an own customer agree or decline their provider's price (A22)", async () => {
+    const answers: unknown[] = [];
+    const pending = {
+      change_id: "pc1", kind: "provider_price", awaiting: "customer", to_frequency: "weekly",
+      to_frequency_label: "every week", to_price_pence: 2200, expires_at: "2026-10-05T09:00:00Z",
+      split: { mode: "own_customer", rate_percent: 5, price_pence: 2200, fee_pence: 110, provider_pence: 2090 },
+    };
+    accountApi({
+      "GET /api/c/plans": () => [{ ...plan, price_pence: 2500, provider_sets_price: true, pending_change: pending }],
+      "POST /api/c/plans/s1/change/approve": async (_u, req) => (answers.push(await req.json()), plan),
+    });
+    renderAt("/account?tab=plan");
+    expect(await screen.findByText(/Dave can do it every week at/)).toHaveTextContent(
+      "Dave can do it every week at £22 a visit (it's £25 now).",
+    );
+    expect(screen.getByText(/Your agreement is still with Dave/)).toHaveTextContent(
+      "Your agreement is still with Dave. OneQuickJob handles bookings and payments on Dave's behalf, and Dave pays us a " +
+        "small fee of £1.10 a visit (5%). It isn't added to your price.",
+    );
+    expect(screen.getByRole("button", { name: "Keep it as it is" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Agree £22 a visit" }));
+    await waitFor(() => expect(answers).toEqual([{ change_id: "pc1" }]));
+  });
+
+  it("shows an own customer's change waiting for the provider's price (A22)", async () => {
+    const pending = {
+      change_id: "pc1", kind: "provider_price", awaiting: "provider", to_frequency: "weekly",
+      to_frequency_label: "every week", to_price_pence: null, expires_at: "2026-10-05T09:00:00Z",
+    };
+    accountApi({ "GET /api/c/plans": () => [{ ...plan, provider_sets_price: true, pending_change: pending }] });
+    renderAt("/account?tab=plan");
+    expect(await screen.findByText(/Waiting for Dave's price/)).toHaveTextContent(
+      "Waiting for Dave's price to have it every week. Your plan carries on as it is until you've agreed one.",
+    );
+  });
+
   it("messages the provider", async () => {
     let posted: unknown = null;
     accountApi({

@@ -3,7 +3,7 @@ same provider again. Every write that spans collections is one transaction (deci
 the tip is charged through the PaymentGateway outside any transaction, between two of them.
 """
 
-from datetime import date, time, timedelta
+from datetime import timedelta
 
 from fastapi import HTTPException, status
 
@@ -13,7 +13,7 @@ from app.core.db import Db, DbSession, transaction
 from app.core.errors import fail, not_found
 from app.core.geo import approximate
 from app.core.ids import next_ref
-from app.core.timeutil import london_datetime, london_today, utcnow
+from app.core.timeutil import london_today, utcnow
 from app.customer import requests as request_service
 from app.customer.schemas import ChangeDateIn, PlanUpdate, ProblemIn, RatingIn, RebookIn
 from app.customer.views import REPORT_WINDOW
@@ -27,7 +27,7 @@ from app.models.messages import MessageThread, Participant
 from app.models.providers import Provider
 from app.models.ratings import Rating
 from app.models.users import User
-from app.models.visits import Performer, Visit
+from app.models.visits import Visit
 from app.payments import charging
 from app.repos.bookings import Bookings
 from app.repos.categories import Categories
@@ -412,50 +412,6 @@ def _summary(parts: list[str]) -> str:
     return "; ".join(parts)
 
 
-async def _fill(db: Db, series: Series, provider: Provider, source: str, after: date, session: DbSession) -> None:
-    """Visits for the plan's dates after `after`, up to the horizon (like schedule.ensure_horizon,
-    which only ever adds after the plan's last visit): reuse a date's cancelled or paused visit,
-    add the missing ones."""
-    today = london_today()
-    until = today + timedelta(days=schedule.HORIZON_DAYS)
-    dates = schedule.occurrences(series, after, until)
-    if len(dates) < schedule.MIN_UPCOMING:
-        dates = schedule.occurrences(series, after, until + timedelta(days=400))[: schedule.MIN_UPCOMING] or dates
-    hh, mm = (int(x) for x in series.start_time.split(":"))
-    for d in dates:
-        v = Visit(
-            booking_id=series.booking_id,
-            series_id=series.id,
-            customer_id=series.customer_id,
-            provider_id=series.provider_id,
-            performer=Performer(
-                kind="provider", provider_id=provider.id, user_id=provider.user_id, name=provider.short
-            ),
-            category_id=series.category_id,
-            source=source,  # type: ignore[arg-type]
-            local_date=d,
-            scheduled_start=london_datetime(d, time(hh, mm)),
-            window=series.window,
-            price_pence=series.price_pence,
-            est_mins=series.est_mins,
-        )
-        stored = await Visits(db).insert_once(v, {"series_id": series.id, "local_date": d.isoformat()}, session=session)
-        if stored.id != v.id and stored.status == "cancelled" and stored.skipped_reason == "plan_change":
-            # A date an earlier change cancelled is back on: the visit returns at the plan's price.
-            await Visits(db).update(
-                stored.id,
-                {"status": "scheduled", "skipped_reason": None, "price_pence": series.price_pence},
-                extra_filter={"status": "cancelled"},
-                session=session,
-            )
-    if dates:
-        await SeriesRepo(db).update(
-            series.id,
-            {"horizon_until": max(max(dates), series.horizon_until or max(dates)).isoformat()},
-            session=session,
-        )
-
-
 async def update_plan(
     db: Db, s: Settings, series: Series, booking: Booking, customer: Customer, user: User, body: PlanUpdate
 ) -> Series:
@@ -543,7 +499,9 @@ async def update_plan(
                     extra_filter={"status": "skipped"},
                     session=session,
                 )
-        await _fill(db, updated, provider, booking.source, (nxt.local_date if nxt else today), session)
+        await schedule.ensure_horizon(
+            db, updated, provider, from_day=nxt.local_date if nxt else today, source=booking.source, session=session
+        )
         summary = _summary(changes)
         await system_note(db, booking.thread_id, f"{customer.name} changed the plan: {summary}.", session)
         if user.phone:
@@ -605,6 +563,19 @@ async def apply_frequency_change(
     )
     if updated is None:
         fail(status.HTTP_409_CONFLICT, "plan_cancelled", "This plan is cancelled.")
+    # The new dates mustn't run into the provider's other visits or plans. Writing the provider
+    # makes a booking or another change for them committing meanwhile conflict with this one, so
+    # the re-run sees it.
+    await Providers(db).update(provider.id, {}, session=session)
+    fill_from = nxt.local_date if nxt else today  # where the fill below starts: the same dates are checked
+    if (clash := await schedule.first_clash(db, updated, fill_from, session=session)) is not None:
+        fail(
+            status.HTTP_409_CONFLICT,
+            "time_taken",
+            f"That would clash with another visit at {series.start_time} on {wording.day_text(clash)}, so the plan "
+            f"can't change to {wording.FREQUENCY_WORDS.get(frequency, frequency)} at that time. Message each other to "
+            "find another time.",
+        )
     await Bookings(db).update(booking.id, {"frequency": frequency, "price_pence": price_pence}, session=session)
     on_dates = set(
         schedule.occurrences(updated.model_copy(update={"pause": Pause()}), anchor, today + timedelta(days=500))
@@ -623,7 +594,7 @@ async def apply_frequency_change(
                 )
         elif not v.is_first and v.price_pence != price_pence:
             await Visits(db).update(v.id, {"price_pence": price_pence}, session=session)
-    await _fill(db, updated, provider, booking.source, (nxt.local_date if nxt else today), session)
+    await schedule.ensure_horizon(db, updated, provider, from_day=fill_from, source=booking.source, session=session)
     nxt = await Visits(db).find_one(
         {"series_id": series.id, "status": "scheduled", "scheduled_start": {"$gt": now}},
         sort=[("scheduled_start", 1)],

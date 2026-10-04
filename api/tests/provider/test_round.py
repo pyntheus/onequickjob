@@ -11,7 +11,7 @@ from app.provider.acting import Acting
 from app.repos import Visits
 from tests.conftest import make_settings
 from tests.factories import make_customer
-from tests.provider.conftest import TOM_PHONE, add_tom, book, client_for, move_to_today
+from tests.provider.conftest import TOM_PHONE, add_tom, book, checked_docs, client_for, move_to_today
 
 
 async def test_today_lists_the_round_in_time_order(dave_client, db, world):
@@ -115,17 +115,22 @@ async def test_today_shows_another_day_when_asked(dave_client, db, world):
 
 
 async def test_a_helper_added_in_the_app_cant_accept_or_counter_for_the_provider(app, dave_client, db, world):
-    """Codex review (high): helpers added in the app get no provider context, so the shared offer
-    endpoints refuse them; they still see their own visits and add their documents."""
-    from app.repos import Providers
+    """Codex review (high), A17: a helper added in the app is linked to the provider by helper_of,
+    which gets them the provider's visits and nothing more: the shared offer endpoints refuse
+    them; they still see their own visits and add their documents."""
+    from app.repos import Providers, Users
     from tests.factories import make_request
 
     r = await dave_client.post("/api/p/helpers", json={"name": "Tom Hughes", "phone": "07700 900220"})
     assert r.status_code == 201, r.text
+    assert (await Users(db).by_phone(TOM_PHONE)).helper_of == world.dave.id
     req = await make_request(db, world.customer)
     async with client_for(app, db, TOM_PHONE) as tc:
-        assert (await tc.post(f"/api/p/requests/{req.ref}/accept")).status_code == 403
-        assert (await tc.post(f"/api/p/requests/{req.ref}/counter", json={"price_pence": 3700})).status_code == 403
+        for r in (
+            await tc.post(f"/api/p/requests/{req.ref}/accept"),
+            await tc.post(f"/api/p/requests/{req.ref}/counter", json={"price_pence": 3700}),
+        ):
+            assert r.status_code == 403 and r.json()["detail"]["code"] == "helpers_cant"
         home = await tc.get("/api/p/home")
         assert home.status_code == 200 and home.json()["helper"] is True and home.json()["new_jobs"] == []
         assert (await tc.get("/api/p/jobs")).status_code == 403
@@ -170,18 +175,17 @@ async def test_a_helper_needs_the_documents_the_job_needs(dave_client, db, world
     assert ok.status_code == 200, ok.text
 
 
-async def test_a_ready_helper_with_no_documents_is_only_trusted_in_demo_mode(db, world, catalogue):
-    """Codex re-check (high): outside DEMO_MODE a helper needs every document the job needs on
-    record; the demo's seeded Tom has none yet, so only DEMO_MODE lets his readiness stand."""
+async def test_a_ready_helper_with_no_documents_is_never_trusted(db, world, catalogue):
+    """A17: a helper needs every document the job needs on record, in DEMO_MODE too (the seed's
+    Tom now has his, so the demo needs no exception)."""
     from app.provider.helpers import ready_helper
     from app.repos import Providers
 
-    tom = await add_tom(db, world.dave)
+    tom = await add_tom(db, world.dave, docs=())
     p = await Providers(db).get(world.dave.id)
     with pytest.raises(HTTPException) as e:
-        ready_helper(p, tom.id, catalogue["mowing"], demo=False)
+        ready_helper(p, tom.id, catalogue["mowing"])
     assert e.value.detail["code"] == "helper_missing_documents"
-    assert ready_helper(p, tom.id, catalogue["mowing"], demo=True).user_id == tom.id
 
 
 async def test_a_helper_cant_start_a_visit_taken_away_meanwhile(db, world, monkeypatch):
@@ -194,11 +198,10 @@ async def test_a_helper_cant_start_a_visit_taken_away_meanwhile(db, world, monke
     from tests.provider.test_finish import _cu
 
     tom = await add_tom(db, world.dave)
-    jim = User(name="Jim Hughes", phone="+447700900221", roles=[])
+    jim = User(name="Jim Hughes", phone="+447700900221", roles=[], helper_of=world.dave.id)
     await Users(db).insert(jim)
-    await Providers(db).update(
-        world.dave.id, {}, push={"helpers": Helper(user_id=jim.id, name="Jim Hughes", status="ready").model_dump()}
-    )
+    jim_helper = Helper(user_id=jim.id, name="Jim Hughes", status="ready", documents=checked_docs())
+    await Providers(db).update(world.dave.id, {}, push={"helpers": jim_helper.model_dump()})
     s = make_settings()
     owner = Acting(provider=await Providers(db).get(world.dave.id), cu=_cu(await Users(db).get(world.dave.user_id)))
     await round_mod.send_helper(db, s, owner, world.first.id, tom.id)

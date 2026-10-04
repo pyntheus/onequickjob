@@ -25,6 +25,7 @@ from app.admin.views import (
     lower_first,
     money,
     plural,
+    renewal_waiting,
     request_where,
     short_name,
 )
@@ -34,7 +35,6 @@ from app.core.db import Db, DbSession, transaction
 from app.core.errors import fail, not_found
 from app.core.rounding import D, round_to_pound
 from app.core.timeutil import london_datetime, london_today, utcnow, week_start
-from app.customer import price_changes
 from app.models.categories import Category
 from app.models.common import Actor, Related
 from app.models.job_requests import JobRequest
@@ -52,6 +52,7 @@ from app.repos import (
     Visits,
 )
 from app.repos.payments import PaymentRefunds
+from app.services import guide_raises
 from app.services.audit import audit
 from app.services.marketplace import scaled_first_price
 from app.services.notify import link
@@ -105,7 +106,7 @@ async def _kpis(db: Db, start: date) -> list[Kpi]:
     this_week = await reqs.find({"created_at": _range(start, end), "cover_for_visit_id": None})
     last_week = await reqs.count({"created_at": _range(start - timedelta(days=7), start), "cover_for_visit_id": None})
     booked = [r for r in this_week if r.status == "booked" and r.booked]
-    at_guide = sum(1 for r in booked if r.booked and r.booked.via == "guide")
+    at_guide = sum(1 for r in booked if r.booked and r.booked.via in ("guide", "direct"))
     waits = [m for r in this_week if (m := first_yes_minutes(r)) is not None]
     diff = len(this_week) - last_week
     rows = await LedgerEntries(db).find(
@@ -254,8 +255,22 @@ def attention_for(p: Provider, labels: dict[str, str], today: date) -> list[Atte
                 )
             )
         return items
+    # A renewal waiting for a check: check it, rather than remind them about the old copy (Session S).
+    renewing = sorted({d.type for d in p.documents if renewal_waiting(p.documents, d.type)})
+    for t in renewing:
+        items.append(
+            AttentionItem(
+                provider_id=p.id,
+                short=p.short,
+                issue=f"{labels.get(t, t)} renewal to check",
+                tone="warn",
+                action="Check it",
+            )
+        )
     for d in p.documents:
         state = doc_state(d, today)
+        if d.type in renewing:
+            continue
         if state in ("warn", "expired") and d.expires_on:
             label = labels.get(d.type, d.type)
             verb = "expires" if state == "warn" else "expired"
@@ -296,6 +311,8 @@ async def payment_issues(db: Db, cats: dict[str, Category]) -> list[PaymentIssue
             "$or": [
                 {"charge.status": {"$in": ["failed", "requires_action"]}},
                 {"charge.status": "pending", "updated_at": {"$lte": stale}},
+                # Finished, but the charge never started (the settle task keeps trying: L2's filing).
+                {"status": "finished", "charge.status": "none", "finished_at": {"$lte": stale}},
             ]
         },
         sort=[("updated_at", -1)],
@@ -344,9 +361,9 @@ async def payment_issues(db: Db, cats: dict[str, Category]) -> list[PaymentIssue
             category_name=cats[v.category_id].name if v.category_id in cats else v.category_id,
             local_date=v.local_date,
             amount_pence=v.charge.amount_pence or v.price_pence,
-            status=v.charge.status,
+            status="not_started" if v.charge.status == "none" else v.charge.status,
             failure_reason=v.charge.failure_reason,
-            since=v.updated_at,
+            since=(v.finished_at or v.updated_at) if v.charge.status == "none" else v.updated_at,
         )
         for v in visits
     ]
@@ -392,8 +409,9 @@ async def whatsapp_text(db: Db, s: Settings, ref: str) -> WhatsAppText:
 async def raise_guide(db: Db, s: Settings, ref: str, percent_: int, note: str, actor: Actor) -> UnfilledRequest:
     """Suggest raising an open request's guide price by percent_, rounded half-up to whole pounds.
     A dearer first visit rises by the same ratio (marketplace.scaled_first_price, as for a
-    counter: A1). Ruling A12: the raise waits for the customer's approval (L1's
-    app.customer.price_changes); only then does the guide change and the job go out again."""
+    counter: A1). Ruling A12: the raise waits for the customer's approval (app.services.guide_raises;
+    they answer in app.customer.price_changes); only then does the guide change and the job go
+    out again."""
     req = await _request(db, ref)
     if req.status != "open":
         fail(status.HTTP_409_CONFLICT, "not_open", "This request isn't open any more.")
@@ -405,7 +423,7 @@ async def raise_guide(db: Db, s: Settings, ref: str, percent_: int, note: str, a
     after = {"guide_pence": new_guide, "first_pence": new_first, "percent": percent_}
 
     async def apply(session: DbSession) -> JobRequest:
-        updated = await price_changes.propose(
+        updated = await guide_raises.propose(
             db, s, req, guide_pence=new_guide, first_pence=new_first, percent=percent_, note=note, actor=actor,
             session=session,
         )  # fmt: skip

@@ -5,18 +5,24 @@ from collections import defaultdict
 from datetime import date, timedelta
 from itertools import pairwise
 
+from app.adapters.area.base import AreaInput
 from app.core import money
-from app.core.geo import ROAD_FACTOR, miles_between
+from app.core.geo import ROAD_FACTOR, approximate, miles_between
 from app.core.rounding import D, round_half_up
 from app.core.timeutil import tax_year, week_start, weekday_key
 from app.models.bookings import Series
+from app.models.common import GeoPoint
+from app.models.job_requests import Booked, Broadcast, JobRequest, RequestEvent, When
+from app.models.offers import Offer
 from app.models.provider_ops import OwnCustomerInvite
 from app.models.ratings import Rating
 from app.models.records import Expense, MileageLeg, MileageLog
 from app.pricing.answers import defaults_for
 from app.pricing.engine import params_for, price
+from app.repos.quotes import Quotes
 from app.seed.context import Ctx, mulberry32, sid
 from app.seed.jobs import add_after_photo, add_booking, add_thread, add_visit, minutes_near
+from app.services.quotes import create_quote
 
 WEEKDAY_INDEX = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
 HISTORY_DAYS = 120
@@ -59,6 +65,101 @@ def regular_dates(ctx: Ctx, reg: dict) -> list[date]:
     return [nxt - timedelta(weeks=13), nxt]
 
 
+async def _regular_request(ctx: Ctx, reg: dict, booked_at) -> tuple[str, str]:
+    """The booked request a platform regular came from, priced by the engine at the lawn size on
+    record, so A10 re-prices the plan from what was actually quoted (Session S: a plan seeded
+    without one was re-priced at a guessed size). When the agreed price isn't the guide, the
+    provider's counter was accepted. Returns (request id, how it was booked)."""
+    key = f"regular:{reg['key']}"
+    customer = ctx.customers[reg["customer"]]
+    provider = ctx.providers[reg["provider"]]
+    address = customer.addresses[0]
+    q = await create_quote(
+        ctx.db,
+        ctx.s,
+        category_id=reg["category"],
+        answers=reg["answers"],
+        lawn=AreaInput(**reg["lawn"]) if reg.get("lawn") else None,
+        address=address,
+        user_id=customer.user_id,
+    )
+    await Quotes(ctx.db).delete(q.id)  # stored again under a stable id
+    request_id, booking_id = sid("request", key), sid("booking", key)
+    posted = booked_at - timedelta(hours=2)
+    ctx.w.add(q.model_copy(update={"id": sid("quote", key), "request_id": request_id, **ctx.timestamps(posted)}))
+    guide, price_pence = q.result.price_pence, reg["price_pence"]
+    via = "guide" if price_pence == guide else "counter"
+    events = [
+        RequestEvent(at=posted, kind="created"),
+        RequestEvent(at=posted + timedelta(seconds=5), kind="broadcast", count=1),
+    ]
+    offer_id = None
+    if via == "counter":
+        offer = Offer(
+            id=sid("offer", key),
+            request_id=request_id,
+            provider_id=provider.id,
+            price_pence=price_pence,
+            guide_pence=guide,
+            reasons=reg.get("counter_reasons", []),
+            status="accepted",
+            decided_at=booked_at,
+            **ctx.timestamps(posted + timedelta(minutes=40)),
+        )
+        ctx.w.add(offer)
+        offer_id = offer.id
+        events.append(
+            RequestEvent(
+                at=offer.created_at,
+                kind="countered",
+                provider_id=provider.id,
+                offer_id=offer_id,
+                price_pence=price_pence,
+            )
+        )
+    events.append(
+        RequestEvent(at=booked_at, kind="accepted", provider_id=provider.id, offer_id=offer_id, price_pence=price_pence)
+    )
+    lat, lng = approximate(address.lat, address.lng)
+    frequency = q.answers.get("frequency")
+    ctx.w.add(
+        JobRequest(
+            id=request_id,
+            ref=ctx.next_request_ref(),
+            customer_id=customer.id,
+            category_id=reg["category"],
+            quote_id=sid("quote", key),
+            pricing_version_id=q.pricing_version_id,
+            answers=q.answers,
+            measure=q.measure,
+            address=address,
+            approx=GeoPoint(lat=lat, lng=lng),
+            when=When(days="any", time=reg["window"]),
+            recurring=True,
+            frequency=frequency,
+            guide_pence=guide,
+            first_pence=q.result.first_pence,
+            mins=q.result.mins,
+            first_mins=q.result.first_mins,
+            unit=q.result.unit,
+            status="booked",
+            broadcast=Broadcast(at=posted + timedelta(seconds=5), provider_ids=[provider.id]),
+            viewed_by=[provider.id],
+            events=events,
+            booked=Booked(
+                booking_id=booking_id,
+                provider_id=provider.id,
+                price_pence=price_pence,
+                via=via,
+                offer_id=offer_id,
+                at=booked_at,
+            ),
+            **ctx.timestamps(posted),
+        )
+    )
+    return request_id, via
+
+
 def working_day(ctx: Ctx, provider: str, day: date) -> date:
     """The latest day on or before `day` that the provider works."""
     for _ in range(7):
@@ -79,6 +180,8 @@ async def seed_history(ctx: Ctx, diary: Diary) -> None:
         customer = ctx.customers[reg["customer"]]
         own = reg["source"] == "own_customer"
         invite_id = sid("invite", key) if own else None
+        created_at = customer.created_at + timedelta(hours=1)
+        request_id, via = (None, "invite") if own else await _regular_request(ctx, reg, created_at)
         booking = add_booking(
             ctx,
             key=f"regular:{key}",
@@ -86,14 +189,15 @@ async def seed_history(ctx: Ctx, diary: Diary) -> None:
             provider=reg["provider"],
             category_id=reg["category"],
             source=reg["source"],
-            via="invite" if own else "guide",
+            via=via,
             price_pence=reg["price_pence"],
-            created_at=customer.created_at + timedelta(hours=1),
+            created_at=created_at,
             recurring=True,
             frequency=reg["frequency"],
             status="active",
             answers=reg["answers"],
             when=reg["window"],
+            request_id=request_id,
             invite_id=invite_id,
         )
         series = Series(
@@ -269,9 +373,8 @@ async def seed_dave_fill(ctx: Ctx, diary: Diary) -> None:
             remaining -= v.charge.provider_pence
 
 
-async def seed_dave_records(ctx: Ctx) -> list[tuple[str, str]]:
-    """Mileage (last three weeks of working days) and the three expenses. Returns the
-    (provider_id, date) pairs used, for clash clean-up."""
+async def seed_dave_records(ctx: Ctx) -> None:
+    """Mileage (last three weeks of working days) and the three expenses."""
     dave = ctx.providers["dave"]
     home = dave.home.location
     by_day: dict[date, list] = defaultdict(list)
@@ -282,7 +385,6 @@ async def seed_dave_records(ctx: Ctx) -> list[tuple[str, str]]:
             and ctx.today - timedelta(days=21) <= v.local_date < ctx.today
         ):
             by_day[v.local_date].append(v)
-    used: list[tuple[str, str]] = []
     for day, visits in sorted(by_day.items()):
         visits.sort(key=lambda v: v.scheduled_start)
         stops = [("Home", home.lat, home.lng)]
@@ -318,7 +420,6 @@ async def seed_dave_records(ctx: Ctx) -> list[tuple[str, str]]:
                 **ctx.timestamps(at),
             )
         )
-        used.append((dave.id, day.isoformat()))
     for e in ctx.scenario["expenses"]:
         day = ctx.day(e["days_ago"])
         ctx.w.add(
@@ -333,4 +434,3 @@ async def seed_dave_records(ctx: Ctx) -> list[tuple[str, str]]:
                 **ctx.timestamps(ctx.at(day, "17:45")),
             )
         )
-    return used

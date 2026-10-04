@@ -140,8 +140,7 @@ export default function Contact() {
               maxLength={254}
             />
             {signedIn && profileLoaded ? (
-              // CardCapture reads `saved` when it mounts, so mount it once the profile is known.
-              <CardCapture key={savedCard?.last4 ?? "none"} saved={savedCard} onSaved={(saved) => setCard(saved)} />
+              <CardCapture saved={savedCard} onSaved={(saved) => setCard(saved)} />
             ) : signedIn ? null : (
               <div className="field">
                 <span className="label">Payment card</span>

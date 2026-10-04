@@ -5,8 +5,8 @@ and the docs can't drift. Bodies use str.format placeholders; render() fails lou
 a placeholder is missing. UK English, no promises or guarantees, and the brand prefix
 on texts because that's how people recognise them.
 
-Lanes add templates from their own package with register(); fold them into this file
-at integration (I).
+Every template is here (the lanes' own were folded in by the shared-fixes session); add new
+ones here too.
 """
 
 import string
@@ -226,6 +226,155 @@ _t(
     "price: {price} a visit, paid by card after each visit. Have a look: {link}",
 )
 
+_t(
+    id="request_closed",
+    lane="L1",
+    audience="provider",
+    channels=("sms",),
+    trigger="A request closes without being booked (the customer cancels it, or it expires) while the "
+    "provider's suggested price was still waiting.",
+    body="{brand}: the {category} job in {area} is no longer available, so your suggested price no longer "
+    "stands. Thanks for looking.",
+)
+_t(
+    id="request_expired",
+    lane="L1",
+    audience="customer",
+    channels=("sms",),
+    trigger="An open request has had no booking for 7 days and closes (request_expiry task).",
+    body="{brand}: we couldn't find someone local for your {category} request this time, so we've closed it. "
+    "Nothing has been charged. You can ask again whenever you like: {link}",
+)
+_t(
+    id="guide_raise_proposed",
+    lane="L1",
+    audience="customer",
+    channels=("sms",),
+    trigger="The team suggests a higher guide price for an open request nobody has taken (admin's Raise guide); "
+    "nothing changes unless the customer approves it on Finding someone local (A12).",
+    body="{brand}: to help find someone local for your {category}, we suggest raising the guide price to "
+    "{price}{first_text} (it's {current} now). Nothing changes unless you approve it: {link}",
+)
+_t(
+    id="plan_change_proposed",
+    lane="L1",
+    audience="provider",
+    channels=("sms",),
+    trigger="A customer asks to change how often their plan's visits happen; the provider accepts or declines "
+    "the re-priced plan within 48 hours (A10).",
+    body="{brand}: {customer} would like their {category} {new_frequency} instead of {old_frequency}. At that "
+    "frequency the price would be {price} a visit (it's {current} now). Please accept or decline by {deadline}: "
+    "{link}",
+)
+_t(
+    id="plan_change_requested",
+    lane="L1",
+    audience="customer",
+    channels=("sms",),
+    trigger="The customer has asked to change how often; the provider has been asked (A10).",
+    body="{brand}: we've asked {provider} about your {category} {new_frequency} at {price} a visit. Your plan "
+    "carries on as it is unless they accept.",
+)
+_t(
+    id="plan_change_accepted",
+    lane="L1",
+    audience="customer",
+    channels=("sms",),
+    trigger="The provider accepts a change of frequency and its new price (A10).",
+    body="{brand}: {provider} accepted. Your {category} is now {new_frequency} at {price} a visit. {next_text}",
+)
+_t(
+    id="plan_change_declined",
+    lane="L1",
+    audience="customer",
+    channels=("sms",),
+    trigger="The provider declines a change of frequency (A10).",
+    body="{brand}: {provider} would rather keep your {category} {old_frequency} at {current} a visit, so your "
+    "plan stays as it is. You can message them from your account.",
+)
+_t(
+    id="plan_change_lapsed",
+    lane="L1",
+    audience="customer",
+    channels=("sms",),
+    trigger="The provider hasn't answered a change of frequency within 48 hours (plan_change_expiry task, A10).",
+    body="{brand}: {provider} hasn't answered within 48 hours, so your {category} plan stays {old_frequency} at "
+    "{current} a visit. You can ask again from your account.",
+)
+_t(
+    id="plan_change_price_asked",
+    lane="L1",
+    audience="provider",
+    channels=("sms",),
+    trigger="An own customer asks to change how often their plan's visits happen: the price is the provider's to "
+    "set, so they're asked to name it or decline within 48 hours (A22).",
+    body="{brand}: {customer} would like their {category} {new_frequency} instead of {old_frequency} (it's {current} "
+    "a visit now). As they're your own customer, you set the price: name it or decline by {deadline}: {link}",
+)
+_t(
+    id="plan_change_price_requested",
+    lane="L1",
+    audience="customer",
+    channels=("sms",),
+    trigger="An own customer has asked their provider for a price at a new frequency (A22).",
+    body="{brand}: we've asked {provider} for a price to have your {category} {new_frequency}. Your plan carries on "
+    "as it is until you've agreed one.",
+)
+_t(
+    id="plan_change_priced",
+    lane="L1",
+    audience="customer",
+    channels=("sms",),
+    trigger="The provider names their price for an own customer's change of frequency; the customer has 48 hours to "
+    "approve or decline it (A22).",
+    body="{brand}: {provider} can do your {category} {new_frequency} at {price} a visit (it's {current} now). "
+    "Approve or decline it by {deadline}: {link}",
+)
+_t(
+    id="plan_change_agreed",
+    lane="L1",
+    audience="customer",
+    channels=("sms",),
+    trigger="The customer approves their provider's price for a change of frequency; the plan is updated (A22).",
+    body="{brand}: done. Your {category} with {provider} is now {new_frequency} at {price} a visit. {next_text}",
+)
+_t(
+    id="plan_change_approved",
+    lane="L1",
+    audience="provider",
+    channels=("sms",),
+    trigger="An own customer approves the price the provider named for a change of frequency; the plan is updated "
+    "(A22).",
+    body="{brand}: {customer} agreed {price} a visit to have their {category} {new_frequency}. Your round is updated.",
+)
+_t(
+    id="plan_change_price_declined",
+    lane="L1",
+    audience="provider",
+    channels=("sms",),
+    trigger="An own customer declines the price the provider named for a change of frequency (A22).",
+    body="{brand}: {customer} would rather keep their {category} {old_frequency} at {current} a visit, so the plan "
+    "stays as it is.",
+)
+_t(
+    id="plan_change_price_lapsed",
+    lane="L1",
+    audience="customer",
+    channels=("sms",),
+    trigger="The customer hasn't answered their provider's price within 48 hours (plan_change_expiry task, A22).",
+    body="{brand}: we didn't hear back about {provider}'s price within 48 hours, so your {category} plan stays "
+    "{old_frequency} at {current} a visit. You can ask again from your account.",
+)
+_t(
+    id="plan_change_price_unanswered",
+    lane="L1",
+    audience="provider",
+    channels=("sms",),
+    trigger="An own customer hasn't answered the provider's price within 48 hours (plan_change_expiry task, A22).",
+    body="{brand}: {customer} didn't answer your price within 48 hours, so their {category} plan stays "
+    "{old_frequency} at {current} a visit.",
+)
+
 # --------------------------------------------------------------------------- shared
 _t(
     id="message_received",
@@ -283,6 +432,18 @@ _t(
     channels=("sms",),
     trigger="A request books while the provider's counter was still waiting.",
     body="{brand}: the {category} job in {area} has gone to someone else. Thanks for looking.",
+)
+_t(
+    id="guide_raise_withdrawn",
+    lane="F",
+    audience="customer",
+    channels=("sms",),
+    trigger=(
+        "A request is booked (at the guide, or a counter the customer accepted) while a raised guide waits for "
+        "the customer's approval: the raise is withdrawn in the booking's transaction (A12, A16)."
+    ),
+    body="{brand}: {provider} has booked your {category} at {booked_at}, so the higher guide price we suggested "
+    "({proposed}) no longer applies. There's nothing you need to do.",
 )
 _t(
     id="counter_lapsed",
@@ -363,7 +524,7 @@ _t(
     lane="L3",
     audience="provider",
     channels=("sms",),
-    trigger="An admin verifies an uploaded document.",
+    trigger="An admin verifies an uploaded document (a provider's, or a helper's: then the helper is texted).",
     body="{brand}: we've checked your {document}. Thanks, you're all set{until_text}.",
 )
 _t(
@@ -371,7 +532,7 @@ _t(
     lane="L3",
     audience="provider",
     channels=("sms",),
-    trigger="An admin rejects an uploaded document.",
+    trigger="An admin rejects an uploaded document (a provider's, or a helper's: then the helper is texted).",
     body="{brand}: we couldn't accept your {document}: {reason} Please upload it again: {link}",
 )
 _t(
@@ -425,6 +586,33 @@ _t(
     body="{name} ({phone}) asked for a call-back during sign-up. They're on: {step}.",
 )
 
+_t(
+    id="time_off_unarranged",
+    lane="L2",
+    audience="provider",
+    channels=("sms",),
+    trigger="A visit is booked into a provider's time off after they arranged it (once per visit).",
+    body="{brand}: {customer}'s {category} on {date} has been booked while you're away. "
+    "Choose cover, a helper or skip it: {link}",
+)
+_t(
+    id="cover_not_found",
+    lane="L2",
+    audience="provider",
+    channels=("sms",),
+    trigger="Nobody took a cover visit by the day before, so it's skipped and the customer is told.",
+    body="{brand}: nobody was free to cover {customer}'s {category} on {date}, so it's skipped and "
+    "{customer} has been told. Their next visit is with you as usual.",
+)
+_t(
+    id="visit_done_customer_no_photo",
+    lane="L2",
+    audience="customer",
+    channels=("sms",),
+    trigger="A provider finishes a visit without adding an after photo, and the card is charged.",
+    body="{brand}: {provider} has finished your {category}. We've charged {price} to your card. Rate the visit: {link}",
+)
+
 # --------------------------------------------------------------------------- L3 admin
 _t(
     id="provider_nudge",
@@ -459,6 +647,26 @@ _t(
     body="{brand}: {title} is now closed. {outcome}",
 )
 _t(
+    id="provider_activated",
+    lane="F",
+    audience="provider",
+    channels=("sms",),
+    trigger=(
+        "A provider signing up has every required check done (ID, insurance, tax details, a payout account, and a "
+        "basic DBS check if a chosen job needs one): they become active automatically (A19)."
+    ),
+    body="{brand}: you're all set, {first}. Your checks are done, so jobs near you will start coming through. {link}",
+)
+_t(
+    id="helper_ready",
+    lane="L3",
+    audience="provider",
+    channels=("sms",),
+    trigger="An admin marks a provider's helper ready, once their ID has been checked (Session S).",
+    body="{brand}: we've checked {helper}'s details, so you can send them to visits from Today. Each visit still "
+    "needs the documents its job asks for. {link}",
+)
+_t(
     id="account_suspended",
     lane="L3",
     audience="provider",
@@ -473,4 +681,12 @@ _t(
     channels=("sms",),
     trigger="An admin reinstates a provider.",
     body="{brand}: your account is active again. New jobs near you will start coming through.",
+)
+_t(
+    id="tip_received",
+    lane="L3",
+    audience="provider",
+    channels=("sms",),
+    trigger="A customer's tip is charged (with their rating; L1 charges it through app.payments.charging).",
+    body="{brand}: {customer} added a {tip} tip for your {category}. All of it goes to you, with no fee.",
 )

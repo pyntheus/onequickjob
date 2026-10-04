@@ -62,14 +62,12 @@ async def materialise_through(db: Db, provider: Provider, last_day: date) -> Non
     """Create the provider's regular visits up to last_day (ensure_horizon keeps six weeks ahead;
     time off can be further away). Idempotent: one visit per plan and day."""
     for series in await SeriesRepo(db).find({"provider_id": provider.id, "status": "active"}):
-        booking = await Bookings(db).get(series.booking_id)
-        source = booking.source if booking else "platform"
         day = london_today()
         for _ in range(12):  # 12 x 6 weeks: well past the year ahead allowed
             fresh = await SeriesRepo(db).get(series.id)
-            if fresh is None or (fresh.horizon_until and fresh.horizon_until >= last_day):
+            if fresh is None or fresh.status != "active" or (fresh.horizon_until and fresh.horizon_until >= last_day):
                 break
-            await schedule.ensure_horizon(db, fresh, provider, today=day, source=source)
+            await schedule.top_up(db, series.id, today=day)
             day += timedelta(days=schedule.HORIZON_DAYS)
 
 
@@ -153,7 +151,7 @@ async def _precheck(
                     "One of these customers would rather not have cover. Send a helper or skip that visit.",
                 )
         elif a.action == "helper":
-            ready_helper(provider, a.helper_user_id or "", cats[v.category_id], demo=s.demo_mode)
+            ready_helper(provider, a.helper_user_id or "", cats[v.category_id])
 
 
 async def _arrange(
@@ -190,7 +188,7 @@ async def _arrange(
             arrangements.append(Arrangement(visit_id=v.id, action="skip", state="arranged"))
             lines.append(f"{who}'s visit on {day} is skipped.")
         elif a.action == "helper":
-            helper = ready_helper(provider, a.helper_user_id or "", cats[v.category_id], demo=s.demo_mode)
+            helper = ready_helper(provider, a.helper_user_id or "", cats[v.category_id])
             performer = Performer(
                 kind="helper", provider_id=provider.id, user_id=helper.user_id, name=short_name(helper.name)
             )

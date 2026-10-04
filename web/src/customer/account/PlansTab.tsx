@@ -15,16 +15,42 @@ type PlanPrice = Schemas["PlanPrice"];
 
 /**
  * A10: a new frequency is re-priced by the API (never here) and sent to the provider to accept;
- * the plan carries on unchanged until they do.
+ * the plan carries on unchanged until they do. A22: an own customer's plan is priced by the
+ * provider, so choosing a frequency asks them for a price instead.
  */
 function ChangeHowOften({ plan, onDone }: { plan: PlanOut; onDone: () => void }) {
   const qc = useQueryClient();
   const notify = useToast();
   const who = plan.provider.first_name;
   const [quote, setQuote] = useState<PlanPrice | null>(null);
+  const [asking, setAsking] = useState<{ frequency: string; label: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const askForPrice = async () => {
+    if (!asking) return;
+    setBusy(true);
+    try {
+      await call(
+        api.PATCH("/api/c/plans/{series_id}", {
+          params: { path: { series_id: plan.series_id } },
+          body: { frequency: asking.frequency as Frequency },
+        }),
+      );
+      notify(`We've asked ${who} for a price. Your plan stays as it is until you agree one.`);
+      await qc.invalidateQueries({ queryKey: ["c"] });
+      onDone();
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
   const choose = async (frequency: string) => {
+    if (plan.provider_sets_price) {
+      const label = plan.frequency_options?.find((o) => o.value === frequency)?.label ?? frequency;
+      setAsking({ frequency, label });
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -70,7 +96,7 @@ function ChangeHowOften({ plan, onDone }: { plan: PlanOut; onDone: () => void })
         {(plan.frequency_options ?? []).map((o) => (
           <Chip
             key={o.value}
-            on={(quote?.frequency ?? plan.frequency) === o.value}
+            on={(quote?.frequency ?? asking?.frequency ?? plan.frequency) === o.value}
             disabled={busy || o.value === plan.frequency}
             onClick={() => choose(o.value)}
           >
@@ -90,11 +116,72 @@ function ChangeHowOften({ plan, onDone }: { plan: PlanOut; onDone: () => void })
           </button>
         </div>
       )}
+      {asking && (
+        <div className="soft small stack" style={g(8)}>
+          <span>
+            {who} sets the price for your plan. We'll ask them for a price to have it {asking.label}; your plan stays as it
+            is until you've agreed one.
+          </span>
+          <button type="button" className="btn btn-primary btn-sm" style={{ alignSelf: "flex-start" }} onClick={askForPrice} disabled={busy}>
+            Ask {who} for a price
+          </button>
+        </div>
+      )}
       {error && (
         <p className="field-error" role="alert">
           {error}
         </p>
       )}
+    </div>
+  );
+}
+
+/** A22: the provider has named a price for the change; the customer approves or declines it. */
+function PriceToAnswer({ plan }: { plan: PlanOut }) {
+  const qc = useQueryClient();
+  const notify = useToast();
+  const who = plan.provider.first_name;
+  const pc = plan.pending_change;
+  const [busy, setBusy] = useState(false);
+  if (!pc || pc.to_price_pence == null) return null;
+  const answer = async (how: "approve" | "decline") => {
+    setBusy(true);
+    try {
+      const body = { change_id: pc.change_id };
+      const params = { path: { series_id: plan.series_id } };
+      await call(
+        how === "approve"
+          ? api.POST("/api/c/plans/{series_id}/change/approve", { params, body })
+          : api.POST("/api/c/plans/{series_id}/change/decline", { params, body }),
+      );
+      notify(how === "approve" ? `Done: ${pc.to_frequency_label} at ${fmt(pc.to_price_pence ?? 0)} a visit.` : "Your plan stays as it is.");
+      await qc.invalidateQueries({ queryKey: ["c"] });
+    } catch (e) {
+      notify(errorText(e));
+      await qc.invalidateQueries({ queryKey: ["c"] });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="soft small stack" style={{ ...g(8), marginTop: 12 }}>
+      <span>
+        {who} can do it {pc.to_frequency_label} at <b>{fmt(pc.to_price_pence)} a visit</b> (it's {fmt(plan.price_pence)} now).
+      </span>
+      {pc.split && (
+        <span>
+          Your agreement is still with {who}. OneQuickJob handles bookings and payments on {who}'s behalf, and {who} pays us a
+          small fee of {fmt(pc.split.fee_pence)} a visit ({pc.split.rate_percent}%). It isn't added to your price.
+        </span>
+      )}
+      <div className="row wrap" style={g(8)}>
+        <button type="button" className="btn btn-primary btn-sm" onClick={() => answer("approve")} disabled={busy}>
+          Agree {fmt(pc.to_price_pence)} a visit
+        </button>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => answer("decline")} disabled={busy}>
+          Keep it as it is
+        </button>
+      </div>
     </div>
   );
 }
@@ -204,11 +291,20 @@ function PlanCard({ plan }: { plan: PlanOut }) {
             hint={`We'll offer the visit to another checked local provider at the same price. ${who} carries on afterwards.`}
           />
           <hr />
-          {plan.pending_change && (
+          {plan.pending_change?.awaiting === "customer" ? (
+            <PriceToAnswer plan={plan} />
+          ) : plan.pending_change?.kind === "provider_price" ? (
             <p className="soft small" style={{ marginTop: 12 }}>
-              Waiting for {who} to accept {plan.pending_change.to_frequency_label} at{" "}
-              <b>{fmt(plan.pending_change.to_price_pence)} a visit</b>. Your plan carries on as it is until then.
+              Waiting for {who}'s price to have it {plan.pending_change.to_frequency_label}. Your plan carries on as it is until
+              you've agreed one.
             </p>
+          ) : (
+            plan.pending_change && (
+              <p className="soft small" style={{ marginTop: 12 }}>
+                Waiting for {who} to accept {plan.pending_change.to_frequency_label} at{" "}
+                <b>{fmt(plan.pending_change.to_price_pence ?? 0)} a visit</b>. Your plan carries on as it is until then.
+              </p>
+            )
           )}
           {changing && <ChangeHowOften plan={plan} onDone={() => setChanging(false)} />}
           <div className="row wrap" style={{ ...g(10), paddingTop: 12 }}>

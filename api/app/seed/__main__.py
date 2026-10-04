@@ -1,7 +1,8 @@
 """make seed: python -m app.seed [--reset]
 
-Seeds this worktree's database (MONGO_DB) with the demo data. Without --reset it is
-idempotent: run it as often as you like. --reset drops the whole database first.
+Seeds this worktree's database (MONGO_DB) with the demo data. Without --reset it resets the demo
+(removes what demo runs created; keeps admins' pricing versions) and is idempotent: run it as
+often as you like. --reset drops the whole database first.
 """
 
 import argparse

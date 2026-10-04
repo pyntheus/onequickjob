@@ -6,11 +6,9 @@ Logic lives in the modules beside this one: requests, simulator, account, thread
 views (read-only presenters).
 """
 
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, FastAPI, Query, Request, status
+from fastapi import APIRouter, Depends, Query, Request, status
 
 from app.adapters.payments.base import CardSetup, CustomerRef, PaymentGateway
 from app.core import money
@@ -19,7 +17,6 @@ from app.core.db import Db, get_db
 from app.core.deps import CurrentUser, current_customer, current_user, gateway_dep, settings_dep
 from app.core.errors import ERROR_RESPONSES, fail, not_found
 from app.customer import account, invites, plan_changes, price_changes, requests, simulator, threads
-from app.customer import templates as _templates  # noqa: F401 (registers L1's outbox templates)
 from app.customer.schemas import (
     BookingCard,
     BookingDetail,
@@ -31,6 +28,8 @@ from app.customer.schemas import (
     InviteAccept,
     InvitePreview,
     NewRequest,
+    PlanChangeAnswer,
+    PlanChangePriceIn,
     PlanChangeView,
     PlanOut,
     PlanPrice,
@@ -47,7 +46,6 @@ from app.customer.schemas import (
     SimulationStarted,
     VisitsOut,
 )
-from app.customer.store import ensure_customer_collections
 from app.customer.views import (
     Lookup,
     booking_card,
@@ -59,6 +57,7 @@ from app.customer.views import (
     visit_views,
 )
 from app.models.customers import Customer, CustomerPayment, SavedCard
+from app.models.quotes import FeeSplit
 from app.models.users import User
 from app.repos.bookings import Bookings
 from app.repos.customers import Customers
@@ -68,16 +67,10 @@ from app.repos.providers import Providers
 from app.repos.series import SeriesRepo
 from app.repos.users import Users
 from app.repos.visits import Visits
+from app.services.quotes import fee_split as quote_fee_split
 from app.shared.schemas import MessageOut, NewMessage, ThreadSummary
 
-
-@asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    await ensure_customer_collections(app.state.db)
-    yield
-
-
-router = APIRouter(prefix="/api/c", tags=["L1 customer"], responses=ERROR_RESPONSES, lifespan=lifespan)
+router = APIRouter(prefix="/api/c", tags=["L1 customer"], responses=ERROR_RESPONSES)
 User_ = Annotated[CurrentUser, Depends(current_user)]
 Cust = Annotated[Customer, Depends(current_customer)]
 DbDep = Annotated[Db, Depends(get_db)]
@@ -388,20 +381,20 @@ async def report_problem(visit_id: str, body: ProblemIn, customer: Cust, db: DbD
 
 
 @router.get("/plans")
-async def list_plans(customer: Cust, db: DbDep) -> list[PlanOut]:
+async def list_plans(customer: Cust, db: DbDep, s: SettingsDep) -> list[PlanOut]:
     look = Lookup(db)
     out = []
     for series in await SeriesRepo(db).find({"customer_id": customer.id}, sort=[("created_at", -1)]):
         booking = await Bookings(db).get(series.booking_id)
         if booking:
-            out.append(await plan_view(db, series, booking, look))
+            out.append(await plan_view(db, series, booking, look, s))
     return out
 
 
 @router.get("/plans/{series_id}")
-async def get_plan(series_id: str, customer: Cust, db: DbDep) -> PlanOut:
+async def get_plan(series_id: str, customer: Cust, db: DbDep, s: SettingsDep) -> PlanOut:
     series, booking = await account.own_series(db, series_id, customer)
-    return await plan_view(db, series, booking, Lookup(db))
+    return await plan_view(db, series, booking, Lookup(db), s)
 
 
 @router.patch("/plans/{series_id}")
@@ -417,7 +410,7 @@ async def update_plan(series_id: str, body: PlanUpdate, customer: Cust, db: DbDe
         series = await account.update_plan(db, s, series, booking, customer, user, PlanUpdate(**fields))
     if frequency:
         await plan_changes.request_change(db, s, series, booking, customer, user, frequency, expected)
-    return await plan_view(db, series, booking, Lookup(db))
+    return await plan_view(db, series, booking, Lookup(db), s)
 
 
 @router.get("/plans/{series_id}/reprice")
@@ -440,11 +433,32 @@ async def reprice_plan(
     )
 
 
+@router.post("/plans/{series_id}/change/approve")
+async def approve_plan_price(
+    series_id: str, body: PlanChangeAnswer, customer: Cust, db: DbDep, s: SettingsDep
+) -> PlanOut:
+    """An own customer agrees the price their provider named for a change of frequency (A22): the
+    plan changes now."""
+    series, booking = await account.own_series(db, series_id, customer)
+    await plan_changes.approve_price(db, s, series, booking, customer, await _user(db, customer), body.change_id)
+    return await plan_view(db, await SeriesRepo(db).get(series.id) or series, booking, Lookup(db), s)
+
+
+@router.post("/plans/{series_id}/change/decline")
+async def decline_plan_price(
+    series_id: str, body: PlanChangeAnswer, customer: Cust, db: DbDep, s: SettingsDep
+) -> PlanOut:
+    """An own customer keeps the plan as it is (A22); the provider is told."""
+    series, booking = await account.own_series(db, series_id, customer)
+    await plan_changes.decline_price(db, s, series, booking, customer, await _user(db, customer), body.change_id)
+    return await plan_view(db, series, booking, Lookup(db), s)
+
+
 @router.post("/plans/{series_id}/cancel")
 async def cancel_plan(series_id: str, customer: Cust, db: DbDep, s: SettingsDep) -> PlanOut:
     series, booking = await account.own_series(db, series_id, customer)
     updated = await account.cancel_plan(db, s, series, booking, customer, await _user(db, customer))
-    return await plan_view(db, updated, await Bookings(db).get(booking.id) or booking, Lookup(db))
+    return await plan_view(db, updated, await Bookings(db).get(booking.id) or booking, Lookup(db), s)
 
 
 # ---------------------------------------------------------------- messages
@@ -470,8 +484,12 @@ async def _plan_change_view(db: Db, s: Settings, found: plan_changes.Found) -> P
     c = found.change
     provider = await Providers(db).get(c.provider_id)
     cat = await Lookup(db).cat(c.category_id)
+    price = c.to_price_pence
     return PlanChangeView(
         status=c.status,
+        kind=c.kind,
+        awaiting=c.awaiting,
+        declined_by=c.declined_by,
         customer_first_name=found.customer.name.split(" ")[0],
         provider_first_name=provider.name.split(" ")[0] if provider else "",
         category_name=cat.name,
@@ -479,8 +497,10 @@ async def _plan_change_view(db: Db, s: Settings, found: plan_changes.Found) -> P
         from_frequency_label=plan_changes.words(c.from_frequency),
         to_frequency_label=plan_changes.words(c.to_frequency),
         from_price_pence=c.from_price_pence,
-        to_price_pence=c.to_price_pence,
-        provider_pence=money.split_for_source(c.to_price_pence, found.booking.source, s).provider_pence,
+        to_price_pence=price,
+        provider_pence=money.split_for_source(price, found.booking.source, s).provider_pence if price else None,
+        price_min_pence=plan_changes.PRICE_MIN_PENCE,
+        price_max_pence=plan_changes.PRICE_MAX_PENCE,
         expires_at=c.expires_at,
     )
 
@@ -496,6 +516,26 @@ async def accept_plan_change(token: str, db: DbDep, s: SettingsDep) -> PlanChang
     """The provider accepts the new frequency and price: the plan changes now. (Added by L1.)"""
     found = await plan_changes.find(db, s, token)
     await plan_changes.accept(db, s, found)
+    return await _plan_change_view(db, s, await plan_changes.find(db, s, token))
+
+
+@router.get("/plan-changes/{token}/preview")
+async def preview_plan_change_price(
+    token: str, db: DbDep, s: SettingsDep, price_pence: Annotated[int, Query(ge=0, le=1_000_000)]
+) -> FeeSplit:
+    """What the provider would keep at a price they're about to name (A22), from money.py, so the
+    page never works out a fee."""
+    found = await plan_changes.find(db, s, token)
+    mode = "own_customer" if found.booking.source == "own_customer" else "standard"
+    return quote_fee_split(price_pence, mode, s)
+
+
+@router.post("/plan-changes/{token}/price")
+async def price_plan_change(token: str, body: PlanChangePriceIn, db: DbDep, s: SettingsDep) -> PlanChangeView:
+    """An own customer's provider names the price at the new frequency (A22); the customer is asked to
+    approve it. (Token-authorised, like the rest of this page.)"""
+    found = await plan_changes.find(db, s, token)
+    await plan_changes.set_price(db, s, found, body.price_pence)
     return await _plan_change_view(db, s, await plan_changes.find(db, s, token))
 
 

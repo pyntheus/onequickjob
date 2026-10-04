@@ -1,10 +1,9 @@
 """Shared state and helpers for the seed.
 
 Every document the seed writes carries `_seed: true` (the models ignore it). A run first
-deletes the previous run's seeded documents, then writes them again with the same
-deterministic ids (app.core.ids.seed_id), so running it twice leaves the same data.
-Documents people created themselves don't carry the flag and are left alone, except
-where they would clash with the demo (see cleanup.py).
+resets the demo: it deletes the previous run's seeded documents and everything demo runs
+created (see cleanup.py for the little it keeps), then writes the seeded documents again with
+the same deterministic ids (app.core.ids.seed_id), so running it twice leaves the same data.
 """
 
 import json

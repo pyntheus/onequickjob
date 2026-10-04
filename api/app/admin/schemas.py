@@ -60,11 +60,12 @@ class AttentionItem(BaseModel):
     short: str
     issue: str
     tone: Literal["warn", "danger"]
-    action: Literal["Send reminder", "Chase", "Ring them"]
+    action: Literal["Send reminder", "Chase", "Ring them", "Check it"]
 
 
 class PaymentIssue(BaseModel):
-    """A visit whose charge failed, waits for the customer, or hasn't been confirmed (L3 addition)."""
+    """A visit whose charge failed, waits for the customer, hasn't been confirmed, or never started
+    (status not_started: finished, but no charge was recorded), or a refund that's stuck."""
 
     visit_id: str
     customer_name: str
@@ -102,8 +103,11 @@ class WhatsAppText(BaseModel):
 
 
 class InsuranceState(BaseModel):
-    status: Literal["ok", "warn", "missing"]
+    status: Literal["ok", "warn", "missing", "renewal"] = Field(
+        description="From the copy that counts. renewal: no checked copy in date, but an upload is waiting for a check"
+    )
     expires_on: date | None
+    renewal_waiting: bool = Field(default=False, description="A renewal is waiting for a check beside the checked copy")
 
 
 class ProviderRow(BaseModel):
@@ -126,13 +130,30 @@ class ProviderRow(BaseModel):
 class AdminDocument(BaseModel):
     type: DocType
     label: str
-    status: DocStatus
+    status: DocStatus = Field(description="Of the copy to check next (a waiting renewal comes first)")
     issued_on: date | None
     expires_on: date | None
     file_url: str | None
+    file_id: str | None = Field(default=None, description="The upload: send it back with a verdict (VerifyDocIn)")
     verified_by: str | None
     verified_at: datetime | None
     note: str | None
+    current_expires_on: date | None = Field(
+        default=None, description="When this is a renewal: when the checked copy it renews runs out"
+    )
+
+
+class AdminHelper(BaseModel):
+    """A provider's helper and their checks (Session S): admins verify their documents and mark
+    them ready to be sent to visits."""
+
+    user_id: str
+    name: str
+    relationship: str
+    status: Literal["invited", "checking", "ready"]
+    phone: str | None
+    documents: list[AdminDocument]
+    can_mark_ready: bool = Field(description="Not ready yet, and their ID has been checked")
 
 
 class RecentRating(BaseModel):
@@ -152,6 +173,7 @@ class ProviderDetail(ProviderRow):
     ledger: list[LedgerEntry] = Field(description="Most recent entries")
     ratings: list[RecentRating]
     helpers: list[str]
+    helper_checks: list[AdminHelper] = Field(default_factory=list, description="Each helper's documents and status")
     payout_account_status: Literal["none", "pending", "enabled", "restricted"]
     payout_account_id: str | None = Field(default=None, description="L3 addition")
     payout_account_gateway: Literal["fake", "stripe"] | None = Field(default=None, description="L3 addition")
@@ -167,12 +189,20 @@ class OnboardingLinkOut(BaseModel):
     status: Literal["pending", "enabled", "restricted"]
 
 
+REVIEWED = (
+    "The upload the admin reviewed (AdminDocument.file_id; null for a copy with no file). If it has been "
+    "replaced since, nothing changes: 409 document_changed"
+)
+
+
 class VerifyDocIn(In):
+    file_id: str | None = Field(description=REVIEWED)
     issued_on: date | None = Field(default=None, description="For a basic DBS check: the issue date (valid 12 months)")
     expires_on: date | None = Field(default=None, description="For documents with a stated expiry, e.g. insurance")
 
 
 class RejectDocIn(In):
+    file_id: str | None = Field(description=REVIEWED)
     reason: str = Field(min_length=3, max_length=300)
 
 
