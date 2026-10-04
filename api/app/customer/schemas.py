@@ -200,11 +200,16 @@ class FrequencyOption(BaseModel):
 
 
 class PendingPlanChange(BaseModel):
-    """A change of frequency waiting for the provider (A10). The plan is unchanged until then."""
+    """A change of frequency still open (A10, A22). The plan is unchanged until it's agreed."""
 
+    change_id: str = Field(description="Name it when answering a provider's price (A22)")
+    kind: Literal["reprice", "provider_price"]
+    awaiting: Literal["provider", "customer"] = Field(
+        description="customer: the provider has named a price for you to approve or decline (A22)"
+    )
     to_frequency: str
     to_frequency_label: str
-    to_price_pence: int
+    to_price_pence: int | None = Field(description="None while an own customer's provider hasn't named a price yet")
     expires_at: datetime
 
 
@@ -226,6 +231,9 @@ class PlanOut(BaseModel):
     cover_when_away: bool
     next_visit_date: date | None
     pending_change: PendingPlanChange | None = None
+    provider_sets_price: bool = Field(
+        default=False, description="An own customer's plan: a change of frequency asks the provider for a price (A22)"
+    )
     frequency_options: list[FrequencyOption] = Field(
         default_factory=list, description="How often this plan can run (the category's options); empty if fixed"
     )
@@ -251,12 +259,17 @@ class PlanUpdate(In):
             "someweekdays",
         ]
         | None
-    ) = Field(default=None, description="Asks the provider to accept the re-priced plan (A10); applied only if they do")
+    ) = Field(
+        default=None,
+        description="Asks the provider to accept the re-priced plan (A10), or for an own customer's plan to name a "
+        "price for the customer to approve (A22); applied only once agreed",
+    )
     expected_price_pence: int | None = Field(
         default=None,
         ge=0,
-        description="With frequency: the price the customer was shown (GET .../reprice). If the price has changed "
-        "since, nothing is sent and the answer is 409 price_changed with the new price",
+        description="With frequency, for a platform plan: the price the customer was shown (GET .../reprice). If the "
+        "price has changed since, nothing is sent and the answer is 409 price_changed with the new price. Not used "
+        "for an own customer's plan (A22)",
     )
 
 
@@ -362,6 +375,11 @@ class PlanChangeView(BaseModel):
     """The provider's page for a change of frequency (the link in their text)."""
 
     status: Literal["pending", "accepted", "declined", "lapsed", "withdrawn"]
+    kind: Literal["reprice", "provider_price"] = Field(
+        description="provider_price: an own customer's plan; the provider names the price (A22)"
+    )
+    awaiting: Literal["provider", "customer"]
+    declined_by: Literal["provider", "customer"] | None = None
     customer_first_name: str
     provider_first_name: str
     category_name: str
@@ -369,9 +387,23 @@ class PlanChangeView(BaseModel):
     from_frequency_label: str
     to_frequency_label: str
     from_price_pence: int
-    to_price_pence: int
-    provider_pence: int = Field(description="What the provider keeps per visit at the new price (money.py)")
+    to_price_pence: int | None = Field(description="None until the provider names their price (A22)")
+    provider_pence: int | None = Field(description="What the provider keeps per visit at the new price (money.py)")
+    price_min_pence: int = Field(description="A22: the lowest price they can name (whole pounds)")
+    price_max_pence: int
     expires_at: datetime
+
+
+class PlanChangePriceIn(In):
+    """The provider's price for an own customer's change of frequency (A22): whole pounds."""
+
+    price_pence: int = Field(ge=500, le=50_000)
+
+
+class PlanChangeAnswer(In):
+    """The customer's answer to their provider's price (A22), naming the one they saw."""
+
+    change_id: str = Field(min_length=1, max_length=64)
 
 
 class PriceChangeAnswer(In):

@@ -116,3 +116,20 @@ async def test_only_a_provider_signing_up_is_activated(jo, db, catalogue):  # no
     ok(await verdict(jo, f"/api/admin/providers/{ken.id}/documents/identity/verify", {}))
     assert (await Providers(db).get(ken.id)).status == "suspended"
     assert await db["outbox"].count_documents({"template_id": "provider_activated"}) == 0
+
+
+async def test_activation_needs_at_least_one_job_type(app, jo, db, catalogue):  # noqa: F811
+    """A24: with every check done but no jobs chosen, the provider stays signing up; choosing one
+    activates them."""
+    from tests.conftest import new_client
+
+    ken = await _ken(db, [], docs=("insurance",))
+    ok(await verdict(jo, f"/api/admin/providers/{ken.id}/documents/identity/verify", {}))
+    ken = await Providers(db).get(ken.id)
+    assert ken.status == "signing_up" and await lifecycle.missing_checks(db, ken) == ["jobs"]
+    d = ok(await jo.get(f"/api/admin/providers/{ken.id}"))
+    assert "Becomes active automatically once these are done: the jobs they do" in d["issues"]
+    async with await new_client(app) as c:
+        await sign_in(c, db, "07700 900212", "Ken Ashworth")
+        assert (await c.patch("/api/p/profile", json={"skills": ["mowing"]})).status_code == 200
+    assert (await Providers(db).get(ken.id)).status == "active"

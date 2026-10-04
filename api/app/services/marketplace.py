@@ -47,7 +47,7 @@ from app.repos.users import Users
 from app.repos.visits import Visits
 from app.services import wording
 from app.services.bookings import create_booking
-from app.services.eligibility import can_take
+from app.services.eligibility import can_take_request
 from app.services.notify import link, notify, recipient_for
 
 COUNTER_MIN_RATIO = Decimal("0.8")  # the prototype's stepper: 80% of the guide ...
@@ -90,7 +90,7 @@ def _taken(req: JobRequest) -> None:
 def _check_can_take(provider: Provider, cat: Category, req: JobRequest) -> None:
     if req.direct_provider_id and req.direct_provider_id != provider.id:
         fail(status.HTTP_403_FORBIDDEN, "not_offered_to_you", "This job was offered to someone else.")
-    elig = can_take(provider, cat)
+    elig = can_take_request(provider, cat, req)
     if not elig.ok:
         fail(
             status.HTTP_403_FORBIDDEN, "not_eligible", " ".join(elig.reasons), missing_documents=elig.missing_documents
@@ -490,11 +490,11 @@ async def accept_counter(db: Db, s: Settings, offer_id: str, customer: Customer)
         _taken(req)
     provider = await Providers(db).get(offer.provider_id)
     cat = await _category(db, req.category_id)
-    if provider is None or not can_take(provider, cat).ok:
+    if provider is None or not can_take_request(provider, cat, req).ok:
         await _lapse_unavailable(db, s, offer, req, cat, customer)
 
     async def accept(session: DbSession) -> BookingOutcome:
-        if not can_take(await provider_for_booking(db, offer.provider_id, session), cat).ok:
+        if not can_take_request(await provider_for_booking(db, offer.provider_id, session), cat, req).ok:
             fail(status.HTTP_409_CONFLICT, "provider_unavailable", "That provider can't take this job any more.")
         accepted = await Offers(db).update(
             offer.id,
@@ -547,7 +547,7 @@ async def _lapse_unavailable(
         if await JobRequests(db).add_event(req.id, event, extra_filter={"status": "open"}, session=session) is None:
             _taken(await _request(db, req.ref, session))
         if provider is not None:
-            reasons = can_take(provider, cat).reasons
+            reasons = can_take_request(provider, cat, req).reasons
             await _notify_provider(
                 db,
                 s,

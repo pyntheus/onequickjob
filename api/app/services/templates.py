@@ -301,6 +301,79 @@ _t(
     body="{brand}: {provider} hasn't answered within 48 hours, so your {category} plan stays {old_frequency} at "
     "{current} a visit. You can ask again from your account.",
 )
+_t(
+    id="plan_change_price_asked",
+    lane="L1",
+    audience="provider",
+    channels=("sms",),
+    trigger="An own customer asks to change how often their plan's visits happen: the price is the provider's to "
+    "set, so they're asked to name it or decline within 48 hours (A22).",
+    body="{brand}: {customer} would like their {category} {new_frequency} instead of {old_frequency} (it's {current} "
+    "a visit now). As they're your own customer, you set the price: name it or decline by {deadline}: {link}",
+)
+_t(
+    id="plan_change_price_requested",
+    lane="L1",
+    audience="customer",
+    channels=("sms",),
+    trigger="An own customer has asked their provider for a price at a new frequency (A22).",
+    body="{brand}: we've asked {provider} for a price to have your {category} {new_frequency}. Your plan carries on "
+    "as it is until you've agreed one.",
+)
+_t(
+    id="plan_change_priced",
+    lane="L1",
+    audience="customer",
+    channels=("sms",),
+    trigger="The provider names their price for an own customer's change of frequency; the customer has 48 hours to "
+    "approve or decline it (A22).",
+    body="{brand}: {provider} can do your {category} {new_frequency} at {price} a visit (it's {current} now). "
+    "Approve or decline it by {deadline}: {link}",
+)
+_t(
+    id="plan_change_agreed",
+    lane="L1",
+    audience="customer",
+    channels=("sms",),
+    trigger="The customer approves their provider's price for a change of frequency; the plan is updated (A22).",
+    body="{brand}: done. Your {category} with {provider} is now {new_frequency} at {price} a visit. {next_text}",
+)
+_t(
+    id="plan_change_approved",
+    lane="L1",
+    audience="provider",
+    channels=("sms",),
+    trigger="An own customer approves the price the provider named for a change of frequency; the plan is updated "
+    "(A22).",
+    body="{brand}: {customer} agreed {price} a visit to have their {category} {new_frequency}. Your round is updated.",
+)
+_t(
+    id="plan_change_price_declined",
+    lane="L1",
+    audience="provider",
+    channels=("sms",),
+    trigger="An own customer declines the price the provider named for a change of frequency (A22).",
+    body="{brand}: {customer} would rather keep their {category} {old_frequency} at {current} a visit, so the plan "
+    "stays as it is.",
+)
+_t(
+    id="plan_change_price_lapsed",
+    lane="L1",
+    audience="customer",
+    channels=("sms",),
+    trigger="The customer hasn't answered their provider's price within 48 hours (plan_change_expiry task, A22).",
+    body="{brand}: we didn't hear back about {provider}'s price within 48 hours, so your {category} plan stays "
+    "{old_frequency} at {current} a visit. You can ask again from your account.",
+)
+_t(
+    id="plan_change_price_unanswered",
+    lane="L1",
+    audience="provider",
+    channels=("sms",),
+    trigger="An own customer hasn't answered the provider's price within 48 hours (plan_change_expiry task, A22).",
+    body="{brand}: {customer} didn't answer your price within 48 hours, so their {category} plan stays "
+    "{old_frequency} at {current} a visit.",
+)
 
 # --------------------------------------------------------------------------- shared
 _t(

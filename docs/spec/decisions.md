@@ -396,8 +396,9 @@ Decided by Hasan after reviewing the F report; each has tests.
   (`app.customer.plan_changes.scaled_price`). The original guide is the last accepted change's new
   guide, else the guide the booking was agreed against (an accepted counter's own guide, so a raise
   approved under A12 before the counter was accepted doesn't erase the premium; else the guide it
-  was booked at), else (an own customer's plan, which has no request) the engine's price at the
-  current frequency. A dearer first visit doesn't apply to an existing plan
+  was booked at), else (a platform plan with no request) the engine's price at the current
+  frequency. An own customer's plan is never re-priced by the engine (A22). A dearer first visit
+  doesn't apply to an existing plan
   (an unstarted first visit keeps its agreed price). The provider is texted the new price
   (`plan_change_proposed`, with a single-use link to `/p/plan-change/{token}`, the provider app's
   page; the old `/plan-change/{token}` redirects there) and accepts or
@@ -484,8 +485,8 @@ has tests.
   request. Her plan is now seeded from the booked request it would have come from: the Large
   band (her 40-minute visits match it), the engine's £31 guide and Dave's accepted £32 counter.
   Weekly is then £29 x 32/31 = £29.94, half-up £30. Weekly still equals fortnightly where the
-  minimum genuinely applies to both (a small lawn). Own customers' lawn plans still have no size
-  on record and are re-priced at the medium band (open: see the S report).
+  minimum genuinely applies to both (a small lawn). Own customers' plans are priced by their
+  provider instead (A22).
   (`test_seed.py`: `test_margarets_weekly_reprice_is_cheaper_per_visit`; `test_plan_changes.py`:
   `test_at_the_minimum_price_weekly_costs_the_same_as_fortnightly`.)
 - **A16. Booking a request withdraws a raise still waiting for the customer** (addition to A12).
@@ -530,11 +531,11 @@ has tests.
 - **A19. Providers become active automatically** (Hasan's brief to S). A provider moves from
   `signing_up` to `active` the moment the last required check is done: identity and insurance
   verified and in date, tax details given, a payout account the gateway has enabled (the fake
-  enables it when onboarding completes), and a basic DBS check verified and in date if any of
-  their chosen jobs needs one. `app.services.lifecycle.activate_if_ready` runs inside the
+  enables it when onboarding completes), at least one job type chosen (A24), and a basic DBS
+  check verified and in date if any of their chosen jobs needs one. `app.services.lifecycle.activate_if_ready` runs inside the
   transaction that wrote the check, wherever that is: an admin verifying a document or syncing
   the payout account, Stripe's `account.updated` webhook, the provider giving their tax details,
-  creating or returning from payout set-up, or dropping the only job that needed DBS. It's
+  creating or returning from payout set-up, or changing the jobs they do. It's
   guarded on `signing_up` (a suspended provider is never activated), texts `provider_activated`
   and audit-logs `provider.activated`. Admins can still suspend and reinstate; the provider page
   lists what's left ("Becomes active automatically once these are done: ..."). There was no way
@@ -578,6 +579,48 @@ has tests.
   gone. (`test_seed.py`: `test_seeding_twice_changes_nothing`,
   `test_reseeding_removes_everything_demo_runs_created`,
   `test_marys_invite_can_be_accepted_after_every_reseed`.)
+
+## 2c. Rulings after the S report
+
+Decided by Hasan after reviewing session S's report; each has tests.
+
+- **A22. Own customers' plans are priced by their provider, never by the engine.** The price of an
+  own customer's plan is the provider's to set. A change of frequency on one (`PATCH
+  /api/c/plans/{id}` with `frequency`; `GET .../reprice` answers 409 `provider_sets_price`) creates
+  a plan change of kind `provider_price` and texts the provider a single-use link
+  (`plan_change_price_asked`, `/p/plan-change/{token}`) to name the new price, in whole pounds from
+  £5 to £500 as for an invite (`POST /api/c/plan-changes/{token}/price`; what they'd keep comes from
+  `GET .../preview`, money.py), or to decline it; the customer is told (`plan_change_price_requested`).
+  Once named, the customer is texted it (`plan_change_priced`) and approves or declines it on their
+  Plan tab, naming the change they saw (`POST /api/c/plans/{id}/change/approve|decline` with
+  `change_id`). Approving applies the frequency and price to the plan, booking and visits still to
+  come in one transaction (`plan_change_agreed` to the customer, `plan_change_approved` to the
+  provider); declining texts the provider (`plan_change_price_declined`). The plan carries on
+  unchanged until it's agreed. Each wait lapses after 48 hours: unpriced, the customer is told as
+  under A10 (`plan_change_lapsed`); unanswered by the customer, both are told
+  (`plan_change_price_lapsed`, `plan_change_price_unanswered`). While open a change stays `pending`,
+  with `awaiting` saying whose answer it waits for, so asking again replaces it and cancelling the
+  plan withdraws it, as under A10. The engine is never asked (no quote is written).
+  (`test_plan_changes.py`: `test_an_own_customers_plan_is_never_repriced_by_the_engine`,
+  `test_the_provider_or_the_customer_can_keep_an_own_customers_plan_as_it_is`,
+  `test_each_wait_on_an_own_customers_change_lapses_after_48_hours`; web: `account.test.tsx`,
+  `provider.test.tsx`.)
+- **A23. A provider who works none of the customer's chosen days isn't eligible.** For a request
+  whose customer chose weekdays (or weekends), a provider who works none of those days gets no job
+  alert and doesn't see it in their jobs; its page says why; and, as a safety net, accepting or
+  suggesting a price is refused with 403 `not_eligible`: "This customer wants weekdays, and you
+  don't work any weekdays. You can change your working days in Me." A counter made before they
+  stopped working those days lapses when the customer accepts it (A9). One rule,
+  `eligibility.can_take_request` (`can_take` plus the days), is used by the alerts, the provider's
+  jobs and job page, every acceptance and counter (inside the transaction too) and the demo
+  simulator. Cover requests carry the covered visit's kind of day. (`test_jobs.py`:
+  `test_a_provider_who_works_none_of_the_customers_days_cant_take_the_job`.)
+- **A24. Activation needs at least one job type.** A19's checks also include at least one job
+  type chosen; choosing jobs can be the last check. The rest of A19 and A20 (helpers marked ready
+  once their ID is checked) stand. (`test_lifecycle.py`: `test_activation_needs_at_least_one_job_type`.)
+
+Also confirmed by Hasan: no room for six months refuses the acceptance (A14), the seed's keep-list
+and restarted reference counters (A21), and the web container running as the invoking user.
 
 ## 3. Open questions (for Hasan)
 

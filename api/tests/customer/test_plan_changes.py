@@ -210,9 +210,8 @@ async def test_cancelling_the_plan_withdraws_a_waiting_change(client, db, catalo
     assert r.status_code == 409 and r.json()["detail"]["code"] == "change_withdrawn"
 
 
-async def test_an_own_customers_plan_scales_from_the_engines_price_now(client, db, catalogue):
-    """No request on record: the reference guide is the engine's price at the current frequency
-    (Medium band for a lawn with no size)."""
+async def _own_customer_plan(client, db):
+    """Mary, Dave's own customer: £25 fortnightly mowing, from his invite."""
     dave = await make_provider(db, "Dave Hughes", "+447700900201", ["mowing"])
     token = new_token(24)
     await OwnCustomerInvites(db).insert(
@@ -225,11 +224,125 @@ async def test_an_own_customers_plan_scales_from_the_engines_price_now(client, d
     card = (
         await client.post(f"/api/c/invites/{token}/accept", json={"agree_terms": True, "address": address()})
     ).json()
-    expected = round_to_pound(
-        await _engine_price(db, "weekly", "medium") * 2500 / await _engine_price(db, "fortnightly", "medium")
+    return dave, card["series_id"]
+
+
+async def _ask_own(client, db, series_id: str, frequency: str = "weekly") -> str:
+    r = await client.patch(f"/api/c/plans/{series_id}", json={"frequency": frequency})
+    assert r.status_code == 200, r.text
+    msg = await db["outbox"].find_one({"template_id": "plan_change_price_asked"}, sort=[("created_at", -1)])
+    return _token_from(msg["body"])
+
+
+async def test_an_own_customers_plan_is_never_repriced_by_the_engine(client, db, catalogue):
+    """A22: the price of an own customer's plan is the provider's to set. Asking for another
+    frequency asks Dave for a price; Mary approves it; the plan changes only then. Texts at each step."""
+    dave, sid = await _own_customer_plan(client, db)
+    plan = (await client.get(f"/api/c/plans/{sid}")).json()
+    assert plan["provider_sets_price"] is True
+    r = await client.get(f"/api/c/plans/{sid}/reprice", params={"frequency": "weekly"})
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "provider_sets_price"
+    quotes_before = await db["quotes"].count_documents({})
+    token = await _ask_own(client, db, sid)
+    assert await db["quotes"].count_documents({}) == quotes_before, "the engine wasn't asked"
+    asked = await db["outbox"].find_one({"template_id": "plan_change_price_asked"})
+    assert asked["recipient"]["phone"] == "+447700900201"
+    assert "As they're your own customer, you set the price: name it or decline by" in asked["body"]
+    assert "/p/plan-change/" in asked["body"]
+    told = await db["outbox"].find_one({"template_id": "plan_change_price_requested"})
+    assert told["recipient"]["phone"] == "+447700900140" and "we've asked Dave H. for a price" in told["body"]
+    plan = (await client.get(f"/api/c/plans/{sid}")).json()
+    pending = plan["pending_change"]
+    assert (pending["kind"], pending["awaiting"], pending["to_price_pence"]) == ("provider_price", "provider", None)
+    assert (plan["frequency"], plan["price_pence"]) == ("fortnightly", 2500), "unchanged until agreed"
+
+    page = (await client.get(f"/api/c/plan-changes/{token}")).json()
+    assert (page["kind"], page["awaiting"], page["to_price_pence"], page["provider_pence"]) == (
+        "provider_price",
+        "provider",
+        None,
+        None,
     )
-    preview = (await client.get(f"/api/c/plans/{card['series_id']}/reprice", params={"frequency": "weekly"})).json()
-    assert preview["price_pence"] == expected
+    assert (await client.post(f"/api/c/plan-changes/{token}/accept")).json()["detail"]["code"] == "name_a_price"
+    preview = (await client.get(f"/api/c/plan-changes/{token}/preview", params={"price_pence": 2200})).json()
+    assert preview == {
+        "mode": "own_customer",
+        "rate_percent": 5,
+        "price_pence": 2200,
+        "fee_pence": 110,
+        "provider_pence": 2090,
+    }
+    bad = await client.post(f"/api/c/plan-changes/{token}/price", json={"price_pence": 2250})
+    assert bad.status_code == 422 and bad.json()["detail"]["code"] == "price_out_of_range"
+    page = (await client.post(f"/api/c/plan-changes/{token}/price", json={"price_pence": 2200})).json()
+    assert (page["awaiting"], page["to_price_pence"], page["provider_pence"]) == ("customer", 2200, 2090)
+    priced = await db["outbox"].find_one({"template_id": "plan_change_priced"})
+    assert priced["recipient"]["phone"] == "+447700900140"
+    assert (
+        "Dave H. can do your lawn mowing every week at £22 a visit (it's £25 now). Approve or decline" in priced["body"]
+    )
+    assert priced["body"].endswith("/account?tab=plan")
+    again = await client.post(f"/api/c/plan-changes/{token}/price", json={"price_pence": 2000})
+    assert again.status_code == 409 and again.json()["detail"]["code"] == "with_customer"
+    assert (await SeriesRepo(db).get(sid)).frequency == "fortnightly"
+
+    change_id = (await client.get(f"/api/c/plans/{sid}")).json()["pending_change"]["change_id"]
+    stale = await client.post(f"/api/c/plans/{sid}/change/approve", json={"change_id": "an-older-one"})
+    assert stale.status_code == 409 and stale.json()["detail"]["code"] == "price_change_changed"
+    r = await client.post(f"/api/c/plans/{sid}/change/approve", json={"change_id": change_id})
+    assert r.status_code == 200, r.text
+    assert (r.json()["frequency"], r.json()["price_pence"], r.json()["pending_change"]) == ("weekly", 2200, None)
+    upcoming = await Visits(db).find({"series_id": sid, "status": "scheduled"}, sort=[("local_date", 1)])
+    assert {(y.local_date - x.local_date).days for x, y in itertools.pairwise(upcoming)} == {7}
+    assert all(v.price_pence == 2200 for v in upcoming if not v.is_first)
+    approved = await db["outbox"].find_one({"template_id": "plan_change_approved"})
+    assert approved["recipient"]["phone"] == "+447700900201" and "Mary agreed £22 a visit" in approved["body"]
+    agreed = await db["outbox"].find_one({"template_id": "plan_change_agreed"})
+    assert "Your lawn mowing with Dave H. is now every week at £22 a visit." in agreed["body"]
+    assert (await Bookings(db).get((await SeriesRepo(db).get(sid)).booking_id)).price_pence == 2200
+    assert dave
+
+
+async def test_the_provider_or_the_customer_can_keep_an_own_customers_plan_as_it_is(client, db, catalogue):
+    _dave, sid = await _own_customer_plan(client, db)
+    token = await _ask_own(client, db, sid)
+    r = await client.post(f"/api/c/plan-changes/{token}/decline")
+    assert r.status_code == 200 and r.json()["declined_by"] == "provider"
+    told = await db["outbox"].find_one({"template_id": "plan_change_declined"})
+    assert told["recipient"]["phone"] == "+447700900140"
+
+    token = await _ask_own(client, db, sid, "threeweekly")
+    await client.post(f"/api/c/plan-changes/{token}/price", json={"price_pence": 2700})
+    change_id = (await client.get(f"/api/c/plans/{sid}")).json()["pending_change"]["change_id"]
+    assert (await client.post(f"/api/c/plan-changes/{token}/decline")).json()["detail"]["code"] == "with_customer"
+    r = await client.post(f"/api/c/plans/{sid}/change/decline", json={"change_id": change_id})
+    assert r.status_code == 200 and r.json()["pending_change"] is None
+    assert (r.json()["frequency"], r.json()["price_pence"]) == ("fortnightly", 2500)
+    msg = await db["outbox"].find_one({"template_id": "plan_change_price_declined"})
+    assert msg["recipient"]["phone"] == "+447700900201" and "Mary would rather keep" in msg["body"]
+    page = (await client.get(f"/api/c/plan-changes/{token}")).json()
+    assert (page["status"], page["declined_by"]) == ("declined", "customer")
+
+
+async def test_each_wait_on_an_own_customers_change_lapses_after_48_hours(client, db, catalogue):
+    _dave, sid = await _own_customer_plan(client, db)
+    await _ask_own(client, db, sid)
+    await PlanChanges(db).coll.update_many({}, {"$set": {"expires_at": utcnow() - timedelta(minutes=1)}})
+    assert await plan_changes.lapse_stale(db, make_settings()) == 1
+    assert await db["outbox"].count_documents({"template_id": "plan_change_lapsed"}) == 1  # Dave didn't price it
+
+    token = await _ask_own(client, db, sid)
+    await client.post(f"/api/c/plan-changes/{token}/price", json={"price_pence": 2200})
+    change = await PlanChanges(db).pending_for(sid)
+    assert change.expires_at > utcnow() + timedelta(hours=47), "the customer gets 48 hours from the price"
+    await PlanChanges(db).coll.update_one({"_id": change.id}, {"$set": {"expires_at": utcnow() - timedelta(minutes=1)}})
+    assert await plan_changes.lapse_stale(db, make_settings()) == 1
+    lapsed = await db["outbox"].find_one({"template_id": "plan_change_price_lapsed"})
+    assert lapsed["recipient"]["phone"] == "+447700900140" and "stays every 2 weeks at £25" in lapsed["body"]
+    unanswered = await db["outbox"].find_one({"template_id": "plan_change_price_unanswered"})
+    assert unanswered["recipient"]["phone"] == "+447700900201"
+    late = await client.post(f"/api/c/plans/{sid}/change/approve", json={"change_id": change.id})
+    assert late.status_code == 409 and (await SeriesRepo(db).get(sid)).frequency == "fortnightly"
 
 
 async def test_plan_change_links_are_single_purpose_and_private(app, client, db, catalogue):

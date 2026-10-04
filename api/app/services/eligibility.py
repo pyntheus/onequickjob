@@ -1,10 +1,11 @@
 """Who may take a job, who gets alerted, and how far through their earnings limit they are.
 
 Two levels (decisions.md):
-- can_take (hard rules, checked on every accept and counter): active or payouts-paused
-  status, the category in their skills, identity checked, and every document the
-  category requires verified and in date. Distance is NOT a hard rule: admins dispatch
-  further-away jobs by hand through the WhatsApp group.
+- can_take (hard rules): active or payouts-paused status, the category in their skills,
+  identity checked, and every document the category requires verified and in date.
+  can_take_request adds the request's own hard rule (A23): the provider works at least one of
+  the days the customer chose. Every accept and counter checks it. Distance is NOT a hard
+  rule: admins dispatch further-away jobs by hand through the WhatsApp group.
 - alert_targets (who gets the broadcast, L1): can_take, plus within their travel radius
   of the job, a working day that suits the customer, alerts switched on, and not yet at
   their earnings limit. Jobs that would take them over the limit still alert while they
@@ -52,6 +53,25 @@ def can_take(provider: Provider, category: Category, today: date | None = None) 
     if missing:
         reasons.append("Some documents this job needs aren't checked or have run out.")
     return Eligibility(ok=not reasons, missing_documents=missing, reasons=reasons)
+
+
+DAYS_REASON: dict[str, str] = {
+    "weekdays": "This customer wants weekdays, and you don't work any weekdays.",
+    "weekends": "This customer wants a weekend, and you don't work weekends.",
+    "any": "You haven't chosen any days that you work.",
+}
+
+
+def can_take_request(
+    provider: Provider, category: Category, request: JobRequest, today: date | None = None
+) -> Eligibility:
+    """can_take, plus A23: a provider who works none of the customer's chosen days can't take the
+    request (no alert, not in their job list, accepting refused)."""
+    elig = can_take(provider, category, today)
+    if suits_days(provider, request.when.days):
+        return elig
+    days = DAYS_REASON[request.when.days] + " You can change your working days in Me."
+    return Eligibility(ok=False, missing_documents=elig.missing_documents, reasons=[*elig.reasons, days])
 
 
 def suits_days(provider: Provider, days: DaysPref) -> bool:
@@ -129,12 +149,10 @@ async def alert_targets(
     for p in await Providers(db).with_skill(category.id, session=session):
         if request.direct_provider_id and p.id != request.direct_provider_id:
             continue
-        if not can_take(p, category, today).ok:
+        if not can_take_request(p, category, request, today).ok:
             continue
         miles = distance_miles(p, request)
         if miles > p.travel_radius_miles and not request.direct_provider_id:
-            continue
-        if not suits_days(p, request.when.days):
             continue
         if not (p.alert_settings.sms or p.alert_settings.whatsapp):
             continue

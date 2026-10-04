@@ -30,7 +30,7 @@ from app.repos.providers import Providers
 from app.repos.quotes import Quotes
 from app.repos.visits import Visits
 from app.services import marketplace, schedule, wording
-from app.services.eligibility import LimitStatus, can_take, limit_status, over_limit
+from app.services.eligibility import LimitStatus, can_take_request, limit_status, over_limit
 
 RECENT = timedelta(days=3)  # how long a job you booked, or lost, stays on your list
 ROUTE_DAYS = 14  # how far ahead "fits your round" looks
@@ -180,7 +180,7 @@ async def list_jobs(db: Db, s: Settings, provider: Provider, today: date | None 
         cat = cats.get(req.category_id)
         if cat is None or (req.direct_provider_id and req.direct_provider_id != provider.id):
             continue
-        if not can_take(provider, cat, today).ok or await _cover_of_own_visit(db, provider, req):
+        if not can_take_request(provider, cat, req, today).ok or await _cover_of_own_visit(db, provider, req):
             continue
         if req.cover_for_visit_id and req.id not in days:
             continue  # the visit it covers isn't happening any more
@@ -253,7 +253,7 @@ def _counter_note(req: JobRequest, mine: Offer | None, provider: Provider, cat: 
             f"The job's still open if you'd like it at {wording.money(req.guide_pence)}."
         )
     if mine.status == "lapsed" and req.status == "open":
-        if can_take(provider, cat).ok:
+        if can_take_request(provider, cat, req).ok:
             return (
                 f"Your suggested price of {price} lapsed while you couldn't take jobs like this. "
                 "You can accept the guide price, or suggest a price again."
@@ -279,7 +279,7 @@ async def job_offer(db: Db, s: Settings, provider: Provider, ref: str) -> JobOff
     cover_day = cover_visit.local_date if cover_visit else None
     the_card = card(s, req, cat, provider, lim, stops, mine, today, cover_day)
 
-    elig = can_take(provider, cat, today)
+    elig = can_take_request(provider, cat, req, today)
     reasons = list(elig.reasons)
     own_cover = await _cover_of_own_visit(db, provider, req)
     if own_cover:

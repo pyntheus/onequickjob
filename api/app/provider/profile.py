@@ -163,7 +163,7 @@ async def update_profile(
 
     async def save(session: DbSession) -> Provider | None:
         updated = await Providers(db).patch(provider.id, fields, session=session)
-        if "skills" in fields:  # dropping the only job that needed a DBS check can complete sign-up (A19)
+        if "skills" in fields:  # choosing jobs (A24), or dropping the only one that needed DBS, can complete sign-up
             updated = (
                 await activate_if_ready(db, s, provider.id, actor=user.actor("provider"), session=session) or updated
             )

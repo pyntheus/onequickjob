@@ -2,10 +2,10 @@
 A19). Admins can still suspend and reinstate (L3).
 
 The checks: identity and insurance verified and in date, tax details given, a payment account
-the gateway has enabled, and a basic DBS check verified and in date if any category they've
-chosen needs one. Whoever completes the last of them (an admin verifying a document, the provider
-giving their tax details or finishing payout set-up, the gateway confirming the account, the
-provider dropping the only category that needed DBS) calls activate_if_ready inside the
+the gateway has enabled, at least one job type chosen (A24), and a basic DBS check verified and in
+date if any category they've chosen needs one. Whoever completes the last of them (an admin
+verifying a document, the provider giving their tax details, finishing payout set-up or choosing
+their jobs, the gateway confirming the account) calls activate_if_ready inside the
 transaction that wrote it, so the provider becomes active, is texted and the change is
 audit-logged in the same commit.
 """
@@ -29,6 +29,7 @@ CHECK_WORDS = {
     "dbs_basic": "basic DBS check",
     "tax": "tax details",
     "payouts": "payout account",
+    "jobs": "the jobs they do",
 }
 
 
@@ -50,6 +51,8 @@ async def missing_checks(
         missing.append("tax")
     if provider.payment_account is None or provider.payment_account.status != "enabled":
         missing.append("payouts")
+    if not provider.skills:
+        missing.append("jobs")
     return missing
 
 

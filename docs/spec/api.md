@@ -80,12 +80,16 @@ in `web/src/api/schema.d.ts` come from it (`make types`).
 | `GET` | `/api/c/plans/{series_id}` |  | PlanOut |  |
 | `PATCH` | `/api/c/plans/{series_id}` | PlanUpdate | PlanOut | Pauses and cover change at once. A new frequency is re-priced and sent to the provider to accept (A10): the plan carries on unchanged until they do (see pending_change). |
 | `GET` | `/api/c/plans/{series_id}/reprice` |  | PlanPrice | What the plan would cost at another frequency, from the pricing engine (A10). Nothing changes. (Added by L1.) |
+| `POST` | `/api/c/plans/{series_id}/change/approve` | PlanChangeAnswer | PlanOut | An own customer agrees the price their provider named for a change of frequency (A22): the plan changes now. |
+| `POST` | `/api/c/plans/{series_id}/change/decline` | PlanChangeAnswer | PlanOut | An own customer keeps the plan as it is (A22); the provider is told. |
 | `POST` | `/api/c/plans/{series_id}/cancel` |  | PlanOut |  |
 | `GET` | `/api/c/threads` |  | list[ThreadSummary] |  |
 | `GET` | `/api/c/threads/{thread_id}/messages` |  | list[MessageOut] |  |
 | `POST` | `/api/c/threads/{thread_id}/messages` | NewMessage | MessageOut |  |
 | `GET` | `/api/c/plan-changes/{token}` |  | PlanChangeView | Public: the link in the provider's text (the token is the authority, like an invite). (Added by L1.) |
 | `POST` | `/api/c/plan-changes/{token}/accept` |  | PlanChangeView | The provider accepts the new frequency and price: the plan changes now. (Added by L1.) |
+| `GET` | `/api/c/plan-changes/{token}/preview` |  | FeeSplit | What the provider would keep at a price they're about to name (A22), from money.py, so the page never works out a fee. |
+| `POST` | `/api/c/plan-changes/{token}/price` | PlanChangePriceIn | PlanChangeView | An own customer's provider names the price at the new frequency (A22); the customer is asked to approve it. (Token-authorised, like the rest of this page.) |
 | `POST` | `/api/c/plan-changes/{token}/decline` |  | PlanChangeView | The provider declines: the plan stays as it is. (Added by L1.) |
 | `GET` | `/api/c/invites/{token}` |  | InvitePreview | Public: the invite link in the provider's text. No sign-in needed to read it. |
 | `POST` | `/api/c/invites/{token}/accept` | InviteAccept | BookingCard | Signed in with the invited number: creates the customer (joined_via own_customer) and a booking with source own_customer via app.services.bookings.create_booking, in one transaction with marking the invite accepted and its messages. |
@@ -176,4 +180,4 @@ in `web/src/api/schema.d.ts` come from it (`make types`).
 | `GET` | `/api/admin/audit` |  | list[AuditEntry] |  |
 | `POST` | `/api/payments/stripe/webhook` |  | WebhookAck | Verify the Stripe-Signature header, then handle payment_intent.*, account.updated, payout.* and charge.refunded idempotently (by event id). Webhooks are the source of truth for final payment states. |
 
-134 endpoints.
+138 endpoints.

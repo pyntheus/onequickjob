@@ -12,7 +12,7 @@ where it matters; never promise or guarantee anything; links are full URLs built
 Every template is in the catalogue file, including the ones the lanes added (folded in by the
 shared-fixes session); add new ones there.
 
-60 templates.
+68 templates.
 
 ## Shared (sent by foundation code, or by any lane)
 
@@ -114,6 +114,14 @@ Placeholders: `brand`, `first`, `link`
 | `plan_change_accepted` | Text | customer | The provider accepts a change of frequency and its new price (A10). |
 | `plan_change_declined` | Text | customer | The provider declines a change of frequency (A10). |
 | `plan_change_lapsed` | Text | customer | The provider hasn't answered a change of frequency within 48 hours (plan_change_expiry task, A10). |
+| `plan_change_price_asked` | Text | provider | An own customer asks to change how often their plan's visits happen: the price is the provider's to set, so they're asked to name it or decline within 48 hours (A22). |
+| `plan_change_price_requested` | Text | customer | An own customer has asked their provider for a price at a new frequency (A22). |
+| `plan_change_priced` | Text | customer | The provider names their price for an own customer's change of frequency; the customer has 48 hours to approve or decline it (A22). |
+| `plan_change_agreed` | Text | customer | The customer approves their provider's price for a change of frequency; the plan is updated (A22). |
+| `plan_change_approved` | Text | provider | An own customer approves the price the provider named for a change of frequency; the plan is updated (A22). |
+| `plan_change_price_declined` | Text | provider | An own customer declines the price the provider named for a change of frequency (A22). |
+| `plan_change_price_lapsed` | Text | customer | The customer hasn't answered their provider's price within 48 hours (plan_change_expiry task, A22). |
+| `plan_change_price_unanswered` | Text | provider | An own customer hasn't answered the provider's price within 48 hours (plan_change_expiry task, A22). |
 | `job_alert` | Text, WhatsApp | provider | A request is broadcast: one per eligible provider, on their chosen channels; held in quiet hours. |
 | `rating_received` | Text | provider | A customer rates a visit. |
 | `dispute_opened` | Text | provider | A customer reports a problem with a provider's visit. |
@@ -202,6 +210,54 @@ Placeholders: `brand`, `provider`, `category`, `old_frequency`, `current`
 > {brand}: {provider} hasn't answered within 48 hours, so your {category} plan stays {old_frequency} at {current} a visit. You can ask again from your account.
 
 Placeholders: `brand`, `provider`, `category`, `old_frequency`, `current`
+
+**`plan_change_price_asked`**
+
+> {brand}: {customer} would like their {category} {new_frequency} instead of {old_frequency} (it's {current} a visit now). As they're your own customer, you set the price: name it or decline by {deadline}: {link}
+
+Placeholders: `brand`, `customer`, `category`, `new_frequency`, `old_frequency`, `current`, `deadline`, `link`
+
+**`plan_change_price_requested`**
+
+> {brand}: we've asked {provider} for a price to have your {category} {new_frequency}. Your plan carries on as it is until you've agreed one.
+
+Placeholders: `brand`, `provider`, `category`, `new_frequency`
+
+**`plan_change_priced`**
+
+> {brand}: {provider} can do your {category} {new_frequency} at {price} a visit (it's {current} now). Approve or decline it by {deadline}: {link}
+
+Placeholders: `brand`, `provider`, `category`, `new_frequency`, `price`, `current`, `deadline`, `link`
+
+**`plan_change_agreed`**
+
+> {brand}: done. Your {category} with {provider} is now {new_frequency} at {price} a visit. {next_text}
+
+Placeholders: `brand`, `category`, `provider`, `new_frequency`, `price`, `next_text`
+
+**`plan_change_approved`**
+
+> {brand}: {customer} agreed {price} a visit to have their {category} {new_frequency}. Your round is updated.
+
+Placeholders: `brand`, `customer`, `price`, `category`, `new_frequency`
+
+**`plan_change_price_declined`**
+
+> {brand}: {customer} would rather keep their {category} {old_frequency} at {current} a visit, so the plan stays as it is.
+
+Placeholders: `brand`, `customer`, `category`, `old_frequency`, `current`
+
+**`plan_change_price_lapsed`**
+
+> {brand}: we didn't hear back about {provider}'s price within 48 hours, so your {category} plan stays {old_frequency} at {current} a visit. You can ask again from your account.
+
+Placeholders: `brand`, `provider`, `category`, `old_frequency`, `current`
+
+**`plan_change_price_unanswered`**
+
+> {brand}: {customer} didn't answer your price within 48 hours, so their {category} plan stays {old_frequency} at {current} a visit.
+
+Placeholders: `brand`, `customer`, `category`, `old_frequency`, `current`
 
 **`job_alert`**
 

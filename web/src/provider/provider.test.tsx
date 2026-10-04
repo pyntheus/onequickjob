@@ -369,7 +369,8 @@ describe("a plan change, answered in the provider app (A10)", () => {
   const change = {
     status: "pending", customer_first_name: "Sarah", provider_first_name: "Dave", category_name: "Lawn mowing",
     area: "Hazlemere", from_frequency_label: "every 2 weeks", to_frequency_label: "every week", from_price_pence: 3100,
-    to_price_pence: 2800, provider_pence: 2380, expires_at: "2026-10-05T09:00:00Z",
+    to_price_pence: 2800, provider_pence: 2380, expires_at: "2026-10-05T09:00:00Z", kind: "reprice", awaiting: "provider",
+    declined_by: null, price_min_pence: 500, price_max_pence: 50000,
   };
   const unauthorised = () => jsonResponse(401, { detail: { code: "not_signed_in", message: "Please sign in." } });
 
@@ -419,5 +420,51 @@ describe("a plan change, answered in the provider app (A10)", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Accept £28 a visit" }));
     expect(await screen.findByText("The customer withdrew or replaced this change.")).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Provider" })).toBeInTheDocument();
+  });
+});
+
+describe("an own customer's change of frequency, priced by the provider (A22)", () => {
+  const change = {
+    status: "pending", kind: "provider_price", awaiting: "provider", declined_by: null, customer_first_name: "Mary",
+    provider_first_name: "Dave", category_name: "Lawn mowing", area: "Widmer End", from_frequency_label: "every 2 weeks",
+    to_frequency_label: "every week", from_price_pence: 2500, to_price_pence: null, provider_pence: null,
+    price_min_pence: 500, price_max_pence: 50000, expires_at: "2026-10-05T09:00:00Z",
+  };
+  const unauthorised = () => jsonResponse(401, { detail: { code: "not_signed_in", message: "Please sign in." } });
+
+  it("names a price, shows what they'd keep from the API, and waits for the customer", async () => {
+    let sent: unknown = null;
+    mockApi({
+      "GET /api/config": () => config(false),
+      "GET /api/auth/me": unauthorised,
+      "GET /api/c/plan-changes/tok7": () => change,
+      "GET /api/c/plan-changes/tok7/preview": (url) => {
+        const price = Number(url.searchParams.get("price_pence"));
+        return { mode: "own_customer", rate_percent: 5, price_pence: price, fee_pence: price / 20, provider_pence: price - price / 20 };
+      },
+      "POST /api/c/plan-changes/tok7/price": async (_u, req) => (
+        (sent = await req.json()), { ...change, awaiting: "customer", to_price_pence: 2600, provider_pence: 2470 }
+      ),
+    });
+    renderAt("/p/plan-change/tok7");
+    expect(await screen.findByRole("heading", { name: "Mary would like visits every week" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Accept/ })).not.toBeInTheDocument();
+    expect(await screen.findByText("£23.75")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "More: Your price a visit" }));
+    expect(await screen.findByText("£24.70")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Send £26 a visit to Mary" }));
+    expect(sent).toEqual({ price_pence: 2600 });
+    expect(await screen.findByText(/You've asked £26 a visit. Mary has until/)).toBeInTheDocument();
+    expect(screen.getByText("£24.70 a visit, after the OneQuickJob fee")).toBeInTheDocument();
+  });
+
+  it("says when the customer kept the plan as it is", async () => {
+    mockApi({
+      "GET /api/config": () => config(false),
+      "GET /api/auth/me": unauthorised,
+      "GET /api/c/plan-changes/tok7": () => ({ ...change, status: "declined", declined_by: "customer", to_price_pence: 2600 }),
+    });
+    renderAt("/p/plan-change/tok7");
+    expect(await screen.findByText("Mary would rather keep the plan as it is.")).toBeInTheDocument();
   });
 });

@@ -483,6 +483,9 @@ async def plan_view(db: Db, series: Series, booking: Booking, look: Lookup) -> P
         cover_when_away=series.cover_when_away,
         next_visit_date=nxt.local_date if nxt else None,
         pending_change=PendingPlanChange(
+            change_id=pc.id,
+            kind=pc.kind,
+            awaiting=pc.awaiting,
             to_frequency=pc.to_frequency,
             to_frequency_label=frequency_label(pc.to_frequency) or "",
             to_price_pence=pc.to_price_pence,
@@ -490,6 +493,7 @@ async def plan_view(db: Db, series: Series, booking: Booking, look: Lookup) -> P
         )
         if (pc := await PlanChanges(db).pending_for(series.id))
         else None,
+        provider_sets_price=booking.source == "own_customer",
         frequency_options=[
             FrequencyOption(value=f, label=frequency_label(f) or f)
             for f in plan_frequencies(cat)

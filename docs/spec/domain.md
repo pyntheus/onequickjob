@@ -840,15 +840,19 @@ Model `app.models.plan_changes.PlanChange`; repo `app.repos.plan_changes.PlanCha
 | `from_frequency` | Literal['oneoff', 'weekly', 'fortnightly', 'threeweekly', 'fourweekly', 'eightweekly', 'monthly', 'threemonthly', 'weekdays', 'someweekdays'] |  |
 | `to_frequency` | Literal['oneoff', 'weekly', 'fortnightly', 'threeweekly', 'fourweekly', 'eightweekly', 'monthly', 'threemonthly', 'weekdays', 'someweekdays'] |  |
 | `from_price_pence` | int | The plan's price per visit when the change was asked for |
-| `to_price_pence` | int | new guide x agreed price / original guide, half-up to whole pounds (A10) |
-| `new_guide_pence` | int | The engine's price at the new frequency (quote_id) |
-| `original_guide_pence` | int | The guide the agreed price was set against: the request's guide, or for an own customer's plan the engine's price at the current frequency (reference_quote_id) |
-| `quote_id` | str |  |
+| `kind` | Literal['reprice', 'provider_price'] | reprice: priced by the engine, the provider accepts (A10); provider_price: an own customer's plan, the provider names the price and the customer approves (A22) |
+| `to_price_pence` | int \| None | A10: new guide x agreed price / original guide, half-up to whole pounds. A22: the provider's price, once they've named it |
+| `new_guide_pence` | int \| None (optional) | A10: the engine's price at the new frequency |
+| `original_guide_pence` | int \| None (optional) | A10: the guide the agreed price was set against (the request's guide) |
+| `quote_id` | str \| None (optional) | A10: the quote for the new frequency |
 | `reference_quote_id` | str \| None (optional) |  |
 | `status` | Literal['pending', 'accepted', 'declined', 'lapsed', 'withdrawn'] |  |
+| `awaiting` | Literal['provider', 'customer'] | While pending: whose answer it waits for (the customer's only under A22) |
+| `declined_by` | Literal['provider', 'customer'] \| None (optional) |  |
 | `token_hash` | str | HMAC of the token in the provider's link |
 | `requested_by` | str | Customer's user id |
-| `expires_at` | datetime |  |
+| `expires_at` | datetime | When the current wait lapses (48 hours from its start) |
+| `priced_at` | datetime \| None (optional) | A22: when the provider named the price |
 | `decided_at` | datetime \| None (optional) |  |
 
 Indexes:

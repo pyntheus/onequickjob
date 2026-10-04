@@ -236,3 +236,43 @@ async def test_a_helper_sees_none_of_the_providers_money(app, db, dave):
         home = (await tc.get("/api/p/home")).json()
     assert home["week_earned_pence"] == 0 and home["limit"]["on"] is False
     assert home["limit"]["amount_pence"] == 0 and home["limit"]["earned_pence"] == 0
+
+
+async def test_a_provider_who_works_none_of_the_customers_days_cant_take_the_job(app, dave_client, db, dave):
+    """A23: a weekends-only provider gets no alert for a weekdays request and doesn't see it in
+    their jobs; the job page says why; accepting or suggesting a price is refused, clearly. A
+    counter made before they stopped working those days lapses when the customer accepts it (A9)."""
+    from app.services.eligibility import alert_targets
+
+    customer = await make_customer(db)
+    req = await make_request(db, customer)  # weekdays, morning
+    await Providers(db).patch(dave.id, {"working_days": ["sat", "sun"]})
+    cat = await db["categories"].find_one({"_id": "mowing"})
+    from app.models.categories import Category
+
+    assert dave.id not in [t.provider.id for t in await alert_targets(db, req, Category.model_validate(cat))]
+    assert req.ref not in [c["request_ref"] for c in (await dave_client.get("/api/p/jobs")).json()]
+    page = await _ref(dave_client, req.ref)
+    days = "This customer wants weekdays, and you don't work any weekdays. You can change your working days in Me."
+    assert page["can_take"] is False and days in page["not_eligible_reasons"]
+    for r in (
+        await dave_client.post(f"/api/p/requests/{req.ref}/accept"),
+        await dave_client.post(f"/api/p/requests/{req.ref}/counter", json={"price_pence": 3700}),
+    ):
+        assert r.status_code == 403 and r.json()["detail"]["code"] == "not_eligible", r.text
+        assert r.json()["detail"]["message"] == days
+    assert (await JobRequests(db).get(req.id)).status == "open"
+
+    # Back on weekdays, Dave suggests a price; then he stops working weekdays before Sarah accepts it.
+    await Providers(db).patch(dave.id, {"working_days": ["mon", "tue"]})
+    offer = (await dave_client.post(f"/api/p/requests/{req.ref}/counter", json={"price_pence": 3700})).json()
+    await Providers(db).patch(dave.id, {"working_days": ["sat"]})
+    from tests.conftest import new_client, sign_in
+
+    async with await new_client(app) as sc:
+        await sign_in(sc, db, "+447700900123")
+        r = await sc.post(f"/api/c/offers/{offer['id']}/accept")
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "provider_unavailable"
+    assert (await Offers(db).get(offer["id"])).status == "lapsed"
+    lapsed = await db["outbox"].find_one({"template_id": "counter_lapsed"})
+    assert "you don't work any weekdays" in lapsed["body"]
