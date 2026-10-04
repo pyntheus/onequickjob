@@ -38,7 +38,7 @@ test("D: a covered visit of an own customer is charged at the standard 15%", asy
     await expect.poll(async () => (await outbox(page)).some((m) => !before.has(m.id) && m.template_id === "cover_alert")).toBe(true);
     const alert = (await outbox(page)).find((m) => !before.has(m.id) && m.template_id === "cover_alert")!;
     ref = alert.body.match(/\/p\/j\/(R-\d+)/)![1];
-    const coverer = (await demoUsers(page.request)).find((u) => u.name === alert.recipient.name)!;
+    const coverer = (await demoUsers(page)).find((u) => u.name === alert.recipient.name)!;
     expect(coverer, `a seeded provider got the cover alert (${alert.recipient.name})`).toBeTruthy();
 
     await test.step(`${coverer.name} takes the cover and finishes the visit`, async () => {

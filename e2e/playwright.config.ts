@@ -7,6 +7,7 @@ import { defineConfig } from "@playwright/test";
 const user = process.env.E2E_USER;
 const pass = process.env.E2E_PASS;
 if (!user || !pass) throw new Error("E2E_USER and E2E_PASS (the site's basic auth) must be set: run make e2e");
+const baseURL = process.env.E2E_BASE_URL ?? "https://dev.onequickjob.co.uk";
 
 export default defineConfig({
   testDir: "./tests",
@@ -18,15 +19,17 @@ export default defineConfig({
   reporter: [["list"], ["html", { open: "never", outputFolder: "report" }]],
   outputDir: "results",
   use: {
-    baseURL: process.env.E2E_BASE_URL ?? "https://dev.onequickjob.co.uk",
-    httpCredentials: { username: user, password: pass, send: "always" },
+    baseURL,
+    // Sent to the site only (origin), never to anything else a page or test might reach.
+    httpCredentials: { username: user, password: pass, send: "always", origin: new URL(baseURL).origin },
     locale: "en-GB",
     timezoneId: "Europe/London",
     actionTimeout: 20_000,
     navigationTimeout: 30_000,
     // No traces: they record the context's httpCredentials and every request's Authorization
     // header, so a failure would leave the site password on disk. A failure keeps a screenshot
-    // and error-context.md (the page's accessibility snapshot), which hold neither.
+    // and error-context.md; API calls go through helpers.ts's send(), which takes the password
+    // out of a failed request's error before it's reported.
     trace: "off",
     screenshot: "only-on-failure",
   },

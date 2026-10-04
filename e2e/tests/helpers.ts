@@ -2,30 +2,62 @@
 // (DEMO_MODE), which sets the session cookie in the browser context; or, for someone who isn't
 // seeded yet (Mary), with the code from the Outbox drawer. API calls go through the same
 // browser context (page.request), so they carry the same session and basic auth.
-import { expect, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, type APIResponse, type Page } from "@playwright/test";
+
+const user = process.env.E2E_USER ?? "";
+const pass = process.env.E2E_PASS ?? "";
+const SECRETS = [pass, user && pass ? Buffer.from(`${user}:${pass}`).toString("base64") : ""].filter((x) => x.length >= 4);
+
+/** The site password out of a text: as typed, as its Basic value, and any Authorization line. */
+export function redact(text: string): string {
+  let out = text.replace(/(authorization:\s*Basic\s+)\S+/gi, "$1[redacted]");
+  for (const secret of SECRETS) out = out.split(secret).join("[redacted]");
+  return out;
+}
+
+/** Every API call in the journeys goes through here. When a request fails (refused, timed out,
+ * or a status made to throw), Playwright's error lists the request's headers, the basic auth's
+ * Authorization included, and the reporters write that error to disk: it's rethrown with the
+ * password taken out. */
+export async function send(
+  page: Page,
+  method: "GET" | "POST" | "PATCH",
+  path: string,
+  data?: unknown,
+  opts: { timeout?: number; failOnStatusCode?: boolean } = {},
+): Promise<APIResponse> {
+  try {
+    return await page.request.fetch(path, { method, data, ...opts });
+  } catch (e) {
+    const err = e instanceof Error ? e : new Error(String(e));
+    const clean = new Error(redact(err.message));
+    clean.stack = redact(err.stack ?? clean.message);
+    throw clean;
+  }
+}
 
 export type DemoUser = { user_id: string; demo_key: string; name: string; home_path: string };
 
-export async function demoUsers(request: APIRequestContext): Promise<DemoUser[]> {
-  const r = await request.get("/api/demo/users");
+export async function demoUsers(page: Page): Promise<DemoUser[]> {
+  const r = await send(page, "GET", "/api/demo/users");
   expect(r.ok(), await r.text()).toBeTruthy();
   return r.json();
 }
 
 /** Sign in as a seeded person (Switch user) and open their home page. */
 export async function signInAs(page: Page, key: string, path?: string): Promise<DemoUser> {
-  const users = await demoUsers(page.request);
-  const user = users.find((u) => u.demo_key === key);
-  if (!user) throw new Error(`no demo user ${key}`);
-  const r = await page.request.post("/api/demo/switch", { data: { user_id: user.user_id } });
+  const users = await demoUsers(page);
+  const who = users.find((u) => u.demo_key === key);
+  if (!who) throw new Error(`no demo user ${key}`);
+  const r = await send(page, "POST", "/api/demo/switch", { user_id: who.user_id });
   expect(r.ok(), await r.text()).toBeTruthy();
-  await page.goto(path ?? user.home_path);
-  return user;
+  await page.goto(path ?? who.home_path);
+  return who;
 }
 
 /** GET or POST the API as the signed-in person; fails the test unless it answers 2xx. */
 export async function api<T = any>(page: Page, method: "GET" | "POST" | "PATCH", path: string, data?: unknown): Promise<T> {
-  const r = await page.request.fetch(path, { method, data });
+  const r = await send(page, method, path, data);
   expect(r.ok(), `${method} ${path}: ${r.status()} ${await r.text()}`).toBeTruthy();
   return r.status() === 204 ? (undefined as T) : r.json();
 }

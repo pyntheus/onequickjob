@@ -1,6 +1,6 @@
 // docs/demo-script.md, click for click (steps 1 to 6), so the script can't drift from the app.
 import { expect, test } from "@playwright/test";
-import { finishVisit, linkIn, message, PHONES, signInAs } from "./helpers";
+import { api, finishVisit, linkIn, message, PHONES, signInAs } from "./helpers";
 
 test("the demo script's tour works as written", async ({ page }) => {
   await test.step("1. an instant quote, signed out", async () => {
@@ -42,11 +42,10 @@ test("the demo script's tour works as written", async ({ page }) => {
   });
 
   await test.step("3. finishing the job: £26.35 on its way", async () => {
-    const visit = await page.request.get(`/api/p/today`);
-    const days: string[] = (await visit.json()).upcoming_days;
+    const days: string[] = (await api(page, "GET", "/api/p/today")).upcoming_days;
     let finished = "";
     for (const day of days) {
-      const round = await (await page.request.get(`/api/p/today?date=${day}`)).json();
+      const round = await api(page, "GET", `/api/p/today?date=${day}`);
       if (round.items.some((i: { customer_name: string; status: string }) => i.customer_name.startsWith("Sarah") && i.status === "scheduled")) {
         finished = await finishVisit(page, { day, customer: "Sarah", overrun: true });
         break;
@@ -66,7 +65,7 @@ test("the demo script's tour works as written", async ({ page }) => {
   });
 
   await test.step("5. cover and helpers; Tom sees only his visits", async () => {
-    const days: string[] = (await (await page.request.get("/api/p/today")).json()).upcoming_days;
+    const days: string[] = (await api(page, "GET", "/api/p/today")).upcoming_days;
     await page.goto(`/p/today?date=${days.at(-1)}`);
     await expect(page.getByText("Can't make one of these jobs?")).toBeVisible();
     await expect(page.getByRole("button", { name: "Send Tom" })).toBeVisible();
