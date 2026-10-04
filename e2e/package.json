@@ -1,0 +1,10 @@
+{
+  "name": "oqj-e2e",
+  "private": true,
+  "description": "End-to-end journeys and accessibility checks against the production-style stack (make e2e).",
+  "type": "module",
+  "devDependencies": {
+    "@axe-core/playwright": "4.11.0",
+    "@playwright/test": "1.63.0"
+  }
+}

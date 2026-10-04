@@ -96,6 +96,9 @@ prod-logs: ## Follow the production-style API's logs
 status: ## Container health, then the API's health directly and through Caddy (basic auth from .env)
 	@SITE_HOST=$(SITE_HOST) PROD_API_PORT=$(PROD_API_PORT) scripts/status.sh
 
+e2e: ## Playwright journeys and accessibility checks at 375px and desktop, against the production-style stack (re-seeds)
+	@scripts/e2e.sh $(ARGS)
+
 # ---------------------------------------------------------------- backups
 backup-now: ## Dump $(MONGO_DB) now into /srv/oqj/backups (gzip; 14 days kept)
 	@MONGO_DB=$(MONGO_DB) BACKUP_DIR=$(BACKUP_DIR) scripts/backup.sh
