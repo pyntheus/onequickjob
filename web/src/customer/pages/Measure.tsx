@@ -198,22 +198,29 @@ export default function Measure() {
   const asking = own && filled && !typo;
   const [input, settled] = useSettled(asking ? lawnInput(lawn) : null);
   const est = useAreaEstimate(input);
-  // The API's reason (naming the lawn and side), or a failure to reach it, with a retry.
+  // The API's reason (naming the lawn and side), or a failure to reach it, with a retry. Offline,
+  // the query waits (paused) rather than failing, and asks again by itself once back online.
   const apiError = est.error instanceof ApiError ? est.error : null;
+  const offline = asking && est.fetchStatus === "paused";
   const failure = typo
     ? { message: typo.message, lawn: typo.lawn, side: typo.side, retry: false }
-    : asking && est.isError && !est.isFetching
-      ? {
-          message: errorText(est.error, "We couldn't work out the size just now. Check your connection and try again."),
-          lawn: typeof apiError?.extra?.lawn === "number" ? apiError.extra.lawn : undefined,
-          side: typeof apiError?.extra?.side === "string" ? apiError.extra.side : undefined,
-          retry: !apiError || apiError.status >= 500,
-        }
-      : null;
+    : offline
+      ? { message: "You seem to be offline. We'll work out the size as soon as you're back online.", retry: false }
+      : asking && est.isError && est.fetchStatus === "idle"
+        ? {
+            message: errorText(est.error, "We couldn't work out the size just now. Check your connection and try again."),
+            lawn: typeof apiError?.extra?.lawn === "number" ? apiError.extra.lawn : undefined,
+            side: typeof apiError?.extra?.side === "string" ? apiError.extra.side : undefined,
+            retry: !apiError || apiError.status >= 500,
+          }
+        : null;
   const bad = { lawn: failure?.lawn, side: failure?.side, errorId };
+  // The last answer stays on screen while the next is worked out (placeholder data), but only an
+  // answer for exactly what's typed now, fetched and settled, lets the customer continue.
   const result = asking && est.data ? est.data : null;
   const resultLawns = result?.measure.lawns ?? [];
-  const ready = own ? asking && settled && est.isSuccess && !est.isFetching : !!lawn.band;
+  const current = asking && settled && est.isSuccess && !est.isPlaceholderData && est.fetchStatus === "idle";
+  const ready = own ? current : !!lawn.band;
   const lawns = lawnsOf(lawn);
   const setLawns = (next: LawnSides[]) => setLawn(lawn.method === "measured" ? { measured: next } : { paced: next });
 

@@ -1,3 +1,4 @@
+import { onlineManager } from "@tanstack/react-query";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -247,6 +248,44 @@ describe("lawn size", () => {
     await userEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(await screen.findByText("That's about 12 × 8 metres (96 m²)")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled());
+  });
+
+  it("waits while offline, never continuing on the last lawn's figure, and carries on once back online", async () => {
+    withFlow({ address, addressText: address.label });
+    sizeApi({
+      "POST /api/area/estimate": async (_u, req) => {
+        const body = (await req.json()) as { lawns: { length: string; width: string }[] };
+        return areaEstimate("paced", body.lawns.map((l) => [Number(l.length), Number(l.width)]));
+      },
+    });
+    const offlineText = "You seem to be offline. We'll work out the size as soon as you're back online.";
+    try {
+      renderAt("/quote/mowing/size");
+      await userEvent.click(await screen.findByRole("tab", { name: "Pace it out" }));
+      const go = screen.getByRole("button", { name: "Continue" });
+      // Offline before the first estimate: it says so, rather than "Working out the size…".
+      onlineManager.setOnline(false);
+      await userEvent.type(box("Strides long"), "12");
+      await userEvent.type(box("Strides wide"), "8");
+      expect(await screen.findByText(offlineText)).toBeInTheDocument();
+      expect(screen.queryByText("Working out the size…")).not.toBeInTheDocument();
+      expect(go).toBeDisabled();
+      onlineManager.setOnline(true);
+      expect(await screen.findByText("That's about 12 × 8 metres (96 m²)")).toBeInTheDocument();
+      await waitFor(() => expect(go).toBeEnabled());
+      // Offline after an estimate: changing a side can't continue on the old figure.
+      onlineManager.setOnline(false);
+      await userEvent.clear(box("Strides wide"));
+      await userEvent.type(box("Strides wide"), "9");
+      expect(await screen.findByText(offlineText)).toBeInTheDocument();
+      await new Promise((r) => setTimeout(r, 500)); // past the pause before asking
+      expect(go).toBeDisabled();
+      onlineManager.setOnline(true);
+      expect(await screen.findByText("That's about 12 × 9 metres (108 m²)")).toBeInTheDocument();
+      await waitFor(() => expect(go).toBeEnabled());
+    } finally {
+      onlineManager.setOnline(true);
+    }
   });
 
   it("keeps a flow saved before the three ways", async () => {
