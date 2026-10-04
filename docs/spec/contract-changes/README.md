@@ -16,3 +16,8 @@ Each request:
 Session S (shared fixes, after the three lanes) marked every request with a **Status** line:
 resolved, with the commit on `s/shared-fixes` that did it, or declined, with the reason. New
 requests go below them in the same format.
+
+**Closed by integration (I).** Every request is resolved or deferred, with its reason (a
+**Status (session I)** line where I changed or confirmed S's verdict). With the lanes finished,
+ownership works by area (`lanes.md`); this folder is the record, and the format to reuse if
+sessions run in parallel again.
