@@ -74,6 +74,19 @@ describe("overview and dispatch", () => {
     expect(screen.getByText(/Card declined: Your card was declined\./)).toBeInTheDocument();
   });
 
+  it("brings the request the map linked to into view (/admin#request-R-2291)", async () => {
+    mockApi({ "GET /api/config": () => config(true), "GET /api/admin/overview": () => overview });
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    renderWithProviders(<ToastProvider><Overview /></ToastProvider>, { path: "/admin#request-R-2291" });
+    const card = (await screen.findByText("Request R-2291, waiting 5 hours")).closest(".req");
+    expect(card).toHaveAttribute("id", "request-R-2291");
+    expect(card).toHaveClass("linked");
+    await waitFor(() => expect(card).toHaveFocus());
+    expect(scroll).toHaveBeenCalledWith({ block: "center" });
+    expect(screen.getByRole("link", { name: "See where the work is on the map" })).toHaveAttribute("href", "/admin/map");
+  });
+
   it("copies the WhatsApp text, and shows it when the clipboard isn't available", async () => {
     const text = "Job going: hedge trimming in Loudwater, HP10. Take it here: https://dev.onequickjob.co.uk/p/j/R-2291";
     mockApi({

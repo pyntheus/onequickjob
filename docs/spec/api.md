@@ -153,6 +153,7 @@ in `web/src/api/schema.d.ts` come from it (`make types`).
 | `GET` | `/api/admin/overview` |  | Overview |  |
 | `GET` | `/api/admin/requests/{ref}/whatsapp` |  | WhatsAppText | The text for the providers' WhatsApp group, with the job link (/p/j/{ref}). |
 | `POST` | `/api/admin/requests/{ref}/raise-guide` | RaiseGuideIn | UnfilledRequest | Suggest a higher guide price for an open request (rounded to whole pounds), audit-logged. It waits for the customer's approval (A12): the request shows "Awaiting customer" until then. |
+| `GET` | `/api/admin/map` |  | MapData | What the admin map's layers need, as GeoJSON features: open requests (highlighted once waiting an hour), uncovered demand (A32), booked visits still to come, completed jobs in the date range, providers at their postcode's centroid with their travel radius (A33), and the H3 concentration grid of one job layer (A34). Customer addresses are exact: admins only. |
 | `GET` | `/api/admin/providers` |  | list[ProviderRow] |  |
 | `GET` | `/api/admin/providers/{provider_id}` |  | ProviderDetail |  |
 | `POST` | `/api/admin/providers/{provider_id}/documents/{doc_type}/verify` | VerifyDocIn | ProviderDetail | Set the expiry with services.documents.expiry_for (a basic DBS check: 12 months from its issue date); F's task reminds the provider 30 days before it lapses. |

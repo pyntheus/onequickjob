@@ -10,7 +10,11 @@
     "booker_limmer_lane": { "line1": "15 Limmer Lane", "locality": "Booker", "town": "High Wycombe", "postcode": "HP12 4QR", "uprn": "999001000107", "lat": 51.6140, "lng": -0.7800 },
     "beaconsfield_penn_rd": { "line1": "23 Penn Road", "locality": "Beaconsfield", "town": "Beaconsfield", "postcode": "HP9 2LN", "uprn": "999001000108", "lat": 51.6090, "lng": -0.6470 },
     "marlow_chapel_st": { "line1": "6 Chapel Street", "locality": "Marlow", "town": "Marlow", "postcode": "SL7 1DD", "uprn": "999001000109", "lat": 51.5718, "lng": -0.7735 },
-    "downley_coates_lane": { "line1": "11 Coates Lane", "locality": "Downley", "town": "High Wycombe", "postcode": "HP13 5QB", "uprn": "999001000110", "lat": 51.6465, "lng": -0.7770 }
+    "downley_coates_lane": { "line1": "11 Coates Lane", "locality": "Downley", "town": "High Wycombe", "postcode": "HP13 5QB", "uprn": "999001000110", "lat": 51.6465, "lng": -0.7770 },
+    "risborough_manor_park": { "line1": "22 Manor Park Avenue", "locality": "Princes Risborough", "town": "Princes Risborough", "postcode": "HP27 9AR", "uprn": "999001000111", "lat": 51.7262, "lng": -0.8395 },
+    "longwick_thame_rd": { "line1": "5 Thame Road", "locality": "Longwick", "town": "Princes Risborough", "postcode": "HP27 9SW", "uprn": "999001000112", "lat": 51.7348, "lng": -0.8566 },
+    "stokenchurch_wycombe_rd": { "line1": "40 Wycombe Road", "locality": "Stokenchurch", "town": "High Wycombe", "postcode": "HP14 3RR", "uprn": "999001000113", "lat": 51.6578, "lng": -0.8960 },
+    "risborough_poppy_rd": { "line1": "9 Poppy Road", "locality": "Princes Risborough", "town": "Princes Risborough", "postcode": "HP27 0DE", "uprn": "999001000114", "lat": 51.7190, "lng": -0.8300 }
   },
   "admins": [
     { "key": "jo", "name": "Jo Morgan", "phone": "+447700900901", "email": "jo.morgan@example.com" },
@@ -41,6 +45,13 @@
     { "key": "ian", "name": "Ian Booth", "phone": "+447700900157", "address": "marlow_chapel_st" },
     { "key": "julia", "name": "Julia Knight", "phone": "+447700900158", "address": "downley_coates_lane" },
     { "key": "keith", "name": "Keith Ross", "phone": "+447700900159", "address": "fake_08" }
+  ],
+  "_outlying": "Customers in villages no provider reaches yet, for the admin map's uncovered demand (decisions.md A35). Not in the Switch user menu, and not in the pool the history draws on.",
+  "outlying": [
+    { "key": "laura", "name": "Laura Dean", "phone": "+447700900160", "address": "risborough_manor_park" },
+    { "key": "neil", "name": "Neil Shaw", "phone": "+447700900161", "address": "longwick_thame_rd" },
+    { "key": "olivia", "name": "Olivia Hart", "phone": "+447700900162", "address": "stokenchurch_wycombe_rd" },
+    { "key": "paul", "name": "Paul Ford", "phone": "+447700900163", "address": "risborough_poppy_rd" }
   ],
   "providers": [
     { "key": "dave", "name": "Dave Hughes", "short": "Dave H.", "initials": "DH", "area": "Hazlemere", "postcode": "HP15 7LH", "lat": 51.6455, "lng": -0.6935, "phone": "+447700900201",

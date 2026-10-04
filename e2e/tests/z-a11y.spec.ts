@@ -54,6 +54,7 @@ async function screens(page: Page): Promise<Screen[]> {
     { who: "tom", path: "/p", name: "provider: helper's home", provider: true },
     { who: "sarah", path: "/p/signup", name: "provider: sign-up", provider: true },
     { who: "admin_jo", path: "/admin", name: "admin: overview" },
+    { who: "admin_jo", path: "/admin/map", name: "admin: map" },
     { who: "admin_jo", path: "/admin/providers", name: "admin: providers" },
     { who: "admin_jo", path: `/admin/providers/${dave.id}`, name: "admin: a provider" },
     { who: "admin_jo", path: "/admin/pricing", name: "admin: pricing and calibration" },

@@ -3773,6 +3773,155 @@
         "title": "HelperOut",
         "type": "object"
       },
+      "HexBand": {
+        "properties": {
+          "label": {
+            "description": "\"1\", \"3 to 4\"",
+            "title": "Label",
+            "type": "string"
+          },
+          "level": {
+            "title": "Level",
+            "type": "integer"
+          },
+          "max": {
+            "title": "Max",
+            "type": "integer"
+          },
+          "min": {
+            "title": "Min",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "level",
+          "min",
+          "max",
+          "label"
+        ],
+        "title": "HexBand",
+        "type": "object"
+      },
+      "HexCount": {
+        "properties": {
+          "cell": {
+            "description": "H3 cell index",
+            "title": "Cell",
+            "type": "string"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "level": {
+            "description": "Its legend band, 0 the lightest",
+            "title": "Level",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cell",
+          "count",
+          "level"
+        ],
+        "title": "HexCount",
+        "type": "object"
+      },
+      "HexFeature": {
+        "properties": {
+          "geometry": {
+            "$ref": "#/components/schemas/PolygonGeometry"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "properties": {
+            "$ref": "#/components/schemas/HexCount"
+          },
+          "type": {
+            "const": "Feature",
+            "default": "Feature",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "geometry",
+          "properties"
+        ],
+        "title": "HexFeature",
+        "type": "object"
+      },
+      "HexGrid": {
+        "description": "Concentration: an H3 grid (resolution 8, cells about 1 km across) counting the chosen\nlayer's requests or visits (A34).",
+        "properties": {
+          "cells": {
+            "$ref": "#/components/schemas/HexLayer"
+          },
+          "legend": {
+            "items": {
+              "$ref": "#/components/schemas/HexBand"
+            },
+            "title": "Legend",
+            "type": "array"
+          },
+          "max": {
+            "title": "Max",
+            "type": "integer"
+          },
+          "resolution": {
+            "title": "Resolution",
+            "type": "integer"
+          },
+          "shade_by": {
+            "enum": [
+              "open",
+              "booked",
+              "completed"
+            ],
+            "title": "Shade By",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "shade_by",
+          "resolution",
+          "total",
+          "max",
+          "legend",
+          "cells"
+        ],
+        "title": "HexGrid",
+        "type": "object"
+      },
+      "HexLayer": {
+        "properties": {
+          "features": {
+            "items": {
+              "$ref": "#/components/schemas/HexFeature"
+            },
+            "title": "Features",
+            "type": "array"
+          },
+          "type": {
+            "const": "FeatureCollection",
+            "default": "FeatureCollection",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "features"
+        ],
+        "title": "HexLayer",
+        "type": "object"
+      },
       "InsuranceState": {
         "properties": {
           "expires_on": {
@@ -4338,6 +4487,61 @@
         "title": "JobCard",
         "type": "object"
       },
+      "JobFeature": {
+        "properties": {
+          "geometry": {
+            "$ref": "#/components/schemas/PointGeometry"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "properties": {
+            "$ref": "#/components/schemas/JobPin"
+          },
+          "type": {
+            "const": "Feature",
+            "default": "Feature",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "geometry",
+          "properties"
+        ],
+        "title": "JobFeature",
+        "type": "object"
+      },
+      "JobLayer": {
+        "properties": {
+          "features": {
+            "items": {
+              "$ref": "#/components/schemas/JobFeature"
+            },
+            "title": "Features",
+            "type": "array"
+          },
+          "type": {
+            "const": "FeatureCollection",
+            "default": "FeatureCollection",
+            "title": "Type",
+            "type": "string"
+          },
+          "visits": {
+            "description": "Visits in the layer, all pins together",
+            "title": "Visits",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "features",
+          "visits"
+        ],
+        "title": "JobLayer",
+        "type": "object"
+      },
       "JobOffer": {
         "properties": {
           "address_line": {
@@ -4596,6 +4800,80 @@
           "first_visit_date"
         ],
         "title": "JobOffer",
+        "type": "object"
+      },
+      "JobPin": {
+        "description": "A booking's visits in a layer, at its address: one pin per booking, so a weekly regular\nisn't six pins on one house (A30).",
+        "properties": {
+          "area": {
+            "title": "Area",
+            "type": "string"
+          },
+          "booking_id": {
+            "title": "Booking Id",
+            "type": "string"
+          },
+          "booking_ref": {
+            "title": "Booking Ref",
+            "type": "string"
+          },
+          "category_id": {
+            "title": "Category Id",
+            "type": "string"
+          },
+          "category_name": {
+            "title": "Category Name",
+            "type": "string"
+          },
+          "district": {
+            "title": "District",
+            "type": "string"
+          },
+          "own_customer": {
+            "description": "A customer the provider brought (5% fee)",
+            "title": "Own Customer",
+            "type": "boolean"
+          },
+          "price_pence": {
+            "description": "That visit's price",
+            "title": "Price Pence",
+            "type": "integer"
+          },
+          "provider_id": {
+            "title": "Provider Id",
+            "type": "string"
+          },
+          "provider_short": {
+            "title": "Provider Short",
+            "type": "string"
+          },
+          "visit_date": {
+            "description": "The next visit (booked), or the latest finished in the range (completed)",
+            "format": "date",
+            "title": "Visit Date",
+            "type": "string"
+          },
+          "visits": {
+            "description": "Visits still to come (booked), or finished in the date range (completed)",
+            "title": "Visits",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "booking_id",
+          "booking_ref",
+          "category_id",
+          "category_name",
+          "area",
+          "district",
+          "provider_id",
+          "provider_short",
+          "own_customer",
+          "visits",
+          "visit_date",
+          "price_pence"
+        ],
+        "title": "JobPin",
         "type": "object"
       },
       "KeyDate": {
@@ -4950,6 +5228,110 @@
           "next"
         ],
         "title": "MagicResult",
+        "type": "object"
+      },
+      "MapData": {
+        "properties": {
+          "booked": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JobLayer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "completed": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JobLayer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "from_date": {
+            "description": "Completed jobs: the first London day of the range",
+            "format": "date",
+            "title": "From Date",
+            "type": "string"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "hexes": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HexGrid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "open": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RequestLayer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "providers": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProviderLayer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reach": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReachLayer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "to_date": {
+            "description": "Completed jobs: the last London day of the range (inclusive)",
+            "format": "date",
+            "title": "To Date",
+            "type": "string"
+          },
+          "uncovered": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RequestLayer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "waiting_after_minutes": {
+            "description": "Open this long without a taker, a request is highlighted",
+            "title": "Waiting After Minutes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "generated_at",
+          "from_date",
+          "to_date",
+          "waiting_after_minutes"
+        ],
+        "title": "MapData",
         "type": "object"
       },
       "Me": {
@@ -6518,6 +6900,62 @@
         "title": "PlanUpdate",
         "type": "object"
       },
+      "PointGeometry": {
+        "properties": {
+          "coordinates": {
+            "description": "[longitude, latitude]",
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "title": "Coordinates",
+            "type": "array"
+          },
+          "type": {
+            "const": "Point",
+            "default": "Point",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "coordinates"
+        ],
+        "title": "PointGeometry",
+        "type": "object"
+      },
+      "PolygonGeometry": {
+        "properties": {
+          "coordinates": {
+            "description": "One closed ring of [longitude, latitude]",
+            "items": {
+              "items": {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 2,
+                "minItems": 2,
+                "type": "array"
+              },
+              "type": "array"
+            },
+            "title": "Coordinates",
+            "type": "array"
+          },
+          "type": {
+            "const": "Polygon",
+            "default": "Polygon",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "coordinates"
+        ],
+        "title": "PolygonGeometry",
+        "type": "object"
+      },
       "PriceChangeAnswer": {
         "additionalProperties": false,
         "description": "The customer's answer to a raised guide (A12), naming the proposal they saw.",
@@ -7286,6 +7724,33 @@
         "title": "ProviderDetail",
         "type": "object"
       },
+      "ProviderFeature": {
+        "properties": {
+          "geometry": {
+            "$ref": "#/components/schemas/PointGeometry"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "properties": {
+            "$ref": "#/components/schemas/ProviderPin"
+          },
+          "type": {
+            "const": "Feature",
+            "default": "Feature",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "geometry",
+          "properties"
+        ],
+        "title": "ProviderFeature",
+        "type": "object"
+      },
       "ProviderHome": {
         "properties": {
           "coming_up": {
@@ -7372,6 +7837,102 @@
           "unread_messages"
         ],
         "title": "ProviderHome",
+        "type": "object"
+      },
+      "ProviderLayer": {
+        "properties": {
+          "features": {
+            "items": {
+              "$ref": "#/components/schemas/ProviderFeature"
+            },
+            "title": "Features",
+            "type": "array"
+          },
+          "type": {
+            "const": "FeatureCollection",
+            "default": "FeatureCollection",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "features"
+        ],
+        "title": "ProviderLayer",
+        "type": "object"
+      },
+      "ProviderPin": {
+        "properties": {
+          "area": {
+            "title": "Area",
+            "type": "string"
+          },
+          "covers": {
+            "description": "Counts for coverage: active, or active with payouts paused (A32)",
+            "title": "Covers",
+            "type": "boolean"
+          },
+          "district": {
+            "title": "District",
+            "type": "string"
+          },
+          "initials": {
+            "title": "Initials",
+            "type": "string"
+          },
+          "jobs": {
+            "description": "The kinds of job they do, by name",
+            "items": {
+              "type": "string"
+            },
+            "title": "Jobs",
+            "type": "array"
+          },
+          "placed_at": {
+            "description": "postcode: their home postcode's centroid; approximate: home rounded to about 1 km (A33)",
+            "enum": [
+              "postcode",
+              "approximate"
+            ],
+            "title": "Placed At",
+            "type": "string"
+          },
+          "provider_id": {
+            "title": "Provider Id",
+            "type": "string"
+          },
+          "short": {
+            "title": "Short",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "signing_up",
+              "active",
+              "payouts_paused",
+              "suspended"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "travel_radius_miles": {
+            "title": "Travel Radius Miles",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "provider_id",
+          "short",
+          "initials",
+          "status",
+          "area",
+          "district",
+          "travel_radius_miles",
+          "placed_at",
+          "covers",
+          "jobs"
+        ],
+        "title": "ProviderPin",
         "type": "object"
       },
       "ProviderProfile": {
@@ -8342,6 +8903,90 @@
         "title": "RatingOut",
         "type": "object"
       },
+      "ReachArea": {
+        "properties": {
+          "covers": {
+            "title": "Covers",
+            "type": "boolean"
+          },
+          "provider_id": {
+            "title": "Provider Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "signing_up",
+              "active",
+              "payouts_paused",
+              "suspended"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "travel_radius_miles": {
+            "title": "Travel Radius Miles",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "provider_id",
+          "status",
+          "travel_radius_miles",
+          "covers"
+        ],
+        "title": "ReachArea",
+        "type": "object"
+      },
+      "ReachFeature": {
+        "properties": {
+          "geometry": {
+            "$ref": "#/components/schemas/PolygonGeometry"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "properties": {
+            "$ref": "#/components/schemas/ReachArea"
+          },
+          "type": {
+            "const": "Feature",
+            "default": "Feature",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "geometry",
+          "properties"
+        ],
+        "title": "ReachFeature",
+        "type": "object"
+      },
+      "ReachLayer": {
+        "description": "Each provider's travel radius as a circle around where they're shown.",
+        "properties": {
+          "features": {
+            "items": {
+              "$ref": "#/components/schemas/ReachFeature"
+            },
+            "title": "Features",
+            "type": "array"
+          },
+          "type": {
+            "const": "FeatureCollection",
+            "default": "FeatureCollection",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "features"
+        ],
+        "title": "ReachLayer",
+        "type": "object"
+      },
       "RebookIn": {
         "additionalProperties": false,
         "properties": {
@@ -8977,6 +9622,146 @@
           "demo_simulator"
         ],
         "title": "RequestDetail",
+        "type": "object"
+      },
+      "RequestFeature": {
+        "properties": {
+          "geometry": {
+            "$ref": "#/components/schemas/PointGeometry"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "properties": {
+            "$ref": "#/components/schemas/RequestPin"
+          },
+          "type": {
+            "const": "Feature",
+            "default": "Feature",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "geometry",
+          "properties"
+        ],
+        "title": "RequestFeature",
+        "type": "object"
+      },
+      "RequestLayer": {
+        "properties": {
+          "features": {
+            "items": {
+              "$ref": "#/components/schemas/RequestFeature"
+            },
+            "title": "Features",
+            "type": "array"
+          },
+          "type": {
+            "const": "FeatureCollection",
+            "default": "FeatureCollection",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "features"
+        ],
+        "title": "RequestLayer",
+        "type": "object"
+      },
+      "RequestPin": {
+        "properties": {
+          "age_text": {
+            "description": "How long it has been open: \"5 hours\"",
+            "title": "Age Text",
+            "type": "string"
+          },
+          "area": {
+            "title": "Area",
+            "type": "string"
+          },
+          "awaiting_customer": {
+            "description": "A raised guide is waiting for the customer (A12)",
+            "title": "Awaiting Customer",
+            "type": "boolean"
+          },
+          "category_id": {
+            "title": "Category Id",
+            "type": "string"
+          },
+          "category_name": {
+            "title": "Category Name",
+            "type": "string"
+          },
+          "cover": {
+            "description": "Cover for one visit of a provider's time off",
+            "title": "Cover",
+            "type": "boolean"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "district": {
+            "title": "District",
+            "type": "string"
+          },
+          "guide_pence": {
+            "title": "Guide Pence",
+            "type": "integer"
+          },
+          "in_reach": {
+            "description": "Active providers whose travel radius covers it",
+            "title": "In Reach",
+            "type": "integer"
+          },
+          "in_reach_doing_it": {
+            "description": "Of those, how many do this kind of job",
+            "title": "In Reach Doing It",
+            "type": "integer"
+          },
+          "ref": {
+            "title": "Ref",
+            "type": "string"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "uncovered": {
+            "description": "Outside every active provider's travel radius (A32)",
+            "title": "Uncovered",
+            "type": "boolean"
+          },
+          "waiting": {
+            "description": "Open for more than an hour without a taker, so on the dispatch list",
+            "title": "Waiting",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "request_id",
+          "ref",
+          "category_id",
+          "category_name",
+          "area",
+          "district",
+          "created_at",
+          "age_text",
+          "guide_pence",
+          "waiting",
+          "uncovered",
+          "in_reach",
+          "in_reach_doing_it",
+          "cover",
+          "awaiting_customer"
+        ],
+        "title": "RequestPin",
         "type": "object"
       },
       "RequestSummary": {
@@ -11564,6 +12349,168 @@
           }
         },
         "summary": "Hmrc Export",
+        "tags": [
+          "L3 admin"
+        ]
+      }
+    },
+    "/api/admin/map": {
+      "get": {
+        "description": "What the admin map's layers need, as GeoJSON features: open requests (highlighted once\nwaiting an hour), uncovered demand (A32), booked visits still to come, completed jobs in the\ndate range, providers at their postcode's centroid with their travel radius (A33), and the H3\nconcentration grid of one job layer (A34). Customer addresses are exact: admins only.",
+        "operationId": "map__api_admin_map_get",
+        "parameters": [
+          {
+            "description": "The layers to send; repeat it. None at all: only the grid",
+            "in": "query",
+            "name": "layers",
+            "required": false,
+            "schema": {
+              "default": [],
+              "description": "The layers to send; repeat it. None at all: only the grid",
+              "items": {
+                "enum": [
+                  "open",
+                  "uncovered",
+                  "booked",
+                  "completed",
+                  "providers"
+                ],
+                "type": "string"
+              },
+              "title": "Layers",
+              "type": "array"
+            }
+          },
+          {
+            "description": "The job layer the hexagon grid counts, or none",
+            "in": "query",
+            "name": "shade",
+            "required": false,
+            "schema": {
+              "default": "open",
+              "description": "The job layer the hexagon grid counts, or none",
+              "enum": [
+                "open",
+                "booked",
+                "completed",
+                "none"
+              ],
+              "title": "Shade",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Completed jobs from this London day",
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Completed jobs from this London day",
+              "title": "From"
+            }
+          },
+          {
+            "description": "... to this one, inclusive (default: the last 30 days)",
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "... to this one, inclusive (default: the last 30 days)",
+              "title": "To"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MapData"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          }
+        },
+        "summary": "Map ",
         "tags": [
           "L3 admin"
         ]

@@ -7,9 +7,10 @@ Two levels (decisions.md):
   the days the customer chose. Every accept and counter checks it. Distance is NOT a hard
   rule: admins dispatch further-away jobs by hand through the WhatsApp group.
 - alert_targets (who gets the broadcast, L1): can_take, plus within their travel radius
-  of the job, a working day that suits the customer, alerts switched on, and not yet at
-  their earnings limit. Jobs that would take them over the limit still alert while they
-  have headroom; the provider's job list marks them (L2).
+  of the job (within_reach: the admin map's uncovered-demand rule uses it too, A32), a working
+  day that suits the customer, alerts switched on, and not yet at their earnings limit. Jobs
+  that would take them over the limit still alert while they have headroom; the provider's job
+  list marks them (L2).
 """
 
 from dataclasses import dataclass, field
@@ -26,6 +27,8 @@ from app.models.providers import Provider
 from app.repos.ledger_entries import LedgerEntries
 from app.repos.providers import Providers
 
+# Statuses that take new jobs: the hard rule's, and the providers who count for coverage (A32).
+TAKES_JOBS = ("active", "payouts_paused")
 WEEKDAYS = {"mon", "tue", "wed", "thu", "fri"}
 WEEKEND = {"sat", "sun"}
 
@@ -40,7 +43,7 @@ class Eligibility:
 def can_take(provider: Provider, category: Category, today: date | None = None) -> Eligibility:
     today = today or london_today()
     reasons: list[str] = []
-    if provider.status not in ("active", "payouts_paused"):
+    if provider.status not in TAKES_JOBS:
         reasons.append("Your account isn't active for new jobs.")
     if category.status != "live":
         reasons.append(f"{category.name} isn't bookable.")
@@ -86,6 +89,13 @@ def suits_days(provider: Provider, days: DaysPref) -> bool:
 def distance_miles(provider: Provider, request: JobRequest) -> float:
     home = provider.home.location
     return miles_between(home.lat, home.lng, request.address.lat, request.address.lng)
+
+
+def within_reach(provider: Provider, request: JobRequest) -> bool:
+    """The job is inside the provider's travel radius, measured from their home as the broadcast
+    measures it. The admin map's uncovered demand is an open request within no active provider's
+    reach (A32)."""
+    return distance_miles(provider, request) <= provider.travel_radius_miles
 
 
 @dataclass(frozen=True)
@@ -151,13 +161,12 @@ async def alert_targets(
             continue
         if not can_take_request(p, category, request, today).ok:
             continue
-        miles = distance_miles(p, request)
-        if miles > p.travel_radius_miles and not request.direct_provider_id:
+        if not within_reach(p, request) and not request.direct_provider_id:
             continue
         if not (p.alert_settings.sms or p.alert_settings.whatsapp):
             continue
         lim = await limit_status(db, p, today, session=session)
         if lim.reached:
             continue
-        out.append(AlertTarget(provider=p, miles=round(miles, 1), limit=lim))
+        out.append(AlertTarget(provider=p, miles=round(distance_miles(p, request), 1), limit=lim))
     return sorted(out, key=lambda t: t.miles)

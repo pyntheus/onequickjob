@@ -201,6 +201,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/map": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Map
+         * @description What the admin map's layers need, as GeoJSON features: open requests (highlighted once
+         *     waiting an hour), uncovered demand (A32), booked visits still to come, completed jobs in the
+         *     date range, providers at their postcode's centroid with their travel radius (A33), and the H3
+         *     concentration grid of one job layer (A34). Customer addresses are exact: admins only.
+         */
+        get: operations["map__api_admin_map_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/outbox": {
         parameters: {
             query?: never;
@@ -3995,6 +4018,80 @@ export interface components {
             /** User Id */
             user_id: string;
         };
+        /** HexBand */
+        HexBand: {
+            /**
+             * Label
+             * @description "1", "3 to 4"
+             */
+            label: string;
+            /** Level */
+            level: number;
+            /** Max */
+            max: number;
+            /** Min */
+            min: number;
+        };
+        /** HexCount */
+        HexCount: {
+            /**
+             * Cell
+             * @description H3 cell index
+             */
+            cell: string;
+            /** Count */
+            count: number;
+            /**
+             * Level
+             * @description Its legend band, 0 the lightest
+             */
+            level: number;
+        };
+        /** HexFeature */
+        HexFeature: {
+            geometry: components["schemas"]["PolygonGeometry"];
+            /** Id */
+            id: string;
+            properties: components["schemas"]["HexCount"];
+            /**
+             * Type
+             * @default Feature
+             * @constant
+             */
+            type: "Feature";
+        };
+        /**
+         * HexGrid
+         * @description Concentration: an H3 grid (resolution 8, cells about 1 km across) counting the chosen
+         *     layer's requests or visits (A34).
+         */
+        HexGrid: {
+            cells: components["schemas"]["HexLayer"];
+            /** Legend */
+            legend: components["schemas"]["HexBand"][];
+            /** Max */
+            max: number;
+            /** Resolution */
+            resolution: number;
+            /**
+             * Shade By
+             * @enum {string}
+             */
+            shade_by: "open" | "booked" | "completed";
+            /** Total */
+            total: number;
+        };
+        /** HexLayer */
+        HexLayer: {
+            /** Features */
+            features: components["schemas"]["HexFeature"][];
+            /**
+             * Type
+             * @default FeatureCollection
+             * @constant
+             */
+            type: "FeatureCollection";
+        };
         /** InsuranceState */
         InsuranceState: {
             /** Expires On */
@@ -4222,6 +4319,35 @@ export interface components {
              */
             unit: "a visit" | "one-off" | "a clean" | "a walk";
         };
+        /** JobFeature */
+        JobFeature: {
+            geometry: components["schemas"]["PointGeometry"];
+            /** Id */
+            id: string;
+            properties: components["schemas"]["JobPin"];
+            /**
+             * Type
+             * @default Feature
+             * @constant
+             */
+            type: "Feature";
+        };
+        /** JobLayer */
+        JobLayer: {
+            /** Features */
+            features: components["schemas"]["JobFeature"][];
+            /**
+             * Type
+             * @default FeatureCollection
+             * @constant
+             */
+            type: "FeatureCollection";
+            /**
+             * Visits
+             * @description Visits in the layer, all pins together
+             */
+            visits: number;
+        };
         /** JobOffer */
         JobOffer: {
             /**
@@ -4298,6 +4424,50 @@ export interface components {
              * @enum {string}
              */
             unit: "a visit" | "one-off" | "a clean" | "a walk";
+        };
+        /**
+         * JobPin
+         * @description A booking's visits in a layer, at its address: one pin per booking, so a weekly regular
+         *     isn't six pins on one house (A30).
+         */
+        JobPin: {
+            /** Area */
+            area: string;
+            /** Booking Id */
+            booking_id: string;
+            /** Booking Ref */
+            booking_ref: string;
+            /** Category Id */
+            category_id: string;
+            /** Category Name */
+            category_name: string;
+            /** District */
+            district: string;
+            /**
+             * Own Customer
+             * @description A customer the provider brought (5% fee)
+             */
+            own_customer: boolean;
+            /**
+             * Price Pence
+             * @description That visit's price
+             */
+            price_pence: number;
+            /** Provider Id */
+            provider_id: string;
+            /** Provider Short */
+            provider_short: string;
+            /**
+             * Visit Date
+             * Format: date
+             * @description The next visit (booked), or the latest finished in the range (completed)
+             */
+            visit_date: string;
+            /**
+             * Visits
+             * @description Visits still to come (booked), or finished in the date range (completed)
+             */
+            visits: number;
         };
         /** KeyDate */
         KeyDate: {
@@ -4470,6 +4640,38 @@ export interface components {
              * @description Path to open after signing in
              */
             next: string;
+        };
+        /** MapData */
+        MapData: {
+            booked?: components["schemas"]["JobLayer"] | null;
+            completed?: components["schemas"]["JobLayer"] | null;
+            /**
+             * From Date
+             * Format: date
+             * @description Completed jobs: the first London day of the range
+             */
+            from_date: string;
+            /**
+             * Generated At
+             * Format: date-time
+             */
+            generated_at: string;
+            hexes?: components["schemas"]["HexGrid"] | null;
+            open?: components["schemas"]["RequestLayer"] | null;
+            providers?: components["schemas"]["ProviderLayer"] | null;
+            reach?: components["schemas"]["ReachLayer"] | null;
+            /**
+             * To Date
+             * Format: date
+             * @description Completed jobs: the last London day of the range (inclusive)
+             */
+            to_date: string;
+            uncovered?: components["schemas"]["RequestLayer"] | null;
+            /**
+             * Waiting After Minutes
+             * @description Open this long without a taker, a request is highlighted
+             */
+            waiting_after_minutes: number;
         };
         /** Me */
         Me: {
@@ -5132,6 +5334,34 @@ export interface components {
             /** Pause Winter */
             pause_winter?: boolean | null;
         };
+        /** PointGeometry */
+        PointGeometry: {
+            /**
+             * Coordinates
+             * @description [longitude, latitude]
+             */
+            coordinates: number[];
+            /**
+             * Type
+             * @default Point
+             * @constant
+             */
+            type: "Point";
+        };
+        /** PolygonGeometry */
+        PolygonGeometry: {
+            /**
+             * Coordinates
+             * @description One closed ring of [longitude, latitude]
+             */
+            coordinates: number[][][];
+            /**
+             * Type
+             * @default Polygon
+             * @constant
+             */
+            type: "Polygon";
+        };
         /**
          * PriceChangeAnswer
          * @description The customer's answer to a raised guide (A12), naming the proposal they saw.
@@ -5410,6 +5640,19 @@ export interface components {
             /** Working Days */
             working_days: string[];
         };
+        /** ProviderFeature */
+        ProviderFeature: {
+            geometry: components["schemas"]["PointGeometry"];
+            /** Id */
+            id: string;
+            properties: components["schemas"]["ProviderPin"];
+            /**
+             * Type
+             * @default Feature
+             * @constant
+             */
+            type: "Feature";
+        };
         /** ProviderHome */
         ProviderHome: {
             /** Coming Up */
@@ -5444,6 +5687,53 @@ export interface components {
             week_earned_pence: number;
             /** Week Jobs */
             week_jobs: number;
+        };
+        /** ProviderLayer */
+        ProviderLayer: {
+            /** Features */
+            features: components["schemas"]["ProviderFeature"][];
+            /**
+             * Type
+             * @default FeatureCollection
+             * @constant
+             */
+            type: "FeatureCollection";
+        };
+        /** ProviderPin */
+        ProviderPin: {
+            /** Area */
+            area: string;
+            /**
+             * Covers
+             * @description Counts for coverage: active, or active with payouts paused (A32)
+             */
+            covers: boolean;
+            /** District */
+            district: string;
+            /** Initials */
+            initials: string;
+            /**
+             * Jobs
+             * @description The kinds of job they do, by name
+             */
+            jobs: string[];
+            /**
+             * Placed At
+             * @description postcode: their home postcode's centroid; approximate: home rounded to about 1 km (A33)
+             * @enum {string}
+             */
+            placed_at: "postcode" | "approximate";
+            /** Provider Id */
+            provider_id: string;
+            /** Short */
+            short: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "signing_up" | "active" | "payouts_paused" | "suspended";
+            /** Travel Radius Miles */
+            travel_radius_miles: number;
         };
         /** ProviderProfile */
         ProviderProfile: {
@@ -5799,6 +6089,47 @@ export interface components {
             /** Visit Id */
             visit_id: string;
         };
+        /** ReachArea */
+        ReachArea: {
+            /** Covers */
+            covers: boolean;
+            /** Provider Id */
+            provider_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "signing_up" | "active" | "payouts_paused" | "suspended";
+            /** Travel Radius Miles */
+            travel_radius_miles: number;
+        };
+        /** ReachFeature */
+        ReachFeature: {
+            geometry: components["schemas"]["PolygonGeometry"];
+            /** Id */
+            id: string;
+            properties: components["schemas"]["ReachArea"];
+            /**
+             * Type
+             * @default Feature
+             * @constant
+             */
+            type: "Feature";
+        };
+        /**
+         * ReachLayer
+         * @description Each provider's travel radius as a circle around where they're shown.
+         */
+        ReachLayer: {
+            /** Features */
+            features: components["schemas"]["ReachFeature"][];
+            /**
+             * Type
+             * @default FeatureCollection
+             * @constant
+             */
+            type: "FeatureCollection";
+        };
         /** RebookIn */
         RebookIn: {
             /**
@@ -6012,6 +6343,87 @@ export interface components {
              * @enum {string}
              */
             unit: "a visit" | "one-off" | "a clean" | "a walk";
+        };
+        /** RequestFeature */
+        RequestFeature: {
+            geometry: components["schemas"]["PointGeometry"];
+            /** Id */
+            id: string;
+            properties: components["schemas"]["RequestPin"];
+            /**
+             * Type
+             * @default Feature
+             * @constant
+             */
+            type: "Feature";
+        };
+        /** RequestLayer */
+        RequestLayer: {
+            /** Features */
+            features: components["schemas"]["RequestFeature"][];
+            /**
+             * Type
+             * @default FeatureCollection
+             * @constant
+             */
+            type: "FeatureCollection";
+        };
+        /** RequestPin */
+        RequestPin: {
+            /**
+             * Age Text
+             * @description How long it has been open: "5 hours"
+             */
+            age_text: string;
+            /** Area */
+            area: string;
+            /**
+             * Awaiting Customer
+             * @description A raised guide is waiting for the customer (A12)
+             */
+            awaiting_customer: boolean;
+            /** Category Id */
+            category_id: string;
+            /** Category Name */
+            category_name: string;
+            /**
+             * Cover
+             * @description Cover for one visit of a provider's time off
+             */
+            cover: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** District */
+            district: string;
+            /** Guide Pence */
+            guide_pence: number;
+            /**
+             * In Reach
+             * @description Active providers whose travel radius covers it
+             */
+            in_reach: number;
+            /**
+             * In Reach Doing It
+             * @description Of those, how many do this kind of job
+             */
+            in_reach_doing_it: number;
+            /** Ref */
+            ref: string;
+            /** Request Id */
+            request_id: string;
+            /**
+             * Uncovered
+             * @description Outside every active provider's travel radius (A32)
+             */
+            uncovered: boolean;
+            /**
+             * Waiting
+             * @description Open for more than an hour without a taker, so on the dispatch list
+             */
+            waiting: boolean;
         };
         /** RequestSummary */
         RequestSummary: {
@@ -7451,6 +7863,89 @@ export interface operations {
                 };
                 content: {
                     "text/csv": unknown;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    map__api_admin_map_get: {
+        parameters: {
+            query?: {
+                /** @description The layers to send; repeat it. None at all: only the grid */
+                layers?: ("open" | "uncovered" | "booked" | "completed" | "providers")[];
+                /** @description The job layer the hexagon grid counts, or none */
+                shade?: "open" | "booked" | "completed" | "none";
+                /** @description Completed jobs from this London day */
+                from?: string | null;
+                /** @description ... to this one, inclusive (default: the last 30 days) */
+                to?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MapData"];
                 };
             };
             /** @description Bad Request */

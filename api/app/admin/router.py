@@ -8,6 +8,7 @@ app.payments for charges and refunds.
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import date
 from typing import Annotated
 
 import stripe
@@ -15,6 +16,7 @@ from fastapi import APIRouter, Depends, Query, Response, status
 
 from app.adapters.payments.base import PaymentGateway
 from app.admin import catalogue, disputes, export, overview, pricing, providers
+from app.admin import map as admin_map
 from app.admin.schemas import (
     Calibration,
     CategoryAdminRow,
@@ -24,6 +26,8 @@ from app.admin.schemas import (
     DisputeMessageIn,
     DisputeView,
     DraftIn,
+    MapData,
+    MapLayerName,
     NudgeIn,
     OnboardingLinkOut,
     Overview,
@@ -35,6 +39,7 @@ from app.admin.schemas import (
     RefundIn,
     RefundOut,
     RejectDocIn,
+    ShadeBy,
     SuspendIn,
     UnfilledRequest,
     VerifyDocIn,
@@ -96,6 +101,26 @@ async def raise_guide(ref: str, body: RaiseGuideIn, admin: Admin, db: DbDep, s: 
     """Suggest a higher guide price for an open request (rounded to whole pounds), audit-logged. It
     waits for the customer's approval (A12): the request shows "Awaiting customer" until then."""
     return await overview.raise_guide(db, s, ref, body.percent, body.note, actor(admin))
+
+
+# ---------------------------------------------------------------- the map (A30 to A35)
+@router.get("/map")
+async def map_(
+    admin: Admin,
+    db: DbDep,
+    layers: Annotated[
+        list[MapLayerName], Query(description="The layers to send; repeat it. None at all: only the grid")
+    ] = [],  # noqa: B006 (FastAPI copies defaults)
+    shade: Annotated[ShadeBy, Query(description="The job layer the hexagon grid counts, or none")] = "open",
+    from_: Annotated[date | None, Query(alias="from", description="Completed jobs from this London day")] = None,
+    to: Annotated[date | None, Query(description="... to this one, inclusive (default: the last 30 days)")] = None,
+) -> MapData:
+    """What the admin map's layers need, as GeoJSON features: open requests (highlighted once
+    waiting an hour), uncovered demand (A32), booked visits still to come, completed jobs in the
+    date range, providers at their postcode's centroid with their travel radius (A33), and the H3
+    concentration grid of one job layer (A34). Customer addresses are exact: admins only."""
+    start, end = admin_map.date_range(from_, to)
+    return await admin_map.map_data(db, set(layers), shade, start, end)
 
 
 # ---------------------------------------------------------------- providers

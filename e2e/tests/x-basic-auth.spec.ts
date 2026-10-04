@@ -53,6 +53,7 @@ async function switchTo(page: Page, name: RegExp) {
 
 test("the site password is asked for once, however long you browse", async ({ baseURL }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop", "once is enough: the sign-in box doesn't depend on the width");
+  test.skip(!!process.env.E2E_DEV, "a worktree's dev server has no basic auth: this one runs against the site");
   expect(CADDY_LOG, "run it with make e2e, which follows Caddy's access log into CADDY_LOG").not.toBe("");
   test.setTimeout((MINUTES + 4) * 60_000);
 

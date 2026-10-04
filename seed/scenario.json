@@ -147,6 +147,135 @@
       "viewed_by": []
     }
   ],
+  "_outlying_note": "For the admin map (decisions.md A35): requests in villages no provider reaches yet, so uncovered demand has something to show.",
+  "outlying_requests": [
+    {
+      "ref": "R-2295",
+      "customer": "laura",
+      "category": "windows",
+      "answers": {},
+      "when": {
+        "days": "any",
+        "time": "either"
+      },
+      "minutes_ago": 25,
+      "notes": "",
+      "viewed_by": []
+    },
+    {
+      "ref": "R-2296",
+      "customer": "neil",
+      "category": "gutters",
+      "answers": {},
+      "when": {
+        "days": "any",
+        "time": "either"
+      },
+      "minutes_ago": 200,
+      "notes": "The downpipe at the back overflows when it rains.",
+      "viewed_by": []
+    },
+    {
+      "ref": "R-2297",
+      "customer": "olivia",
+      "category": "cleaning",
+      "answers": {},
+      "when": {
+        "days": "weekdays",
+        "time": "morning"
+      },
+      "minutes_ago": 2900,
+      "notes": "",
+      "viewed_by": []
+    },
+    {
+      "ref": "R-2298",
+      "customer": "paul",
+      "category": "mowing",
+      "lawn": {
+        "band": "medium",
+        "adjust": "right"
+      },
+      "answers": {},
+      "when": {
+        "days": "any",
+        "time": "either"
+      },
+      "minutes_ago": 400,
+      "notes": "",
+      "viewed_by": []
+    }
+  ],
+  "_upcoming_note": "For the admin map (A35): one-off jobs booked over the next fortnight around the area, for providers the journeys don't use. Priced by the engine; in_days moves back to a day the provider works.",
+  "upcoming_jobs": [
+    {
+      "key": "kasia_deepclean",
+      "provider": "kasia",
+      "customer": "george",
+      "category": "deepclean",
+      "answers": {},
+      "in_days": 2
+    },
+    {
+      "key": "lorna_oven",
+      "provider": "lorna",
+      "customer": "fiona",
+      "category": "oven",
+      "answers": {},
+      "in_days": 3
+    },
+    {
+      "key": "steve_mounting",
+      "provider": "steve",
+      "customer": "julia",
+      "category": "mounting",
+      "answers": {},
+      "in_days": 4
+    },
+    {
+      "key": "ray_repairs",
+      "provider": "ray",
+      "customer": "ben",
+      "category": "repairs",
+      "answers": {},
+      "in_days": 5
+    },
+    {
+      "key": "hannah_techhelp",
+      "provider": "hannah",
+      "customer": "chloe",
+      "category": "techhelp",
+      "answers": {},
+      "in_days": 2
+    },
+    {
+      "key": "hannah_beaconsfield",
+      "provider": "hannah",
+      "customer": "hazel",
+      "category": "techhelp",
+      "answers": {},
+      "in_days": 8
+    },
+    {
+      "key": "alan_mowing",
+      "provider": "alan",
+      "customer": "ian",
+      "category": "mowing",
+      "area_m2": 85,
+      "answers": {
+        "frequency": "oneoff"
+      },
+      "in_days": 6
+    },
+    {
+      "key": "steve_repairs",
+      "provider": "steve",
+      "customer": "alice",
+      "category": "repairs",
+      "answers": {},
+      "in_days": 9
+    }
+  ],
   "regulars": [
     {
       "key": "margaret",

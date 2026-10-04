@@ -18,6 +18,7 @@ from app.seed.history import Diary, seed_dave_fill, seed_dave_records, seed_hist
 from app.seed.outbox import seed_invites, seed_messages
 from app.seed.people import seed_people
 from app.seed.requests import seed_requests
+from app.seed.upcoming import seed_upcoming
 
 SUMMARY_COLLECTIONS = [
     "users",
@@ -67,6 +68,7 @@ async def seed(db: Db, s: Settings, now: datetime | None = None) -> dict[str, An
     await seed_dave_fill(ctx, diary)
     await seed_calibration(ctx, diary)
     await seed_dave_records(ctx)
+    await seed_upcoming(ctx, diary)
     await ctx.w.flush()
 
     requests = await seed_requests(ctx)

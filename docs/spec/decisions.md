@@ -707,6 +707,88 @@ about ten; and a 5-minute stepper can't reach a timer's 6). Each has tests.
   it was 720). (`test_finish.py`: `test_minutes_are_whole_and_1_to_600`; web `provider.test.tsx`;
   e2e `i-lawn-sizes.spec.ts` I2.)
 
+## 2f. Rulings in round 2: the admin map
+
+Made by the round-2 map session (branch `r2/admin-map`) on Hasan's brief; each has tests. (A26 to
+A28, section 2e, are the lawn-sizes session's.)
+
+- **A30. The admin map and its one endpoint.** `/admin/map` ("Map" in the sidebar) shows where
+  jobs are and where demand outruns coverage. `GET /api/admin/map` (admins only, 403
+  `admins_only`) returns GeoJSON-shaped layers: `layers` (repeat it: `open`, `uncovered`,
+  `booked`, `completed`, `providers`; none at all sends only the grid), `shade` (`open`, `booked`,
+  `completed` or `none`, the grid's layer, default `open`) and `from`/`to` (completed jobs, London
+  days inclusive: by default the 30 days to today, 30 days to `to` if only that is given, `from`
+  to today if only that is; more than a year, or a start after the end, is 422 `bad_range`). Only
+  what's asked for is sent, and a layer read only to shade the grid isn't sent as pins; the web
+  asks for the layers switched on. Open requests are every request still `open` (cover requests
+  included, marked), highlighted once open an hour with nobody taking it (`WAITING_AFTER`, the
+  dispatch list's rule). Booked visits are visits `scheduled` or `in_progress` from today on;
+  completed jobs are `finished` visits dated in the range. Both are one pin per booking at its
+  address, counting its visits and dated by the next (or the latest), so a weekly regular isn't
+  six pins on one house; a visit whose booking can't be found has no address and is left out.
+  Pins carry the area and district, never the street, postcode or customer (the exact position
+  is the marker itself). There is no admin page for a single request, so a request links to its
+  card on Overview's dispatch list (`/admin#request-R-2297`, scrolled to and focused), which is
+  where its actions are (WhatsApp text, raise the guide); a request open less than an hour isn't
+  on that list yet and the panel says so. Jobs and providers link to the provider's page.
+  (`tests/admin/test_map.py`; `web/src/admin/map.test.tsx`; e2e `m-map.spec.ts`.)
+- **A31. The basemap is ours.** No runtime request leaves the site: no API keys, no third-party
+  tile servers. `make basemap` (`scripts/basemap.sh`) writes `var/basemap/` (kept out of git): a
+  Protomaps extract of OpenStreetMap (longitude -0.97 to -0.53, latitude 51.50 to 51.78, zoom 0
+  to 15, about 21 MB, cut from Protomaps' daily build with `go-pmtiles` in Docker), the Noto Sans
+  glyphs and the light sprites from `protomaps/basemaps-assets` at a pinned commit. Caddy serves
+  it at `/basemap/*` behind the basic auth with HTTP range requests (`file_server`; a missing file
+  is 404, never `index.html`); the dev server does the same (`vite.config.ts`), so tunnelled
+  worktrees work. The style is built in our bundle from `@protomaps/basemaps` in the village
+  colours (points of interest left out), MapLibre's worker comes from our build
+  (`setWorkerUrl`), and "© OpenStreetMap contributors" is always shown (not collapsed on phones).
+  The e2e fails on any request, the worker's included, to another origin, and blocks it.
+  `E2E_DEV=1 make e2e` runs the journeys against a worktree's dev server, for sessions that
+  mustn't run `prod-up` (the basic-auth journey needs Caddy and is skipped there).
+  (`web/src/app/basemap-server.test.ts`, the style test in `map.test.tsx`, `m-map.spec.ts`.)
+- **A32. Uncovered demand.** An open request is uncovered when no provider who takes jobs
+  (`eligibility.TAKES_JOBS`: active, or active with payouts paused) has it within their travel
+  radius, measured as the broadcast measures it: `eligibility.within_reach`, straight-line miles
+  from their home to the address, up to and including the radius (`alert_targets` now calls the
+  same function). It's geography only, because the question is where to recruit: a provider in
+  reach who doesn't do that job still covers the place, and the panel says how many in reach do
+  it (`in_reach`, `in_reach_doing_it`). Providers signing up or suspended never cover. Cover and
+  "Book again" requests follow the same rule. Uncovered requests are drawn as buttons on the map
+  (the danger red with a "!", reachable by keyboard) and listed under "Where to recruit".
+  (`test_map.py`: `test_uncovered_demand_is_outside_every_active_providers_radius`,
+  `test_uncovered_means_the_broadcast_reaches_nobody_by_distance`.)
+- **A33. Providers are shown at their home postcode, never their address.** `Home.location`
+  is the chosen address's position for anyone who signed up through the look-up, so the map
+  never plots it: `services.postcodes.place_home` gives the postcode's centroid from a table,
+  or, for a postcode the table lacks, the home rounded to about 1 km (`geo.approximate`, coarser
+  than a postcode). The table holds the demo's postcodes: seeded providers are given only a
+  postcode and its position, so those positions are the centroids. Each provider's travel radius
+  is a circle (64 points) around where they're shown, translucent; signing up is drawn amber and
+  dashed, suspended grey and dashed. Coverage (A32) is measured from the home itself, as the
+  broadcast does, so near the edge of a circle the drawing can differ from the rule by up to the
+  rounding. Loading real centroids (the ONS Postcode Directory) is parked.
+  (`test_providers_sit_at_their_postcodes_centroid_never_their_address`, `test_place_home`.)
+- **A34. Concentration.** An H3 grid at resolution 8 (cells about 1 km across; Python `h3` 4.5,
+  in the API, not the web), counting the chosen layer: one per open request, and visits for
+  booked and completed jobs. The legend's bands are worked out in the API: up to five counts,
+  one band each; above that, five bands starting at 1 and at the ceilings of top × 1/5 ... 4/5
+  ("1 to 2", "3 to 4", "5 to 7", "8 to 9", "10 to 12" for 12); each cell carries its band. Each
+  layer shades in a light-to-dark ramp of its own colour (open blue, booked green, completed
+  ochre; checked for colour-blind separation and contrast), so the grid always says what it
+  counts. (`test_legend_bands_cover_every_count_once`, `test_the_grid_counts_points_per_resolution_8_cell`.)
+- **A35. Seeded demand where nobody reaches.** Four customers in villages no provider reaches
+  (`people.json` "outlying": Princes Risborough, Longwick, Stokenchurch; not in the Switch user
+  menu, nor in the pool the history draws on, so the history is unchanged) each have an open
+  request: R-2295 (window cleaning, 25 minutes old, so not yet highlighted), R-2296 (gutters),
+  R-2297 (cleaning, two days) and R-2298 (mowing); with R-2284 that's five uncovered, and
+  Overview's dispatch list has three more waiting (eight). Eight one-off jobs over the next fortnight
+  (`scenario.json` "upcoming_jobs", priced by the engine) give the booked layer pins in Booker,
+  Terriers, Downley, Holmer Green, Penn, Beaconsfield, Marlow and Hazlemere, for Kasia, Lorna,
+  Steve, Ray, Hannah and Alan, whom the journeys don't use; their bookings are numbered after every
+  other seeded one, so no existing reference moves. `make seed` stays idempotent.
+  (`test_seed.py`: `test_open_requests_and_guides`, `test_the_map_has_uncovered_demand_in_the_thin_areas`,
+  `test_seeding_twice_changes_nothing`.)
+
 ## 3. Open questions (for Hasan)
 
 - **Q1 (resolved: A1). Counter-offers on jobs with a dearer first visit.** Today a counter sets the per-visit

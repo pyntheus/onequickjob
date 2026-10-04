@@ -1,7 +1,7 @@
 """L3 admin API models. Owner: L3."""
 
 from datetime import date, datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -374,3 +374,183 @@ class CategoryRecord(BaseModel):
 class WebhookAck(BaseModel):
     received: bool = True
     duplicate: bool = False
+
+
+# ------------------------------------------------------------------ the map (A30 to A35)
+# GeoJSON-shaped, so the web hands each layer straight to the map. Coordinates are
+# [longitude, latitude], GeoJSON's order. Customer addresses are exact here: admins only.
+
+MapLayerName = Literal["open", "uncovered", "booked", "completed", "providers"]
+ShadeBy = Literal["open", "booked", "completed", "none"]
+# A list rather than a tuple: the typed web client reads tuples as plain arrays anyway.
+LngLat = Annotated[list[float], Field(min_length=2, max_length=2)]
+
+
+class PointGeometry(BaseModel):
+    type: Literal["Point"] = "Point"
+    coordinates: LngLat = Field(description="[longitude, latitude]")
+
+
+class PolygonGeometry(BaseModel):
+    type: Literal["Polygon"] = "Polygon"
+    coordinates: list[list[LngLat]] = Field(description="One closed ring of [longitude, latitude]")
+
+
+class RequestPin(BaseModel):
+    request_id: str
+    ref: str
+    category_id: str
+    category_name: str
+    area: str
+    district: str
+    created_at: datetime
+    age_text: str = Field(description='How long it has been open: "5 hours"')
+    guide_pence: int
+    waiting: bool = Field(description="Open for more than an hour without a taker, so on the dispatch list")
+    uncovered: bool = Field(description="Outside every active provider's travel radius (A32)")
+    in_reach: int = Field(description="Active providers whose travel radius covers it")
+    in_reach_doing_it: int = Field(description="Of those, how many do this kind of job")
+    cover: bool = Field(description="Cover for one visit of a provider's time off")
+    awaiting_customer: bool = Field(description="A raised guide is waiting for the customer (A12)")
+
+
+class RequestFeature(BaseModel):
+    type: Literal["Feature"] = "Feature"
+    id: str
+    geometry: PointGeometry
+    properties: RequestPin
+
+
+class RequestLayer(BaseModel):
+    type: Literal["FeatureCollection"] = "FeatureCollection"
+    features: list[RequestFeature]
+
+
+class JobPin(BaseModel):
+    """A booking's visits in a layer, at its address: one pin per booking, so a weekly regular
+    isn't six pins on one house (A30)."""
+
+    booking_id: str
+    booking_ref: str
+    category_id: str
+    category_name: str
+    area: str
+    district: str
+    provider_id: str
+    provider_short: str
+    own_customer: bool = Field(description="A customer the provider brought (5% fee)")
+    visits: int = Field(description="Visits still to come (booked), or finished in the date range (completed)")
+    visit_date: date = Field(description="The next visit (booked), or the latest finished in the range (completed)")
+    price_pence: int = Field(description="That visit's price")
+
+
+class JobFeature(BaseModel):
+    type: Literal["Feature"] = "Feature"
+    id: str
+    geometry: PointGeometry
+    properties: JobPin
+
+
+class JobLayer(BaseModel):
+    type: Literal["FeatureCollection"] = "FeatureCollection"
+    features: list[JobFeature]
+    visits: int = Field(description="Visits in the layer, all pins together")
+
+
+class ProviderPin(BaseModel):
+    provider_id: str
+    short: str
+    initials: str
+    status: ProviderStatus
+    area: str
+    district: str
+    travel_radius_miles: int
+    placed_at: Literal["postcode", "approximate"] = Field(
+        description="postcode: their home postcode's centroid; approximate: home rounded to about 1 km (A33)"
+    )
+    covers: bool = Field(description="Counts for coverage: active, or active with payouts paused (A32)")
+    jobs: list[str] = Field(description="The kinds of job they do, by name")
+
+
+class ProviderFeature(BaseModel):
+    type: Literal["Feature"] = "Feature"
+    id: str
+    geometry: PointGeometry
+    properties: ProviderPin
+
+
+class ProviderLayer(BaseModel):
+    type: Literal["FeatureCollection"] = "FeatureCollection"
+    features: list[ProviderFeature]
+
+
+class ReachArea(BaseModel):
+    provider_id: str
+    status: ProviderStatus
+    travel_radius_miles: int
+    covers: bool
+
+
+class ReachFeature(BaseModel):
+    type: Literal["Feature"] = "Feature"
+    id: str
+    geometry: PolygonGeometry
+    properties: ReachArea
+
+
+class ReachLayer(BaseModel):
+    """Each provider's travel radius as a circle around where they're shown."""
+
+    type: Literal["FeatureCollection"] = "FeatureCollection"
+    features: list[ReachFeature]
+
+
+class HexCount(BaseModel):
+    cell: str = Field(description="H3 cell index")
+    count: int
+    level: int = Field(description="Its legend band, 0 the lightest")
+
+
+class HexFeature(BaseModel):
+    type: Literal["Feature"] = "Feature"
+    id: str
+    geometry: PolygonGeometry
+    properties: HexCount
+
+
+class HexLayer(BaseModel):
+    type: Literal["FeatureCollection"] = "FeatureCollection"
+    features: list[HexFeature]
+
+
+class HexBand(BaseModel):
+    level: int
+    min: int
+    max: int
+    label: str = Field(description='"1", "3 to 4"')
+
+
+class HexGrid(BaseModel):
+    """Concentration: an H3 grid (resolution 8, cells about 1 km across) counting the chosen
+    layer's requests or visits (A34)."""
+
+    shade_by: Literal["open", "booked", "completed"]
+    resolution: int
+    total: int
+    max: int
+    legend: list[HexBand]
+    cells: HexLayer
+
+
+class MapData(BaseModel):
+    generated_at: datetime
+    from_date: date = Field(description="Completed jobs: the first London day of the range")
+    to_date: date = Field(description="Completed jobs: the last London day of the range (inclusive)")
+    waiting_after_minutes: int = Field(description="Open this long without a taker, a request is highlighted")
+    open: RequestLayer | None = None
+    uncovered: RequestLayer | None = None
+    booked: JobLayer | None = None
+    completed: JobLayer | None = None
+    providers: ProviderLayer | None = None
+    reach: ReachLayer | None = None
+    hexes: HexGrid | None = None
