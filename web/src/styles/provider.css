@@ -76,3 +76,7 @@ input[type="file"]:focus-visible + *,label.btn:focus-within{outline:3px solid va
 @media(max-width:420px){.grid2.narrow-stack{grid-template-columns:1fr}}
 .p-app .btn svg{flex:none}
 .p-app .grid2 .btn{padding:0 10px;white-space:normal;text-align:center}
+/* Sign-up: a step still to come (dashed, at full contrast). */
+.step-todo{border-style:dashed}
+/* Keyboard focus (and anchors) scroll clear of the sticky bottom nav (WCAG 2.4.11). */
+html:has(.p-nav){scroll-padding-bottom:calc(84px + env(safe-area-inset-bottom))}

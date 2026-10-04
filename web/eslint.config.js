@@ -17,6 +17,9 @@ export default tseslint.config(
       "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
       "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
       "@typescript-eslint/no-explicit-any": "error",
+      // A scrolling table or code block is a labelled region keyboard users can reach and scroll
+      // (axe: scrollable-region-focusable); every other non-interactive tabIndex is still an error.
+      "jsx-a11y/no-noninteractive-tabindex": ["error", { roles: ["tabpanel", "region"] }],
     },
   },
   {

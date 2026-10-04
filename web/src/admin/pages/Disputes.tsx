@@ -204,7 +204,7 @@ function DisputeCard({ d }: { d: DisputeView }) {
   const done = d.stage === 3;
   const closing = !done && !!d.closing_outcome;
   return (
-    <div className="card stack" style={{ ...gap("14px"), opacity: done ? 0.75 : 1 }}>
+    <div className={"card stack" + (done ? " dispute-closed" : "")} style={gap("14px")}>
       <div className="row between wrap top" style={gap("10px")}>
         <div className="row top" style={gap("12px")}>
           <span className="cat-ico sm">

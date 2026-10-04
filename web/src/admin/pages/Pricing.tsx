@@ -215,7 +215,7 @@ export default function Pricing() {
               </div>
             </div>
             <div className="card">
-              <div className="table-wrap">
+              <div className="table-wrap" tabIndex={0} role="region" aria-label="Calibration by job type">
                 <table className="table">
                   <thead>
                     <tr>

@@ -170,7 +170,7 @@ function ReasonDialog({
 /** One row per document: the copy to check next, with the checked copy's expiry beside a renewal. */
 function DocTable({ docs, onPick }: { docs: AdminDocument[]; onPick: (doc: AdminDocument, action: "verify" | "reject") => void }) {
   return (
-    <div className="table-wrap">
+    <div className="table-wrap" tabIndex={0} role="region" aria-label="Documents">
       <table className="table">
         <thead>
           <tr>
@@ -488,7 +488,7 @@ export default function ProviderDetail() {
                   {p.ledger.length === 0 ? (
                     <p className="small muted">Nothing charged yet.</p>
                   ) : (
-                    <div className="table-wrap">
+                    <div className="table-wrap" tabIndex={0} role="region" aria-label="Money">
                       <table className="table">
                         <thead>
                           <tr>
