@@ -16,7 +16,10 @@ export default defineConfig({
   retries: 0,
   timeout: 180_000,
   expect: { timeout: 15_000 },
-  reporter: [["list"], ["html", { open: "never", outputFolder: "report" }]],
+  // The console list only. Playwright records every failed API call as a step error, headers
+  // and all, before send() can redact it, and the HTML report keeps those step errors (in a
+  // compressed blob, even for passing tests): it would hold the site password.
+  reporter: [["list"]],
   outputDir: "results",
   use: {
     baseURL,
@@ -28,8 +31,8 @@ export default defineConfig({
     navigationTimeout: 30_000,
     // No traces: they record the context's httpCredentials and every request's Authorization
     // header, so a failure would leave the site password on disk. A failure keeps a screenshot
-    // and error-context.md; API calls go through helpers.ts's send(), which takes the password
-    // out of a failed request's error before it's reported.
+    // and error-context.md (the test's own errors: API calls go through helpers.ts's send(),
+    // which takes the password out of a failed request's error before rethrowing it).
     trace: "off",
     screenshot: "only-on-failure",
   },
