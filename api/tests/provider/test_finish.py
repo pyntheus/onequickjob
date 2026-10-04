@@ -34,6 +34,20 @@ async def _start(client, visit_id: str) -> None:
     assert r.json()["status"] == "in_progress"
 
 
+async def test_minutes_are_whole_and_1_to_600(dave_client, db, world):
+    """A28: the finish screen's minutes field takes whole minutes from 1 to 600, and so does the API."""
+    v = await move_to_today(db, world.first)
+    await _start(dave_client, v.id)
+    for bad in (0, 601, 45.5):
+        r = await dave_client.post(f"/api/p/visits/{v.id}/finish", json={**FINISH, "minutes": bad})
+        assert r.status_code == 422, bad
+    assert (await Visits(db).get(v.id)).status == "in_progress"
+    r = await dave_client.post(f"/api/p/visits/{v.id}/finish", json={**FINISH, "minutes": 600, "from_timer": False})
+    assert r.status_code == 200, r.text
+    stored = await Visits(db).get(v.id)
+    assert stored.minutes_actual == 600 and not stored.minutes_from_timer
+
+
 async def test_finish_records_calibration_charges_and_writes_one_ledger_entry(dave_client, db, world):
     v = await move_to_today(db, world.first)
     await _start(dave_client, v.id)

@@ -32,14 +32,14 @@ async def test_categories(client, catalogue):
 
 async def test_area_options_are_the_manual_bands(client):
     opts = (await client.get("/api/area/options")).json()
-    assert opts["estimator"] == "manual_bands_v0" and opts["confidence"] == "medium"
+    assert opts["estimator"] == "three_ways_v0" and opts["confidence"] == "medium"
     assert [(b["id"], b["area_m2"]) for b in opts["bands"]] == [
         ("small", 40),
         ("medium", 85),
         ("large", 190),
         ("very_large", 350),
     ]
-    assert opts["bands"][0]["comparison"] == "About a double garage"
+    assert opts["bands"][0]["comparison"] == "About 5 × 8 metres (40 m²). Nearly 2 car lengths long and 1 wide."
     assert [a["label"] for a in opts["adjustments"]] == ["Looks smaller", "About right", "Looks bigger"]
 
 
@@ -50,12 +50,16 @@ async def test_quote_mowing_large_band(client, db, catalogue):
     assert q["result"]["price_pence"] == 3100 and q["result"]["unit"] == "a visit"
     assert q["measure"] == {
         "estimator": "manual_bands_v0",
+        "method": "band",
         "area_m2": 190,
         "band": "large",
         "adjust": "right",
+        "unit": None,
+        "lawns": [],
         "detail": None,
         "confidence": "medium",
     }
+    assert q["size_text"] == "a large lawn (about 190 m²)"
     assert q["fee"] == {
         "mode": "standard",
         "rate_percent": 15,

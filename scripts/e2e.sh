@@ -6,6 +6,9 @@
 # variable name only, never on a command line.
 #   make e2e                       both widths, every spec
 #   make e2e ARGS="tests/a-*.ts"   some specs;  E2E_PROJECTS=phone make e2e   one width
+# Against a lane's own dev stack: E2E_BASE_URL=http://127.0.0.1:517N, with COOKIE_SECURE=false in
+# that lane's .env while it runs (Playwright's API client won't send a Secure cookie over plain
+# http) and without x-basic-auth.spec.ts, which needs Caddy in front. It re-seeds that lane's data.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 IMAGE="mcr.microsoft.com/playwright:v1.63.0-noble"

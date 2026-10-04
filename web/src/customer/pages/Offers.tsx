@@ -174,7 +174,7 @@ function Status({ req }: { req: RequestDetail }) {
       </p>
       <p className="small">
         Guide price <b>{priceText(req.guide_pence, req.unit, req.first_pence)}</b>
-        {req.size_text ? `, for a ${req.size_text.charAt(0).toLowerCase() + req.size_text.slice(1)} lawn` : ""}.
+        {req.size_text ? `, for ${req.size_text}` : ""}.
       </p>
     </div>
   );

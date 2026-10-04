@@ -213,7 +213,7 @@ class PhotoIn(In):
 
 
 class FinishIn(In):
-    minutes: int = Field(ge=1, le=720, description="Pre-filled from the timer")
+    minutes: int = Field(ge=1, le=600, description="Whole minutes, 1 to 600 (A28); pre-filled from the timer")
     from_timer: bool
     flags: list[Annotated[str, Field(min_length=1, max_length=80)]] = Field(
         default_factory=list, max_length=8, description="What was different"

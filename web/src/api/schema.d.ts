@@ -610,6 +610,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/area/estimate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Area Estimate
+         * @description The lawn step's answer as an area, worked out here and never in the web app (A26). Stores
+         *     nothing: the quote works it out again from the same answer. 422 with the reason if it can't.
+         */
+        post: operations["area_estimate_api_area_estimate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/area/options": {
         parameters: {
             query?: never;
@@ -619,7 +640,7 @@ export interface paths {
         };
         /**
          * Area Options
-         * @description How the lawn step asks for size (manual bands for v0).
+         * @description How the lawn step asks for size: the size bands, and the limits for pacing or measuring (A26).
          */
         get: operations["area_options_api_area_options_get"];
         put?: never;
@@ -2593,14 +2614,51 @@ export interface components {
         };
         /** AreaBand */
         AreaBand: {
-            /** Area M2 */
+            /**
+             * Area M2
+             * @description The area the engine prices for this band
+             */
             area_m2: number;
-            /** Comparison */
+            /**
+             * Comparison
+             * @description The band in words: "About 5 × 8 metres (40 m²). Nearly 2 car lengths ..."
+             */
             comparison: string;
+            /**
+             * House
+             * @description Draw a house beside the lawn, for scale
+             * @default false
+             */
+            house: boolean;
             /** Id */
             id: string;
             /** Label */
             label: string;
+            /**
+             * Length M
+             * @description The drawing's lawn: its long side
+             */
+            length_m: number;
+            /**
+             * Width M
+             * @description The drawing's lawn: its short side
+             */
+            width_m: number;
+        };
+        /** AreaEstimateOut */
+        AreaEstimateOut: {
+            /**
+             * Lawn Texts
+             * @description Each lawn: "about 12 × 8 metres (96 m²)"
+             */
+            lawn_texts: string[];
+            /** @description The area, how it was sized and each lawn */
+            measure: components["schemas"]["Measure"];
+            /**
+             * Text
+             * @description "That's about 12 × 8 metres (96 m²)", or "... in total across 2 lawns"
+             */
+            text: string;
         };
         /**
          * AreaInput
@@ -2615,14 +2673,52 @@ export interface components {
             adjust: "smaller" | "right" | "bigger";
             /** Band */
             band?: string | null;
+            /**
+             * Lawns
+             * @description paced and measured: each lawn (front, back...), summed
+             */
+            lawns?: components["schemas"]["LawnSides"][];
+            /**
+             * Method
+             * @description band: a size band; paced: strides; measured: length x width
+             * @default band
+             * @enum {string}
+             */
+            method: "band" | "paced" | "measured";
+            /**
+             * Unit
+             * @description measured only: what the sides are in (paced is in strides)
+             * @default m
+             * @enum {string}
+             */
+            unit: "m" | "ft";
+        };
+        /**
+         * AreaLimits
+         * @description What the customer's own figures must be (paced and measured).
+         */
+        AreaLimits: {
+            /** Max Lawns */
+            max_lawns: number;
+            /** Side Max M */
+            side_max_m: number;
+            /** Side Min M */
+            side_min_m: number;
+            /** Total Max M2 */
+            total_max_m2: number;
+            /** Total Min M2 */
+            total_min_m2: number;
         };
         /**
          * AreaOptions
          * @description What the quote flow's lawn step shows. LIDAR would add measured lawns here.
          */
         AreaOptions: {
-            /** Adjustments */
-            adjustments: components["schemas"]["AreaAdjustment"][];
+            /**
+             * Adjustments
+             * @description The nudges, for bands only
+             */
+            adjustments?: components["schemas"]["AreaAdjustment"][];
             /** Bands */
             bands?: components["schemas"]["AreaBand"][];
             /**
@@ -2633,6 +2729,13 @@ export interface components {
             confidence: "high" | "medium" | "low";
             /** Estimator */
             estimator: string;
+            /** @description For paced and measured lawns */
+            limits?: components["schemas"]["AreaLimits"] | null;
+            /**
+             * Methods
+             * @description The ways offered, in order
+             */
+            methods?: ("band" | "paced" | "measured")[];
             /** Tolerance Note */
             tolerance_note: string;
         };
@@ -3776,7 +3879,7 @@ export interface components {
             from_timer: boolean;
             /**
              * Minutes
-             * @description Pre-filled from the timer
+             * @description Whole minutes, 1 to 600 (A28); pre-filled from the timer
              */
             minutes: number;
             /**
@@ -4218,6 +4321,17 @@ export interface components {
         /** @enum {string} */
         Lane: "F" | "L1" | "L2" | "L3";
         /**
+         * LawnSides
+         * @description One lawn's sides as the customer gave them: whole strides (paced), or metres or feet
+         *     (measured). Sent as numbers or strings ("7.5"), so decimals arrive exactly.
+         */
+        LawnSides: {
+            /** Length */
+            length: number | string;
+            /** Width */
+            width: number | string;
+        };
+        /**
          * LedgerEntry
          * @description One charge entry per charged visit (unique on visit_id + kind=charge), plus tip,
          *     refund and adjustment entries. gross = what the customer paid, fee = ours,
@@ -4394,7 +4508,10 @@ export interface components {
         Measure: {
             /** Adjust */
             adjust?: ("smaller" | "right" | "bigger") | null;
-            /** Area M2 */
+            /**
+             * Area M2
+             * @description What the engine prices: the band's area, or the lawns' areas summed
+             */
             area_m2: number;
             /** Band */
             band?: string | null;
@@ -4412,9 +4529,51 @@ export interface components {
             } | null;
             /**
              * Estimator
-             * @description AreaEstimator id, e.g. manual_bands_v0
+             * @description AreaEstimator id: manual_bands_v0 or customer_measured_v0
              */
             estimator: string;
+            /**
+             * Lawns
+             * @description paced and measured: each lawn, as given
+             */
+            lawns?: components["schemas"]["MeasuredLawn"][];
+            /**
+             * Method
+             * @description How the customer sized the lawn: picked a size band, paced it out, or gave its length and width
+             * @default band
+             * @enum {string}
+             */
+            method: "band" | "paced" | "measured";
+            /**
+             * Unit
+             * @description paced: strides (a big stride counts as a metre); measured: m or ft
+             */
+            unit?: ("strides" | "m" | "ft") | null;
+        };
+        /**
+         * MeasuredLawn
+         * @description One lawn the customer paced out or measured (decisions.md A26).
+         */
+        MeasuredLawn: {
+            /**
+             * Area M2
+             * @description length_m x width_m, rounded half-up to whole m²
+             */
+            area_m2: number;
+            /**
+             * Length
+             * @description As the customer gave it, in the measure's unit
+             */
+            length: number;
+            /** Length M */
+            length_m: number;
+            /**
+             * Width
+             * @description As the customer gave it, in the measure's unit
+             */
+            width: number;
+            /** Width M */
+            width_m: number;
         };
         /** MessageOut */
         MessageOut: {
@@ -5518,6 +5677,11 @@ export interface components {
             /** Pricing Version Id */
             pricing_version_id: string;
             result: components["schemas"]["QuoteResult"];
+            /**
+             * Size Text
+             * @description Lawns: what the price is for, e.g. "a large lawn (about 190 m²)"
+             */
+            size_text?: string | null;
         };
         /** QuoteRequest */
         QuoteRequest: {
@@ -5833,7 +5997,7 @@ export interface components {
             simulating: boolean;
             /**
              * Size Text
-             * @description Lawns: the size the customer chose, e.g. "Large (about 190 m²)"
+             * @description Lawns: what the price is for, e.g. "a large lawn (about 190 m²)"
              */
             size_text?: string | null;
             /**
@@ -9049,6 +9213,84 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ChargeState"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    area_estimate_api_area_estimate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AreaInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AreaEstimateOut"];
                 };
             };
             /** @description Bad Request */

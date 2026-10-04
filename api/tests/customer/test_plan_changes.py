@@ -119,6 +119,28 @@ async def test_at_the_minimum_price_weekly_costs_the_same_as_fortnightly(client,
     assert await _engine_price(db, "weekly") < await _engine_price(db, "fortnightly")  # a large lawn
 
 
+async def test_a_paced_out_lawn_is_repriced_at_the_size_the_customer_paced(client, db, catalogue):
+    """A26: a plan from a paced-out (or measured) lawn is re-priced at that lawn's area, from the
+    strides on record, never at the medium band kept for plans with no size."""
+    dave = await make_provider(db, "Dave Hughes", "+447700900201", ["mowing"])
+    await signed_in_with_card(client, db)
+    lawn = {"method": "paced", "lawns": [{"length": 31, "width": 6}, {"length": 14, "width": 11}]}  # 186 + 154 m²
+    q = (await client.post("/api/quotes", json={"category_id": "mowing", "lawn": lawn})).json()
+    assert q["measure"]["area_m2"] == 340
+    r = await client.post("/api/c/requests", json=request_body(q["id"]))
+    assert r.status_code == 201, r.text
+    booking = (await book_at_guide(db, r.json()["ref"], dave)).booking
+    weekly = await create_quote(
+        db, make_settings(), category_id="mowing", answers={"frequency": "weekly"}, lawn=AreaInput(**lawn),
+        address=HAZLEMERE, user_id=None,
+    )  # fmt: skip
+    assert weekly.measure.area_m2 == 340
+    assert await _preview(client, booking.series_id, "weekly") == weekly.result.price_pence
+    assert weekly.result.price_pence != await _engine_price(db, "weekly", band=plan_changes.DEFAULT_BAND)
+    change = await db["quotes"].find_one({"answers.frequency": "weekly", "user_id": {"$ne": None}})
+    assert change["measure"]["method"] == "paced" and len(change["measure"]["lawns"]) == 2
+
+
 async def test_a_negotiated_price_stays_in_proportion_and_applies_on_acceptance(client, db, catalogue):
     _dave, booking = await _mowing_plan(client, db, counter_pence=3700)
     sid = booking.series_id

@@ -1063,6 +1063,14 @@ Indexes:
 | `refunded_pence` | int | Integer pence |
 | `refund_ids` | list[str] |  |
 
+### `CountItem`
+
+| Field | Type | Notes |
+|---|---|---|
+| `key` | str |  |
+| `label` | str |  |
+| `hint` | str \| None (optional) |  |
+
 ### `CoverState`
 
 | Field | Type | Notes |
@@ -1164,16 +1172,37 @@ Indexes:
 | `max_photos` | int \| None (optional) | For photos: most files accepted |
 | `default` | Any | Default answer: str, list[str], int, dict[str, int] or [] for photos |
 
+### `IntakeOption`
+
+| Field | Type | Notes |
+|---|---|---|
+| `value` | str |  |
+| `label` | str |  |
+| `hint` | str \| None (optional) |  |
+
 ### `Measure`
 
 | Field | Type | Notes |
 |---|---|---|
-| `estimator` | str | AreaEstimator id, e.g. manual_bands_v0 |
-| `area_m2` | int |  |
+| `estimator` | str | AreaEstimator id: manual_bands_v0 or customer_measured_v0 |
+| `method` | Literal['band', 'paced', 'measured'] | How the customer sized the lawn: picked a size band, paced it out, or gave its length and width |
+| `area_m2` | int | What the engine prices: the band's area, or the lawns' areas summed |
 | `confidence` | Literal['high', 'medium', 'low'] \| None (optional) | How sure the estimator is; becomes the quote's confidence |
 | `band` | str \| None (optional) |  |
 | `adjust` | Literal['smaller', 'right', 'bigger'] \| None (optional) |  |
+| `unit` | Literal['strides', 'm', 'ft'] \| None (optional) | paced: strides (a big stride counts as a metre); measured: m or ft |
+| `lawns` | list[MeasuredLawn] | paced and measured: each lawn, as given |
 | `detail` | dict[str, Any] \| None (optional) | Estimator-specific, e.g. LIDAR polygons |
+
+### `MeasuredLawn`
+
+| Field | Type | Notes |
+|---|---|---|
+| `length` | float | As the customer gave it, in the measure's unit |
+| `width` | float | As the customer gave it, in the measure's unit |
+| `length_m` | float |  |
+| `width_m` | float |  |
+| `area_m2` | int | length_m x width_m, rounded half-up to whole m² |
 
 ### `MileageLeg`
 
@@ -1338,6 +1367,15 @@ Indexes:
 | `refund_id` | str \| None (optional) |  |
 | `funded_by` | Literal['provider'] |  |
 | `note` | str |  |
+
+### `SavedCard`
+
+| Field | Type | Notes |
+|---|---|---|
+| `brand` | str |  |
+| `last4` | str |  |
+| `exp_month` | int |  |
+| `exp_year` | int |  |
 
 ### `TaxDetails`
 

@@ -31,7 +31,7 @@ async def test_create_request_broadcasts_with_magic_links_and_confirms(client, d
     assert r.status_code == 201, r.text
     detail = r.json()
     assert detail["status"] == "open" and detail["guide_pence"] == 3100 and detail["alerted"] == 1
-    assert detail["size_text"] == "Large (about 190 m²)"
+    assert detail["size_text"] == "a large lawn (about 190 m²)"
     assert detail["frequency_label"] == "every 2 weeks"
     assert [t["kind"] for t in detail["timeline"]] == ["sent"]
     assert detail["timeline"][0]["text"] == "Sent to checked mowing providers near HP15"

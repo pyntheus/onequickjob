@@ -281,12 +281,17 @@ def domain() -> str:
             idx_rows.append(f"- `{keys}`" + (f" ({'; '.join(flags)})" if flags else ""))
         sec += ["", "Indexes:" if idx_rows else "Indexes: `_id` only.", *idx_rows, ""]
         sections.append("\n".join(sec))
-        for f in model.model_fields.values():
-            for t in re.findall(r"\b([A-Z]\w+)\b", str(f.annotation)):
-                mod = __import__(model.__module__, fromlist=[t])
-                obj = getattr(mod, t, None)
-                if isinstance(obj, type) and issubclass(obj, BaseModel) and not hasattr(obj, "COLLECTION"):
-                    embedded[t] = obj
+        todo = [model]
+        while todo:  # value objects, and the value objects inside them (Measure's MeasuredLawn)
+            m = todo.pop()
+            for f in m.model_fields.values():
+                for t in re.findall(r"\b([A-Z]\w+)\b", str(f.annotation)):
+                    mod = __import__(m.__module__, fromlist=[t])
+                    obj = getattr(mod, t, None)
+                    if isinstance(obj, type) and issubclass(obj, BaseModel) and not hasattr(obj, "COLLECTION"):
+                        if t not in embedded:
+                            todo.append(obj)
+                        embedded[t] = obj
     for name, (owner, desc) in EXTRA_COLLECTIONS.items():
         out.append(f"| `{name}` | {owner} | {desc} |")
     out += ["", *sections, "## Embedded value objects", ""]

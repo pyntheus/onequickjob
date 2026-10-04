@@ -10,16 +10,34 @@ Confidence = Literal["high", "medium", "low"]
 Unit = Literal["a visit", "one-off", "a clean", "a walk"]
 
 
+class MeasuredLawn(Model):
+    """One lawn the customer paced out or measured (decisions.md A26)."""
+
+    length: float = Field(description="As the customer gave it, in the measure's unit")
+    width: float = Field(description="As the customer gave it, in the measure's unit")
+    length_m: float
+    width_m: float
+    area_m2: int = Field(description="length_m x width_m, rounded half-up to whole m²")
+
+
 class Measure(Model):
     """How the lawn area was worked out. Only for categories with measure == lawn."""
 
-    estimator: str = Field(description="AreaEstimator id, e.g. manual_bands_v0")
-    area_m2: int
+    estimator: str = Field(description="AreaEstimator id: manual_bands_v0 or customer_measured_v0")
+    method: Literal["band", "paced", "measured"] = Field(
+        default="band",
+        description="How the customer sized the lawn: picked a size band, paced it out, or gave its length and width",
+    )
+    area_m2: int = Field(description="What the engine prices: the band's area, or the lawns' areas summed")
     confidence: Literal["high", "medium", "low"] | None = Field(
         default=None, description="How sure the estimator is; becomes the quote's confidence"
     )
     band: str | None = None
     adjust: Literal["smaller", "right", "bigger"] | None = None
+    unit: Literal["strides", "m", "ft"] | None = Field(
+        default=None, description="paced: strides (a big stride counts as a metre); measured: m or ft"
+    )
+    lawns: list[MeasuredLawn] = Field(default_factory=list, description="paced and measured: each lawn, as given")
     detail: dict[str, Any] | None = Field(default=None, description="Estimator-specific, e.g. LIDAR polygons")
 
 

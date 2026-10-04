@@ -17,7 +17,11 @@ async function screens(page: Page): Promise<Screen[]> {
   await signInAs(page, "admin_jo", "/admin");
   const providers = await api(page, "GET", "/api/admin/providers");
   const dave = providers.find((p: { short: string }) => p.short === "Dave H.");
-  const invite = await message(page, "own_customer_invite", PHONES.mary);
+  // Mary's seeded invite, through the admin outbox's filter: after every journey it's no longer
+  // among the drawer's latest 100 messages.
+  const invites = await api(page, "GET", "/api/admin/outbox?template_id=own_customer_invite&limit=200");
+  const invite = invites.items.find((m: { recipient: { phone?: string } }) => m.recipient.phone === PHONES.mary);
+  expect(invite, "Mary's own-customer invite in the outbox").toBeTruthy();
   await signInAs(page, "dave", "/p");
   const jobs = await api(page, "GET", "/api/p/jobs");
   const openJob = jobs.find((j: { status?: string; request_ref: string }) => j.request_ref);
@@ -141,6 +145,21 @@ test("screens inside flows: the quote steps, the finish screen, the plan-change 
   await page.getByRole("button", { name: "See my price" }).click();
   await page.getByRole("button", { name: /^Large/ }).click();
   await note("customer: lawn size");
+  await page.getByRole("tab", { name: "Pace it out" }).click();
+  await page.getByRole("textbox", { name: "Strides long" }).fill("12");
+  await page.getByRole("textbox", { name: "Strides wide" }).fill("8");
+  await page.getByRole("button", { name: "Add another lawn" }).click();
+  await page.getByRole("group", { name: "Lawn 2" }).getByRole("textbox", { name: "Strides long" }).fill("7");
+  await page.getByRole("group", { name: "Lawn 2" }).getByRole("textbox", { name: "Strides wide" }).fill("6");
+  await expect(page.getByText("That's about 138 m² in total across 2 lawns")).toBeVisible();
+  await note("customer: lawn size, paced out (two lawns)");
+  await page.getByRole("tab", { name: "I know the size" }).click();
+  await page.getByRole("button", { name: "Feet" }).click();
+  await page.getByRole("textbox", { name: "Length" }).fill("400");
+  await page.getByRole("textbox", { name: "Width" }).fill("20");
+  await expect(page.getByText(/between 3.3 and 328 feet/)).toBeVisible();
+  await note("customer: lawn size, measured, refused");
+  await page.getByRole("tab", { name: "Pick a size" }).click();
   await page.getByRole("button", { name: "Continue" }).click();
   await expect(page.getByRole("heading", { name: "A few quick questions" })).toBeVisible();
   await note("customer: questions");
