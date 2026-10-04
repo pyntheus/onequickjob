@@ -5,8 +5,12 @@
 // browses for over three minutes (the customer site with the Outbox open, the provider app, signed
 // in and out), and fails on a second sign-in box or on any 401 in Caddy's access log for its run
 // (make e2e follows the log into CADDY_LOG). Full Chromium, like Chrome, not the headless shell.
+// On the way it checks the provider app is installable, which needs the manifest to load with the
+// password (and, like Chrome, a real profile: nothing installs from an incognito one).
 import { chromium, expect, test, type Page } from "@playwright/test";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const user = process.env.E2E_USER ?? "";
 const pass = process.env.E2E_PASS ?? "";
@@ -54,12 +58,20 @@ test("the site password is asked for once, however long you browse", async ({ ba
 
   const marker = `oqj-e2e-basic-auth-${Date.now().toString(36)}`;
   const ua = `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36 ${marker}`;
-  // Its own browser: the flag gives every request the marker, service worker's included.
-  const browser = await chromium.launch({ channel: "chromium", args: [`--user-agent=${ua}`] });
+  // Its own browser on a fresh profile: the flag gives every request the marker, the service
+  // worker's included. No httpCredentials: the password goes in only through the sign-in box below.
+  const profile = mkdtempSync(join(tmpdir(), "oqj-basic-auth-"));
+  const context = await chromium.launchPersistentContext(profile, {
+    channel: "chromium",
+    args: [`--user-agent=${ua}`],
+    baseURL,
+    userAgent: ua,
+    viewport: { width: 1280, height: 860 },
+    locale: "en-GB",
+    timezoneId: "Europe/London",
+  });
   try {
-    // No httpCredentials: the password goes in only through the sign-in box below.
-    const context = await browser.newContext({ baseURL, userAgent: ua, viewport: { width: 1280, height: 860 }, locale: "en-GB", timezoneId: "Europe/London" });
-    const page = await context.newPage();
+    const page = context.pages()[0] ?? (await context.newPage());
     const cdp = await context.newCDPSession(page);
 
     // The sign-in box: answered with the password the first time, cancelled after that (a person
@@ -112,14 +124,19 @@ test("the site password is asked for once, however long you browse", async ({ ba
         await expect(page.getByRole("navigation", { name: "Provider" })).toBeVisible();
         await openOutbox(page);
         await browse(15);
-        // What Chrome fetches to offer the app for installing (headless Chromium only on request).
+        // What Chrome fetches to offer the app for installing (headless Chromium only on request):
+        // it loads, with no warnings (start_url /p/ inside scope /p), and the app is installable.
         const manifest = await cdp.send("Page.getAppManifest", {});
-        expect(manifest.errors.filter((e) => e.critical), "the manifest loads").toEqual([]);
+        expect(manifest.errors, "the manifest's warnings").toEqual([]);
         expect(manifest.data ?? "", "the manifest loads").toContain("OneQuickJob for providers");
+        const { installabilityErrors } = await cdp.send("Page.getInstallabilityErrors");
+        expect(installabilityErrors, "why the provider app can't be installed").toEqual([]);
         for (const tab of ["Today", "Earnings", "Me"]) {
           await page.getByRole("navigation", { name: "Provider" }).getByRole("link", { name: tab }).click();
           await browse(10);
         }
+        await page.goto("/p/"); // where the installed app starts
+        await expect(page.getByRole("navigation", { name: "Provider" })).toBeVisible();
         await page.reload(); // through the service worker, with its update check
         await expect(page.getByRole("navigation", { name: "Provider" })).toBeVisible();
         await browse(10);
@@ -158,6 +175,7 @@ test("the site password is asked for once, however long you browse", async ({ ba
     expect(manifests.length, "the manifest was fetched").toBeGreaterThan(0);
     expect(manifests.every((st) => st === 200 || st === 304), `manifest fetches: ${manifests.join(", ")}`).toBe(true);
   } finally {
-    await browser.close();
+    await context.close();
+    rmSync(profile, { recursive: true, force: true });
   }
 });

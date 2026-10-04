@@ -633,6 +633,24 @@ Decided by Hasan after reviewing session S's report; each has tests.
 Also confirmed by Hasan: no room for six months refuses the acceptance (A14), the seed's keep-list
 and restarted reference counters (A21), and the web container running as the invoking user.
 
+## 2d. Rulings after the basic-auth fix
+
+Decided by Hasan after the fix for the site password being asked for again (PR #8).
+
+- **A25. "Not signed in" is a 403 with the code `not_signed_in`, never a 401.** The site sits
+  behind basic auth (rule 7). A browser keeps the site password after its sign-in box and sends it
+  with every request, and takes a 401 to any of them, the API's included, as the password being
+  refused: it forgets it, and the next request brings the box back. Chrome did exactly that each
+  time `GET /api/auth/me` answered 401 while signed out. So an endpoint that needs someone signed
+  in answers 403 `not_signed_in` ("Please sign in."; `app.core.deps.current_user`), and no API
+  route answers 401: a 401 only ever comes from Caddy's basic auth. The role checks answer 403
+  too (`admins_only`, `customers_only`, `providers_only`, `helpers_cant`...), so clients check the
+  code, not the status: the web's `useMe` reads `not_signed_in` as signed out. For the same
+  reason the provider app's manifest is fetched with credentials (`crossorigin="use-credentials"`).
+  (`test_auth.py`: `test_no_route_answers_401`, and the signed-out checks through
+  `tests.conftest.signed_out`; e2e `x-basic-auth.spec.ts`: the password typed once, three minutes
+  of browsing, no second sign-in box and no 401 in Caddy's access log.)
+
 ## 3. Open questions (for Hasan)
 
 - **Q1 (resolved: A1). Counter-offers on jobs with a dearer first visit.** Today a counter sets the per-visit

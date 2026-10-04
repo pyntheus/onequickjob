@@ -1,10 +1,13 @@
 """Sign-in by code: outbox delivery, expiry, attempts, sessions and cookies."""
 
+import re
 from datetime import timedelta
 
+import httpx
 import pytest
 from fastapi import HTTPException
 
+from app.core.routes import api_routes
 from app.core.timeutil import utcnow
 from app.services import auth
 from tests.conftest import latest_code, make_settings, new_client, sign_in, signed_out
@@ -144,6 +147,23 @@ async def test_logout_ends_the_session(client, db):
     assert (await client.post("/api/auth/logout")).status_code == 204
     assert await db["sessions"].count_documents({}) == 0
     assert signed_out(await client.get("/api/auth/me"))
+
+
+async def test_no_route_answers_401(app, db):
+    """A25: a 401 makes browsers drop the site's basic-auth password, so signed out is a 403 and
+    no route, called without a session, answers 401."""
+    transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+    asked = 0
+    async with httpx.AsyncClient(transport=transport, base_url="https://test") as c:
+        for route in api_routes(app):
+            path = re.sub(r"\{[^}]+\}", "x", route.path)
+            for method in route.methods - {"HEAD", "OPTIONS"}:
+                r = await c.request(method, path, json={})
+                assert r.status_code != 401, f"{method} {path}"
+                asked += r.status_code == 403 and "not_signed_in" in r.text
+    assert asked > 20, "most routes ask for a sign-in"
+    documented = [code for item in app.openapi()["paths"].values() for op in item.values() for code in op["responses"]]
+    assert "401" not in documented
 
 
 async def test_expired_session_is_not_accepted(client, db):

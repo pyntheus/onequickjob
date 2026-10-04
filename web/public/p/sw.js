@@ -1,7 +1,9 @@
 /* OneQuickJob for providers: a service worker for the app shell only (lane L2 ruling).
  * Pages under /p are fetched from the network first; if the network is down, the last shell
  * we saw is shown so the app still opens. The API, uploads and files are never cached:
- * jobs, money and messages always come fresh from the server. */
+ * jobs, money and messages always come fresh from the server.
+ * The manifest starts the installed app at /p/, inside this worker's scope, so it opens offline
+ * too; its own scope is /p, so the app's many links to /p never leave the installed app. */
 const SHELL = "oqj-p-shell-v1";
 
 self.addEventListener("install", (event) => {

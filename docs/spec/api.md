@@ -10,7 +10,9 @@ in `web/src/api/schema.d.ts` come from it (`make types`).
 - **Auth**: the `oqj_session` cookie (httpOnly, Secure, SameSite=Lax) from
   `POST /api/auth/verify`, `/api/auth/magic` or (demo) `/api/demo/switch`. Customer endpoints
   need the customer role (most also a customers record), provider endpoints the provider role
-  (helpers act for their provider), admin endpoints the admin role.
+  (helpers act for their provider), admin endpoints the admin role. Not signed in is a 403 with
+  the code `not_signed_in`, never a 401 (decisions.md A25): no route answers 401, and clients
+  check the code, not the status.
 - **Errors**: `{"detail": {"code": "...", "message": "...", "lane": ..., "extra": {...}}}`.
   `message` is UK English copy you can show; branch on `code`. Validation errors are FastAPI's
   standard 422.
