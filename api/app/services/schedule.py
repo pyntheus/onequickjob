@@ -137,14 +137,27 @@ async def first_slot(
         session=session,
     ):
         busy.setdefault(v.local_date, []).append(Busy(v.scheduled_start, v.est_mins))
-    # Regular plans are made only six weeks ahead: their later dates are taken too (pauses aside),
-    # so a first visit chosen beyond the horizon never collides with a top-up (Codex re-check).
-    for series in await SeriesRepo(db).find({"provider_id": provider.id, "status": "active"}, session=session):
-        made = await Visits(db).find_one({"series_id": series.id}, sort=[("local_date", -1)], session=session)
-        after = max(made.local_date if made else series.anchor_date - timedelta(days=1), first - timedelta(days=1))
+    # Regular plans are made only some weeks ahead, and not always every date (a change of frequency
+    # fills six weeks, leaving gaps before visits made further out): every plan date in the span
+    # is taken unless the plan has a visit stored for that date, which says what really happens
+    # (above if it goes ahead; a cancelled or skipped one frees the date). So a first visit never
+    # collides with a visit a later top-up or fill makes (Codex reviews).
+    plans = await SeriesRepo(db).find({"provider_id": provider.id, "status": "active"}, session=session)
+    stored = (
+        {
+            (v.series_id, v.local_date)
+            for v in await Visits(db).find(
+                {"series_id": {"$in": [p.id for p in plans]}, "local_date": span}, session=session
+            )
+        }
+        if plans
+        else set()
+    )
+    for series in plans:
         hh, mm = (int(x) for x in series.start_time.split(":"))
-        for d in occurrences(series, after, last):
-            busy.setdefault(d, []).append(Busy(london_datetime(d, time(hh, mm)), series.est_mins))
+        for d in occurrences(series, first - timedelta(days=1), last):
+            if (series.id, d) not in stored:
+                busy.setdefault(d, []).append(Busy(london_datetime(d, time(hh, mm)), series.est_mins))
     working = [
         d
         for d in (first + timedelta(days=k) for k in range(SEARCH_DAYS))

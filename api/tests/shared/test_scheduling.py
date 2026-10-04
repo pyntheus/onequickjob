@@ -332,3 +332,33 @@ async def test_a_first_visit_beyond_the_horizon_avoids_a_regulars_later_dates(db
     pm = to_london(await schedule.first_slot(db, dave, "any", "afternoon", 60, from_day=eight_weeks))
     assert pm.date() == eight_weeks and pm.strftime("%H:%M") == "13:00"
     assert (await Providers(db).get(dave.id)).working_days == ["mon", "tue"]
+
+
+async def test_a_first_visit_avoids_a_regulars_dates_left_unmade_by_a_change_of_frequency(db, catalogue):
+    """Codex third review (high): visits made months ahead (time off looks ahead), then a change to
+    weekly fills only six weeks, leaving the odd weeks unmade before the later fortnightly visits.
+    Every plan date counts as taken unless a visit is stored for it, so a first visit doesn't take
+    such a Monday, and the fill that later makes it can't overlap."""
+    from app.repos import SeriesRepo
+
+    dave = await make_provider(db, "Dave Hughes", "+447700900201", ["mowing"], days=["mon", "tue"])
+    mon = next_weekday(london_today(), 0)
+    plan = _series("fortnightly", mon).model_copy(update={"provider_id": dave.id, "est_mins": 180})
+    await SeriesRepo(db).insert(plan)
+    for weeks in (0, 6, 12):  # made about four months ahead
+        fresh = await SeriesRepo(db).get(plan.id)
+        await schedule.ensure_horizon(db, fresh, dave, today=london_today() + timedelta(weeks=weeks))
+    weekly = await SeriesRepo(db).update(plan.id, {"frequency": "weekly", "days": ["mon"]})
+    await schedule.ensure_horizon(db, weekly, dave, from_day=mon)  # six weeks of weekly dates
+    gap = mon + timedelta(weeks=9)  # an odd week: not made, but later fortnightly visits are
+    assert await Visits(db).count({"series_id": plan.id, "local_date": gap.isoformat()}) == 0
+    assert await Visits(db).count({"series_id": plan.id, "local_date": {"$gt": gap.isoformat()}}) > 0
+    slot = to_london(await schedule.first_slot(db, dave, "any", "morning", 60, from_day=gap))
+    assert slot.date() == gap + timedelta(days=1), "the Tuesday: that Monday morning is the regular's"
+    await schedule.ensure_horizon(db, weekly, dave, today=gap - timedelta(days=1), from_day=mon)
+    made = await Visits(db).find_one({"series_id": plan.id, "local_date": gap.isoformat()})
+    assert made is not None and to_london(made.scheduled_start).date() != slot.date()
+    # A date whose stored visit was cancelled is free again.
+    await Visits(db).update(made.id, {"status": "cancelled", "skipped_reason": "plan_change"})
+    freed = to_london(await schedule.first_slot(db, dave, "any", "morning", 60, from_day=gap))
+    assert freed.date() == gap and freed.strftime("%H:%M") == "09:00"
