@@ -167,8 +167,13 @@ function PriceToAnswer({ plan }: { plan: PlanOut }) {
     <div className="soft small stack" style={{ ...g(8), marginTop: 12 }}>
       <span>
         {who} can do it {pc.to_frequency_label} at <b>{fmt(pc.to_price_pence)} a visit</b> (it's {fmt(plan.price_pence)} now).
-        Your agreement is with {who}; the price is theirs to set.
       </span>
+      {pc.split && (
+        <span>
+          Your agreement is still with {who}. OneQuickJob handles bookings and payments on {who}'s behalf, and {who} pays us a
+          small fee of {fmt(pc.split.fee_pence)} a visit ({pc.split.rate_percent}%). It isn't added to your price.
+        </span>
+      )}
       <div className="row wrap" style={g(8)}>
         <button type="button" className="btn btn-primary btn-sm" onClick={() => answer("approve")} disabled={busy}>
           Agree {fmt(pc.to_price_pence)} a visit

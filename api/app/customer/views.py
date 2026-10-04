@@ -456,7 +456,7 @@ async def visit_views(db: Db, visits: list[Visit], look: Lookup, bookings: dict[
 # --------------------------------------------------------------------------------- plans
 
 
-async def plan_view(db: Db, series: Series, booking: Booking, look: Lookup) -> PlanOut:
+async def plan_view(db: Db, series: Series, booking: Booking, look: Lookup, s: Settings) -> PlanOut:
     cat = await look.cat(series.category_id)
     provider = await look.provider(series.provider_id)
     assert provider is not None
@@ -489,6 +489,9 @@ async def plan_view(db: Db, series: Series, booking: Booking, look: Lookup) -> P
             to_frequency=pc.to_frequency,
             to_frequency_label=frequency_label(pc.to_frequency) or "",
             to_price_pence=pc.to_price_pence,
+            split=fee_split(pc.to_price_pence, money.mode_for_source(booking.source), s)
+            if pc.to_price_pence is not None
+            else None,
             expires_at=pc.expires_at,
         )
         if (pc := await PlanChanges(db).pending_for(series.id))

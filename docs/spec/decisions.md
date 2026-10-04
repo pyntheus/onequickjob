@@ -600,10 +600,17 @@ Decided by Hasan after reviewing session S's report; each has tests.
   under A10 (`plan_change_lapsed`); unanswered by the customer, both are told
   (`plan_change_price_lapsed`, `plan_change_price_unanswered`). While open a change stays `pending`,
   with `awaiting` saying whose answer it waits for, so asking again replaces it and cancelling the
-  plan withdraws it, as under A10. The engine is never asked (no quote is written).
+  plan withdraws it, as under A10. The engine is never asked (no quote is written). Before agreeing,
+  the customer sees the commission at the new price, in the invite's agency wording ("... and Dave
+  pays us a small fee of £1.10 a visit (5%). It isn't added to your price."; `PendingPlanChange.split`
+  from money.py). Applying any change of frequency (this approval, or A10's acceptance) is refused
+  with 409 `time_taken` if the dates it adds within six months would run into the provider's other
+  visits or plans (`schedule.first_clash`, on the same busy times as A14); it writes the provider, so
+  a booking or another change for them committing meanwhile conflicts with it (Codex review).
   (`test_plan_changes.py`: `test_an_own_customers_plan_is_never_repriced_by_the_engine`,
   `test_the_provider_or_the_customer_can_keep_an_own_customers_plan_as_it_is`,
-  `test_each_wait_on_an_own_customers_change_lapses_after_48_hours`; web: `account.test.tsx`,
+  `test_each_wait_on_an_own_customers_change_lapses_after_48_hours`; `test_scheduling.py`:
+  `test_a_change_of_frequency_cant_double_book_the_provider`; web: `account.test.tsx`,
   `provider.test.tsx`.)
 - **A23. A provider who works none of the customer's chosen days isn't eligible.** For a request
   whose customer chose weekdays (or weekends), a provider who works none of those days gets no job
@@ -612,9 +619,10 @@ Decided by Hasan after reviewing session S's report; each has tests.
   don't work any weekdays. You can change your working days in Me." A counter made before they
   stopped working those days lapses when the customer accepts it (A9). One rule,
   `eligibility.can_take_request` (`can_take` plus the days), is used by the alerts, the provider's
-  jobs and job page, every acceptance and counter (inside the transaction too) and the demo
-  simulator. Cover requests carry the covered visit's kind of day. (`test_jobs.py`:
-  `test_a_provider_who_works_none_of_the_customers_days_cant_take_the_job`.)
+  jobs and job page, every acceptance and counter (inside the transaction too, on the provider as
+  read and written there) and the demo simulator. Cover requests carry the covered visit's kind of
+  day. (`test_jobs.py`: `test_a_provider_who_works_none_of_the_customers_days_cant_take_the_job`;
+  `test_marketplace.py`: `test_a_counter_rechecks_eligibility_inside_its_transaction`.)
 - **A24. Activation needs at least one job type.** A19's checks also include at least one job
   type chosen; choosing jobs can be the last check. The rest of A19 and A20 (helpers marked ready
   once their ID is checked) stand. (`test_lifecycle.py`: `test_activation_needs_at_least_one_job_type`.)

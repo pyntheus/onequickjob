@@ -4782,6 +4782,8 @@ export interface components {
              * @enum {string}
              */
             kind: "reprice" | "provider_price";
+            /** @description Who gets what at the new price (money.py), to show the fee before agreeing it */
+            split?: components["schemas"]["FeeSplit"] | null;
             /** To Frequency */
             to_frequency: string;
             /** To Frequency Label */

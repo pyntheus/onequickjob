@@ -108,6 +108,14 @@ async def provider_for_booking(db: Db, provider_id: str, session: DbSession) -> 
     return provider
 
 
+async def provider_locked(db: Db, provider_id: str, session: DbSession) -> Provider:
+    """Inside a transaction that doesn't book (a counter): the provider as they are now, written so a
+    profile or document change committing meanwhile conflicts with it and the re-run sees it."""
+    provider = await Providers(db).update(provider_id, {}, session=session)
+    assert provider is not None, provider_id
+    return provider
+
+
 async def claim_request(
     db: Db,
     request_id: str,
@@ -406,6 +414,9 @@ async def make_counter(
     cu = await Users(db).get(customer.user_id) if customer else None
 
     async def counter(session: DbSession) -> Offer:
+        # Eligibility again, on the provider as they are in this transaction (A23: their working days
+        # can change meanwhile).
+        _check_can_take(await provider_locked(db, provider.id, session), cat, req)
         # Offers are immutable: a changed price withdraws the old offer and makes a new one, so
         # a customer accepting an offer id always gets exactly the price that offer showed.
         offers = Offers(db)

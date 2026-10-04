@@ -29,6 +29,9 @@ export function AddressSearch({ value, onText, onResolved, label = "Your address
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const typed = useRef(false);
+  // Closing the list on blur waits a moment (so a click on an item lands); never after unmounting.
+  const closing = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(closing.current), []);
 
   useEffect(() => {
     const q = value.trim();
@@ -112,7 +115,9 @@ export function AddressSearch({ value, onText, onResolved, label = "Your address
             onText(e.target.value);
           }}
           onKeyDown={onKey}
-          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          onBlur={() => {
+            closing.current = setTimeout(() => setOpen(false), 150);
+          }}
           onFocus={() => items.length && setOpen(true)}
         />
       </span>

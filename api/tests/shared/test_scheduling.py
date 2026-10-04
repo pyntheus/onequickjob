@@ -362,3 +362,50 @@ async def test_a_first_visit_avoids_a_regulars_dates_left_unmade_by_a_change_of_
     await Visits(db).update(made.id, {"status": "cancelled", "skipped_reason": "plan_change"})
     freed = to_london(await schedule.first_slot(db, dave, "any", "morning", 60, from_day=gap))
     assert freed.date() == gap and freed.strftime("%H:%M") == "09:00"
+
+
+async def test_a_change_of_frequency_cant_double_book_the_provider(db, catalogue):
+    """Codex review of A22 (and A10's accept, which shares it): two fortnightly plans on alternate
+    Mondays at 9:00; making one weekly would put it on top of the other. The change is refused
+    (409 time_taken) and nothing moves; at a time that's free it goes ahead."""
+    import pytest
+    from fastapi import HTTPException
+
+    from app.core.db import transaction
+    from app.customer import account
+    from app.models.bookings import Booking
+    from app.repos import SeriesRepo
+    from tests.factories import HAZLEMERE
+
+    dave = await make_provider(db, "Dave Hughes", "+447700900201", ["mowing"], days=["mon", "tue", "wed", "thu", "fri"])
+    mon = next_weekday(london_today(), 0)
+    plans = []
+    for k, anchor in enumerate((mon, mon + timedelta(days=7))):
+        plan = _series("fortnightly", anchor).model_copy(
+            update={"provider_id": dave.id, "est_mins": 120, "booking_id": f"b{k}"}
+        )
+        await SeriesRepo(db).insert(plan)
+        await schedule.ensure_horizon(db, plan, dave)
+        plans.append(plan)
+    first = plans[0]
+    booking = Booking(
+        id="b0", ref="B-1101", source="own_customer", customer_id="c", provider_id=dave.id, category_id="mowing",
+        via="invite", price_pence=3000, unit="a visit", recurring=True, frequency="fortnightly", address=HAZLEMERE,
+        series_id=first.id,
+    )  # fmt: skip
+
+    async def weekly(session):
+        fresh = await SeriesRepo(db).get(first.id, session=session)
+        return await account.apply_frequency_change(db, fresh, booking, dave, "weekly", 2800, session=session)
+
+    with pytest.raises(HTTPException) as e:
+        await transaction(db, weekly)
+    assert e.value.status_code == 409 and e.value.detail["code"] == "time_taken"
+    assert "clash with another visit at 09:00 on" in e.value.detail["message"]
+    after = await SeriesRepo(db).get(first.id)
+    assert (after.frequency, after.price_pence) == ("fortnightly", 3000), "nothing moved"
+    # Once the other plan is in the afternoon, the change goes ahead without overlapping it.
+    await SeriesRepo(db).update(plans[1].id, {"start_time": "14:00"})
+    await db["visits"].delete_many({"series_id": plans[1].id})
+    await transaction(db, weekly)
+    assert (await SeriesRepo(db).get(first.id)).frequency == "weekly"

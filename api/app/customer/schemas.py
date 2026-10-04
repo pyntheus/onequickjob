@@ -210,6 +210,9 @@ class PendingPlanChange(BaseModel):
     to_frequency: str
     to_frequency_label: str
     to_price_pence: int | None = Field(description="None while an own customer's provider hasn't named a price yet")
+    split: FeeSplit | None = Field(
+        default=None, description="Who gets what at the new price (money.py), to show the fee before agreeing it"
+    )
     expires_at: datetime
 
 

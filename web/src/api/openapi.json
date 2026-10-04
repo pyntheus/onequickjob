@@ -5767,6 +5767,17 @@
             "title": "Kind",
             "type": "string"
           },
+          "split": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FeeSplit"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who gets what at the new price (money.py), to show the fee before agreeing it"
+          },
           "to_frequency": {
             "title": "To Frequency",
             "type": "string"

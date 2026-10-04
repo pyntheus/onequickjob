@@ -118,7 +118,6 @@ async def first_slot(
     there's none at all, it raises Conflict no_free_day, which undoes the booking (409)."""
     first = from_day or (london_today() + timedelta(days=1))
     last = first + timedelta(days=SEARCH_DAYS - 1)
-    span = {"$gte": first.isoformat(), "$lte": last.isoformat()}
     away = [
         (t.from_date, t.to_date)
         for t in await TimeOffRepo(db).find(
@@ -131,18 +130,51 @@ async def first_slot(
             session=session,
         )
     ]
+    busy = await provider_busy(db, provider.id, first, last, session=session)
+    working = [
+        d
+        for d in (first + timedelta(days=k) for k in range(SEARCH_DAYS))
+        if weekday_key(d) in provider.working_days and not any(a <= d <= b for a, b in away)
+    ]
+    for candidates in ([d for d in working if suits(d, days)], working):
+        for d in candidates:
+            if (slot := slot_on(d, window, mins, busy.get(d, []))) is not None:
+                return slot
+    # No working day with room in six months (none at all, away throughout, or every one full):
+    # nothing can be booked, so the booking's transaction is undone (409).
+    raise Conflict(
+        "no_free_day", f"{provider.short} has no free day for this in the next six months, so it can't be booked."
+    )
+
+
+async def provider_busy(
+    db: Db,
+    provider_id: str,
+    first: date,
+    last: date,
+    *,
+    except_series: str | None = None,
+    session: DbSession | None = None,
+) -> dict[date, list[Busy]]:
+    """The provider's time already taken, by day, from first to last: their visits going ahead, and
+    every date of their active plans that has no visit stored yet. Regular plans are made only some
+    weeks ahead, and not always every date (a change of frequency fills six weeks, leaving gaps
+    before visits made further out), so a plan date counts as taken unless the plan has a visit
+    stored for it, which says what really happens (a cancelled or skipped one frees it). Leaves
+    out the plan except_series. (Codex reviews of A14.)"""
+    span = {"$gte": first.isoformat(), "$lte": last.isoformat()}
     busy: dict[date, list[Busy]] = {}
     for v in await Visits(db).find(
-        {"provider_id": provider.id, "local_date": span, "status": {"$nin": ["cancelled", "skipped"]}},
+        {"provider_id": provider_id, "local_date": span, "status": {"$nin": ["cancelled", "skipped"]}},
         session=session,
     ):
-        busy.setdefault(v.local_date, []).append(Busy(v.scheduled_start, v.est_mins))
-    # Regular plans are made only some weeks ahead, and not always every date (a change of frequency
-    # fills six weeks, leaving gaps before visits made further out): every plan date in the span
-    # is taken unless the plan has a visit stored for that date, which says what really happens
-    # (above if it goes ahead; a cancelled or skipped one frees the date). So a first visit never
-    # collides with a visit a later top-up or fill makes (Codex reviews).
-    plans = await SeriesRepo(db).find({"provider_id": provider.id, "status": "active"}, session=session)
+        if except_series is None or v.series_id != except_series:
+            busy.setdefault(v.local_date, []).append(Busy(v.scheduled_start, v.est_mins))
+    plans = [
+        p
+        for p in await SeriesRepo(db).find({"provider_id": provider_id, "status": "active"}, session=session)
+        if p.id != except_series
+    ]
     stored = (
         {
             (v.series_id, v.local_date)
@@ -158,20 +190,38 @@ async def first_slot(
         for d in occurrences(series, first - timedelta(days=1), last):
             if (series.id, d) not in stored:
                 busy.setdefault(d, []).append(Busy(london_datetime(d, time(hh, mm)), series.est_mins))
-    working = [
-        d
-        for d in (first + timedelta(days=k) for k in range(SEARCH_DAYS))
-        if weekday_key(d) in provider.working_days and not any(a <= d <= b for a, b in away)
-    ]
-    for candidates in ([d for d in working if suits(d, days)], working):
-        for d in candidates:
-            if (slot := slot_on(d, window, mins, busy.get(d, []))) is not None:
-                return slot
-    # No working day with room in six months (none at all, away throughout, or every one full):
-    # nothing can be booked, so the booking's transaction is undone (409).
-    raise Conflict(
-        "no_free_day", f"{provider.short} has no free day for this in the next six months, so it can't be booked."
-    )
+    return busy
+
+
+def overlaps(start: datetime, mins: int, busy: list[Busy]) -> bool:
+    """Would a visit at start for mins run into any of busy, travel time included?"""
+    end = start + timedelta(minutes=mins)
+    for b in busy:
+        b_end = b.scheduled_start + timedelta(minutes=b.est_mins)
+        if start < b_end + TRAVEL_BUFFER and end + TRAVEL_BUFFER > b.scheduled_start:
+            return True
+    return False
+
+
+async def first_clash(db: Db, series: Series, after: date, *, session: DbSession | None = None) -> date | None:
+    """The first date after `after`, within six months, that the plan would add (it has no visit going
+    ahead on it yet) and that runs into the provider's other visits or plans: a change of frequency
+    mustn't double-book them (Codex review of A22). None if there's none."""
+    last = after + timedelta(days=SEARCH_DAYS)
+    own = {
+        v.local_date
+        for v in await Visits(db).find(
+            {"series_id": series.id, "local_date": {"$gt": after.isoformat()}, "status": {"$nin": ["cancelled"]}},
+            session=session,
+        )
+    }
+    dates = [d for d in occurrences(series, after, last) if d not in own]
+    if not dates:
+        return None
+    busy = await provider_busy(db, series.provider_id, dates[0], last, except_series=series.id, session=session)
+    hh, mm = (int(x) for x in series.start_time.split(":"))
+    clashes = (d for d in dates if overlaps(london_datetime(d, time(hh, mm)), series.est_mins, busy.get(d, [])))
+    return next(clashes, None)
 
 
 def occurrences(series: Series, after: date, until: date) -> list[date]:

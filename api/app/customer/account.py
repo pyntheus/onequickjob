@@ -563,6 +563,18 @@ async def apply_frequency_change(
     )
     if updated is None:
         fail(status.HTTP_409_CONFLICT, "plan_cancelled", "This plan is cancelled.")
+    # The new dates mustn't run into the provider's other visits or plans. Writing the provider
+    # makes a booking or another change for them committing meanwhile conflict with this one, so
+    # the re-run sees it.
+    await Providers(db).update(provider.id, {}, session=session)
+    if (clash := await schedule.first_clash(db, updated, anchor, session=session)) is not None:
+        fail(
+            status.HTTP_409_CONFLICT,
+            "time_taken",
+            f"That would clash with another visit at {series.start_time} on {wording.day_text(clash)}, so the plan "
+            f"can't change to {wording.FREQUENCY_WORDS.get(frequency, frequency)} at that time. Message each other to "
+            "find another time.",
+        )
     await Bookings(db).update(booking.id, {"frequency": frequency, "price_pence": price_pence}, session=session)
     on_dates = set(
         schedule.occurrences(updated.model_copy(update={"pause": Pause()}), anchor, today + timedelta(days=500))

@@ -177,6 +177,7 @@ describe("my account", () => {
     const pending = {
       change_id: "pc1", kind: "provider_price", awaiting: "customer", to_frequency: "weekly",
       to_frequency_label: "every week", to_price_pence: 2200, expires_at: "2026-10-05T09:00:00Z",
+      split: { mode: "own_customer", rate_percent: 5, price_pence: 2200, fee_pence: 110, provider_pence: 2090 },
     };
     accountApi({
       "GET /api/c/plans": () => [{ ...plan, price_pence: 2500, provider_sets_price: true, pending_change: pending }],
@@ -184,7 +185,11 @@ describe("my account", () => {
     });
     renderAt("/account?tab=plan");
     expect(await screen.findByText(/Dave can do it every week at/)).toHaveTextContent(
-      "Dave can do it every week at £22 a visit (it's £25 now). Your agreement is with Dave; the price is theirs to set.",
+      "Dave can do it every week at £22 a visit (it's £25 now).",
+    );
+    expect(screen.getByText(/Your agreement is still with Dave/)).toHaveTextContent(
+      "Your agreement is still with Dave. OneQuickJob handles bookings and payments on Dave's behalf, and Dave pays us a " +
+        "small fee of £1.10 a visit (5%). It isn't added to your price.",
     );
     expect(screen.getByRole("button", { name: "Keep it as it is" })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Agree £22 a visit" }));

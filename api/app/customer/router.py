@@ -381,20 +381,20 @@ async def report_problem(visit_id: str, body: ProblemIn, customer: Cust, db: DbD
 
 
 @router.get("/plans")
-async def list_plans(customer: Cust, db: DbDep) -> list[PlanOut]:
+async def list_plans(customer: Cust, db: DbDep, s: SettingsDep) -> list[PlanOut]:
     look = Lookup(db)
     out = []
     for series in await SeriesRepo(db).find({"customer_id": customer.id}, sort=[("created_at", -1)]):
         booking = await Bookings(db).get(series.booking_id)
         if booking:
-            out.append(await plan_view(db, series, booking, look))
+            out.append(await plan_view(db, series, booking, look, s))
     return out
 
 
 @router.get("/plans/{series_id}")
-async def get_plan(series_id: str, customer: Cust, db: DbDep) -> PlanOut:
+async def get_plan(series_id: str, customer: Cust, db: DbDep, s: SettingsDep) -> PlanOut:
     series, booking = await account.own_series(db, series_id, customer)
-    return await plan_view(db, series, booking, Lookup(db))
+    return await plan_view(db, series, booking, Lookup(db), s)
 
 
 @router.patch("/plans/{series_id}")
@@ -410,7 +410,7 @@ async def update_plan(series_id: str, body: PlanUpdate, customer: Cust, db: DbDe
         series = await account.update_plan(db, s, series, booking, customer, user, PlanUpdate(**fields))
     if frequency:
         await plan_changes.request_change(db, s, series, booking, customer, user, frequency, expected)
-    return await plan_view(db, series, booking, Lookup(db))
+    return await plan_view(db, series, booking, Lookup(db), s)
 
 
 @router.get("/plans/{series_id}/reprice")
@@ -441,7 +441,7 @@ async def approve_plan_price(
     plan changes now."""
     series, booking = await account.own_series(db, series_id, customer)
     await plan_changes.approve_price(db, s, series, booking, customer, await _user(db, customer), body.change_id)
-    return await plan_view(db, await SeriesRepo(db).get(series.id) or series, booking, Lookup(db))
+    return await plan_view(db, await SeriesRepo(db).get(series.id) or series, booking, Lookup(db), s)
 
 
 @router.post("/plans/{series_id}/change/decline")
@@ -451,14 +451,14 @@ async def decline_plan_price(
     """An own customer keeps the plan as it is (A22); the provider is told."""
     series, booking = await account.own_series(db, series_id, customer)
     await plan_changes.decline_price(db, s, series, booking, customer, await _user(db, customer), body.change_id)
-    return await plan_view(db, series, booking, Lookup(db))
+    return await plan_view(db, series, booking, Lookup(db), s)
 
 
 @router.post("/plans/{series_id}/cancel")
 async def cancel_plan(series_id: str, customer: Cust, db: DbDep, s: SettingsDep) -> PlanOut:
     series, booking = await account.own_series(db, series_id, customer)
     updated = await account.cancel_plan(db, s, series, booking, customer, await _user(db, customer))
-    return await plan_view(db, updated, await Bookings(db).get(booking.id) or booking, Lookup(db))
+    return await plan_view(db, updated, await Bookings(db).get(booking.id) or booking, Lookup(db), s)
 
 
 # ---------------------------------------------------------------- messages

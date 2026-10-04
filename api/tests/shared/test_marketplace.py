@@ -699,3 +699,18 @@ def test_counter_bounds_are_whole_pounds_from_80_percent_to_three_times():
     assert marketplace.counter_bounds(2200) == (1800, 6600)
     assert marketplace.counter_bounds(2190) == (1800, 6570)  # 17.52 -> 18
     assert marketplace.counter_bounds(1870) == (1500, 5610)  # 14.96 -> 15
+
+
+async def test_a_counter_rechecks_eligibility_inside_its_transaction(db, catalogue):
+    """Codex review (A23): the provider the endpoint read can be out of date by the time the counter
+    is made (Mike has just changed to weekends only). The counter's transaction reads him again, so
+    a weekdays request gets no offer and no text."""
+    from app.repos import Providers
+
+    mike = await make_provider(db, "Mike Reynolds", "+447700900202", ["mowing"], days=["mon", "tue"])
+    req = await make_request(db, await make_customer(db))  # weekdays
+    await Providers(db).patch(mike.id, {"working_days": ["sat", "sun"]})  # mike (the object) is now stale
+    with pytest.raises(Exception) as e:
+        await marketplace.make_counter(db, make_settings(), req.ref, mike, price_pence=3700, reasons=[])
+    assert e.value.status_code == 403 and e.value.detail["code"] == "not_eligible"
+    assert await Offers(db).count({}) == 0 and await db["outbox"].count_documents({"template_id": "counter_offer"}) == 0

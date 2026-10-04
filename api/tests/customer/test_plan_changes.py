@@ -272,6 +272,8 @@ async def test_an_own_customers_plan_is_never_repriced_by_the_engine(client, db,
         "fee_pence": 110,
         "provider_pence": 2090,
     }
+    low = (await client.get(f"/api/c/plan-changes/{token}/preview", params={"price_pence": 1000})).json()
+    assert (low["fee_pence"], low["provider_pence"]) == (100, 900), "the own-customer fee's £1 minimum"
     bad = await client.post(f"/api/c/plan-changes/{token}/price", json={"price_pence": 2250})
     assert bad.status_code == 422 and bad.json()["detail"]["code"] == "price_out_of_range"
     page = (await client.post(f"/api/c/plan-changes/{token}/price", json={"price_pence": 2200})).json()
@@ -286,7 +288,14 @@ async def test_an_own_customers_plan_is_never_repriced_by_the_engine(client, db,
     assert again.status_code == 409 and again.json()["detail"]["code"] == "with_customer"
     assert (await SeriesRepo(db).get(sid)).frequency == "fortnightly"
 
-    change_id = (await client.get(f"/api/c/plans/{sid}")).json()["pending_change"]["change_id"]
+    pending = (await client.get(f"/api/c/plans/{sid}")).json()["pending_change"]
+    change_id = pending["change_id"]
+    # The commission at the new price is disclosed before Mary agrees (money.py: 5%, at least £1).
+    assert (pending["split"]["fee_pence"], pending["split"]["provider_pence"], pending["split"]["rate_percent"]) == (
+        110,
+        2090,
+        5,
+    )
     stale = await client.post(f"/api/c/plans/{sid}/change/approve", json={"change_id": "an-older-one"})
     assert stale.status_code == 409 and stale.json()["detail"]["code"] == "price_change_changed"
     r = await client.post(f"/api/c/plans/{sid}/change/approve", json={"change_id": change_id})
