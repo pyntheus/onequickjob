@@ -268,3 +268,40 @@ async def test_ensure_horizon_from_a_given_day(db, catalogue):
     assert [v.id for v in made] == [third.id]
     back = await Visits(db).get(third.id)
     assert back.status == "scheduled" and back.skipped_reason is None and back.price_pence == 2700
+
+
+async def test_no_working_day_with_room_in_six_months_books_nothing(db, catalogue):
+    """Codex review (high): with no working days, time off throughout, or every working morning
+    full, there's no slot to give, so first_slot refuses (no_free_day) instead of inventing one;
+    the acceptance's transaction is undone and the request stays open."""
+    import pytest
+
+    from app.core.errors import Conflict
+    from app.models.provider_ops import TimeOff
+    from app.repos import JobRequests, Providers, TimeOffRepo
+    from app.services import marketplace
+    from tests.conftest import make_settings
+    from tests.factories import make_customer, make_request
+
+    dave = await make_provider(db, "Dave Hughes", "+447700900201", ["mowing"], days=["mon"])
+    mon = next_weekday(london_today(), 0)
+    nobody = dave.model_copy(update={"working_days": []})
+    with pytest.raises(Conflict) as e:
+        await schedule.first_slot(db, nobody, "any", "morning", 40, from_day=mon)
+    assert e.value.code == "no_free_day" and "Dave H. has no free day" in e.value.message
+    # Every Monday morning for six months already full.
+    for k in range(schedule.SEARCH_DAYS // 7 + 1):
+        await Visits(db).insert(_visit(dave, mon + timedelta(days=7 * k), "09:00", 180))
+    with pytest.raises(Conflict):
+        await schedule.first_slot(db, dave, "any", "morning", 40, from_day=mon)
+    assert to_london(await schedule.first_slot(db, dave, "any", "afternoon", 40, from_day=mon)).date() == mon
+    # Away for the whole horizon: a guide acceptance is refused and nothing is booked.
+    await db["visits"].delete_many({})
+    await TimeOffRepo(db).insert(
+        TimeOff(provider_id=dave.id, from_date=london_today(), to_date=london_today() + timedelta(days=200))
+    )
+    req = await make_request(db, await make_customer(db))
+    with pytest.raises(Conflict):
+        await marketplace.accept_at_guide(db, make_settings(), req.ref, dave)
+    assert (await JobRequests(db).get(req.id)).status == "open" and await db["bookings"].count_documents({}) == 0
+    assert (await Providers(db).get(dave.id)).last_booked_at is None, "the whole acceptance was undone"

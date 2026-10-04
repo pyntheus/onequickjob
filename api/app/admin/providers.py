@@ -25,7 +25,7 @@ from app.admin.schemas import (
 from app.admin.views import counting_doc, doc_of, doc_state, long_date, renewal_waiting, short_name
 from app.core.config import Settings
 from app.core.db import Db, DbSession, transaction
-from app.core.errors import fail, not_found
+from app.core.errors import Conflict, fail, not_found
 from app.core.phone import to_national
 from app.core.timeutil import london_today, utcnow
 from app.models.categories import DocumentType
@@ -191,6 +191,15 @@ async def detail(db: Db, provider_id: str) -> ProviderDetail:
     )
 
 
+def as_reviewed(doc: ProviderDocument, reviewed: str | None) -> None:
+    """A verdict is on the upload the admin reviewed (its file id, from AdminDocument.file_id). If
+    the copy to check is another one now (replaced since the page was opened), nothing changes:
+    409 document_changed. Inside the verdict's transaction, set_document and set_helper_document
+    refuse in the same way if it's replaced after this read."""
+    if doc.file_id != reviewed:
+        raise Conflict("document_changed", "That document has been replaced since you opened it. Have another look.")
+
+
 def held_in_date(docs: list[ProviderDocument], doc_type: str, today: date) -> bool:
     return doc_state(counting_doc(docs, doc_type), today) in ("ok", "warn")
 
@@ -214,6 +223,7 @@ def document_rows(
                 issued_on=d.issued_on if d else None,
                 expires_on=d.expires_on if d else None,
                 file_url=files.get(d.file_id) if d and d.file_id else None,
+                file_id=d.file_id if d else None,
                 verified_by=d.verified_by if d else None,
                 verified_at=d.verified_at if d else None,
                 note=d.note if d else None,
@@ -238,11 +248,15 @@ async def verify_document(
     issued_on: date | None,
     expires_on: date | None,
     actor: Actor,
+    *,
+    reviewed: str | None,
 ) -> None:
+    """reviewed: the upload (file id) the admin looked at; a verdict never lands on another."""
     p = await get_provider(db, provider_id)
     doc = doc_of(p, doc_type)
     if doc is None or doc.status == "missing":
         fail(status.HTTP_404_NOT_FOUND, "no_document", f"{p.short} hasn't uploaded that document yet.")
+    as_reviewed(doc, reviewed)
     dt = await DocumentTypes(db).get(doc_type)
     assert dt is not None
     issued = issued_on or doc.issued_on
@@ -299,11 +313,14 @@ def sentence(text: str) -> str:
     return text if text.endswith((".", "!", "?")) else text + "."
 
 
-async def reject_document(db: Db, s: Settings, provider_id: str, doc_type: DocType, reason: str, actor: Actor) -> None:
+async def reject_document(
+    db: Db, s: Settings, provider_id: str, doc_type: DocType, reason: str, actor: Actor, *, reviewed: str | None
+) -> None:
     p = await get_provider(db, provider_id)
     doc = doc_of(p, doc_type)
     if doc is None or doc.status == "missing":
         fail(status.HTTP_404_NOT_FOUND, "no_document", f"{p.short} hasn't uploaded that document yet.")
+    as_reviewed(doc, reviewed)
     dt = await DocumentTypes(db).get(doc_type)
     assert dt is not None
     rejected = doc.model_copy(update={"status": "rejected", "note": reason, "verified_by": None, "verified_at": None})
@@ -383,12 +400,16 @@ async def verify_helper_document(
     issued_on: date | None,
     expires_on: date | None,
     actor: Actor,
+    *,
+    reviewed: str | None,
 ) -> None:
-    """A helper's document, checked as a provider's is (services.documents.expiry_for); the helper
-    is texted. Marking them ready is a separate step (mark_helper_ready)."""
+    """A helper's document, checked as a provider's is (services.documents.expiry_for), and only
+    the upload the admin reviewed; the helper is texted. Marking them ready is a separate step
+    (mark_helper_ready)."""
     p = await get_provider(db, provider_id)
     helper = _helper(p, user_id)
     doc, dt = await _helper_doc(db, helper, doc_type)
+    as_reviewed(doc, reviewed)
     issued = issued_on or doc.issued_on
     try:
         expiry = documents.expiry_for(dt, issued, expires_on or doc.expires_on)
@@ -429,11 +450,20 @@ async def verify_helper_document(
 
 
 async def reject_helper_document(
-    db: Db, s: Settings, provider_id: str, user_id: str, doc_type: DocType, reason: str, actor: Actor
+    db: Db,
+    s: Settings,
+    provider_id: str,
+    user_id: str,
+    doc_type: DocType,
+    reason: str,
+    actor: Actor,
+    *,
+    reviewed: str | None,
 ) -> None:
     p = await get_provider(db, provider_id)
     helper = _helper(p, user_id)
     doc, dt = await _helper_doc(db, helper, doc_type)
+    as_reviewed(doc, reviewed)
     rejected = doc.model_copy(update={"status": "rejected", "note": reason, "verified_by": None, "verified_at": None})
 
     async def apply(session: DbSession) -> None:

@@ -7,7 +7,7 @@ from app.core.timeutil import add_months, london_today
 from app.models.providers import ProviderDocument, TaxDetails
 from app.repos import Categories, Providers
 from app.services.eligibility import can_take
-from tests.admin.conftest import ok
+from tests.admin.conftest import ok, verdict
 from tests.factories import make_provider
 
 
@@ -37,10 +37,10 @@ async def test_a_basic_dbs_check_is_verified_for_12_months_from_issue(jo, db, ca
     cleaning = await Categories(db).get("cleaning")
     assert cleaning and not can_take(p, cleaning).ok
 
-    r = await jo.post(f"/api/admin/providers/{p.id}/documents/dbs_basic/verify", json={})
+    r = await verdict(jo, f"/api/admin/providers/{p.id}/documents/dbs_basic/verify", {})
     assert r.status_code == 422 and r.json()["detail"]["code"] == "dates_needed"
     d = ok(
-        await jo.post(f"/api/admin/providers/{p.id}/documents/dbs_basic/verify", json={"issued_on": issued.isoformat()})
+        await verdict(jo, f"/api/admin/providers/{p.id}/documents/dbs_basic/verify", {"issued_on": issued.isoformat()})
     )
     dbs = next(x for x in d["documents"] if x["type"] == "dbs_basic")
     assert dbs["status"] == "verified" and dbs["expires_on"] == add_months(issued, 12).isoformat()
@@ -58,25 +58,23 @@ async def test_a_basic_dbs_check_is_verified_for_12_months_from_issue(jo, db, ca
 async def test_insurance_needs_its_expiry_and_cant_be_in_the_past(jo, db, catalogue):
     p = await make_provider(db, "Sue Palmer", "+447700900208", ["hedges"])
     await Providers(db).set_document(p.id, ProviderDocument(type="insurance", status="pending"))
-    r = await jo.post(f"/api/admin/providers/{p.id}/documents/insurance/verify", json={})
+    r = await verdict(jo, f"/api/admin/providers/{p.id}/documents/insurance/verify", {})
     assert r.status_code == 422
-    r = await jo.post(f"/api/admin/providers/{p.id}/documents/insurance/verify", json={"expires_on": "2026-01-01"})
+    r = await verdict(jo, f"/api/admin/providers/{p.id}/documents/insurance/verify", {"expires_on": "2026-01-01"})
     assert r.status_code == 409 and r.json()["detail"]["code"] == "expired"
-    ok(await jo.post(f"/api/admin/providers/{p.id}/documents/insurance/verify", json={"expires_on": "2027-11-19"}))
-    r = await jo.post(f"/api/admin/providers/{p.id}/documents/waste_carrier/verify", json={"expires_on": "2027-11-19"})
+    ok(await verdict(jo, f"/api/admin/providers/{p.id}/documents/insurance/verify", {"expires_on": "2027-11-19"}))
+    r = await verdict(jo, f"/api/admin/providers/{p.id}/documents/waste_carrier/verify", {"expires_on": "2027-11-19"})
     assert r.status_code == 200  # make_provider holds every document
     unknown = await make_provider(db, "Ray Mills", "+447700900206", ["mowing"], docs=[])
-    r = await jo.post(
-        f"/api/admin/providers/{unknown.id}/documents/insurance/verify", json={"expires_on": "2027-11-19"}
-    )
+    r = await verdict(jo, f"/api/admin/providers/{unknown.id}/documents/insurance/verify", {"expires_on": "2027-11-19"})
     assert r.status_code == 404 and r.json()["detail"]["code"] == "no_document"
 
 
 async def test_rejecting_a_document_tells_the_provider_why(jo, db, catalogue):
     p = await make_provider(db, "Steve Collins", "+447700900205", ["mowing"])
     d = ok(
-        await jo.post(
-            f"/api/admin/providers/{p.id}/documents/insurance/reject", json={"reason": "The certificate is blurred"}
+        await verdict(
+            jo, f"/api/admin/providers/{p.id}/documents/insurance/reject", {"reason": "The certificate is blurred"}
         )
     )
     ins = next(x for x in d["documents"] if x["type"] == "insurance")
@@ -171,7 +169,7 @@ async def test_a_renewal_waiting_shows_beside_the_checked_copy_not_as_missing(jo
     assert [(a["issue"], a["action"]) for a in attention] == [("Insurance renewal to check", "Check it")]
 
     # Checking the renewal replaces the old copy: in date for a year, nothing waiting.
-    d = ok(await jo.post(f"/api/admin/providers/{alan.id}/documents/insurance/verify", json={}))
+    d = ok(await verdict(jo, f"/api/admin/providers/{alan.id}/documents/insurance/verify", {}))
     assert d["insurance"] == {
         "status": "ok",
         "expires_on": (soon + timedelta(days=365)).isoformat(),
@@ -218,14 +216,14 @@ async def test_admins_check_a_helpers_documents_and_mark_them_ready(jo, db, cata
     r = await jo.post(f"/api/admin/providers/{dave.id}/helpers/{tom.id}/ready")
     assert r.status_code == 409 and r.json()["detail"]["code"] == "identity_not_checked"
 
-    d = ok(await jo.post(f"/api/admin/providers/{dave.id}/helpers/{tom.id}/documents/identity/verify", json={}))
+    d = ok(await verdict(jo, f"/api/admin/providers/{dave.id}/helpers/{tom.id}/documents/identity/verify", {}))
     [h] = d["helper_checks"]
     assert {x["type"]: x["status"] for x in h["documents"]}["identity"] == "verified" and h["can_mark_ready"]
     msg = await db["outbox"].find_one({"template_id": "document_verified"})
     assert msg["recipient"]["phone"] == "+447700900220" and "we've checked your identity" in msg["body"]
     rejected = ok(
-        await jo.post(
-            f"/api/admin/providers/{dave.id}/helpers/{tom.id}/documents/dbs_basic/reject", json={"reason": "Too blurry"}
+        await verdict(
+            jo, f"/api/admin/providers/{dave.id}/helpers/{tom.id}/documents/dbs_basic/reject", {"reason": "Too blurry"}
         )
     )
     dbs = next(x for x in rejected["helper_checks"][0]["documents"] if x["type"] == "dbs_basic")
@@ -255,8 +253,44 @@ async def test_a_ready_helper_with_checked_documents_can_be_sent_to_a_visit(jo, 
     from app.provider.helpers import helper_missing
 
     dave, tom = await _with_helper(db, [ProviderDocument(type="identity", status="pending", file_id="f-id")])
-    ok(await jo.post(f"/api/admin/providers/{dave.id}/helpers/{tom.id}/documents/identity/verify", json={}))
+    ok(await verdict(jo, f"/api/admin/providers/{dave.id}/helpers/{tom.id}/documents/identity/verify", {}))
     ok(await jo.post(f"/api/admin/providers/{dave.id}/helpers/{tom.id}/ready"))
     helper = (await Providers(db).get(dave.id)).helpers[0]
     assert helper_missing(helper, catalogue["mowing"]) == ["insurance"]
     assert helper_missing(helper, catalogue["cleaning"]) == ["insurance", "dbs_basic"]
+
+
+async def test_a_verdict_is_on_the_upload_the_admin_reviewed(jo, db, catalogue):
+    """Codex review (high): if the provider (or a helper) replaces an upload after the admin opened
+    it, verifying or rejecting with the reviewed upload's id changes nothing (409), and the newer
+    upload waits for its own check."""
+    p = await make_provider(db, "Sue Palmer", "+447700900208", ["hedges"], docs=[])
+    a = ProviderDocument(type="insurance", status="pending", file_id="f-a", expires_on=date(2027, 11, 19))
+    await Providers(db).set_document(p.id, a)
+    seen = next(x for x in ok(await jo.get(f"/api/admin/providers/{p.id}"))["documents"] if x["type"] == "insurance")
+    assert seen["file_id"] == "f-a"
+    b = ProviderDocument(type="insurance", status="pending", file_id="f-b", expires_on=date(2027, 12, 1))
+    others = [d for d in (await Providers(db).get(p.id)).documents if d.type != "insurance"]
+    await Providers(db).patch(p.id, {"documents": [d.model_dump(mode="python") for d in [*others, b]]})
+    path = f"/api/admin/providers/{p.id}/documents/insurance"
+    for action, body in (("verify", {}), ("reject", {"reason": "Blurred"})):
+        r = await jo.post(f"{path}/{action}", json={"file_id": "f-a", **body})
+        assert r.status_code == 409 and r.json()["detail"]["code"] == "document_changed", r.text
+    ins = next(d for d in (await Providers(db).get(p.id)).documents if d.type == "insurance")
+    assert (ins.file_id, ins.status) == ("f-b", "pending")
+    assert await db["audit_log"].count_documents({}) == 0
+    ok(await jo.post(f"{path}/verify", json={"file_id": "f-b"}))  # the upload now on the page
+    ins = next(d for d in (await Providers(db).get(p.id)).documents if d.type == "insurance")
+    assert (ins.file_id, ins.status) == ("f-b", "verified")
+
+    dave, tom = await _with_helper(db, [ProviderDocument(type="identity", status="pending", file_id="t-a")])
+    await db["providers"].update_one(
+        {"_id": dave.id, "helpers.user_id": tom.id}, {"$set": {"helpers.$.documents.0.file_id": "t-b"}}
+    )
+    r = await jo.post(
+        f"/api/admin/providers/{dave.id}/helpers/{tom.id}/documents/identity/verify", json={"file_id": "t-a"}
+    )
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "document_changed"
+    assert (await Providers(db).get(dave.id)).helpers[0].documents[0].status == "pending"
+    missing = await jo.post(f"{path}/verify", json={})
+    assert missing.status_code == 422, "the reviewed upload is required"

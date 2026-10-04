@@ -2384,6 +2384,11 @@ export interface components {
             current_expires_on?: string | null;
             /** Expires On */
             expires_on: string | null;
+            /**
+             * File Id
+             * @description The upload: send it back with a verdict (VerifyDocIn)
+             */
+            file_id?: string | null;
             /** File Url */
             file_url: string | null;
             /** Issued On */
@@ -5550,6 +5555,11 @@ export interface components {
         };
         /** RejectDocIn */
         RejectDocIn: {
+            /**
+             * File Id
+             * @description The upload the admin reviewed (AdminDocument.file_id; null for a copy with no file). If it has been replaced since, nothing changes: 409 document_changed
+             */
+            file_id: string | null;
             /** Reason */
             reason: string;
         };
@@ -6253,6 +6263,11 @@ export interface components {
              * @description For documents with a stated expiry, e.g. insurance
              */
             expires_on?: string | null;
+            /**
+             * File Id
+             * @description The upload the admin reviewed (AdminDocument.file_id; null for a copy with no file). If it has been replaced since, nothing changes: 409 document_changed
+             */
+            file_id: string | null;
             /**
              * Issued On
              * @description For a basic DBS check: the issue date (valid 12 months)

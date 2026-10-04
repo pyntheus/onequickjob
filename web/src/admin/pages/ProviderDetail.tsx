@@ -51,7 +51,8 @@ function VerifyDialog({ p, target, onClose }: { p: Detail; target: Target; onClo
   const [issued, setIssued] = useState(doc.issued_on ?? "");
   const [expires, setExpires] = useState(doc.expires_on ?? "");
   const verify = useAdminAction(() => {
-    const body = { issued_on: issued || null, expires_on: expires || null };
+    // The upload the admin reviewed: if it's been replaced since, the API refuses (409).
+    const body = { file_id: doc.file_id ?? null, issued_on: issued || null, expires_on: expires || null };
     return helper
       ? call(
           api.POST("/api/admin/providers/{provider_id}/helpers/{user_id}/documents/{doc_type}/verify", {
@@ -583,13 +584,13 @@ export default function ProviderDetail() {
                     ? call(
                         api.POST("/api/admin/providers/{provider_id}/helpers/{user_id}/documents/{doc_type}/reject", {
                           params: { path: { provider_id: p.id, user_id: rejecting.helper.user_id, doc_type: rejecting.doc.type } },
-                          body: { reason },
+                          body: { reason, file_id: rejecting.doc.file_id ?? null },
                         }),
                       )
                     : call(
                         api.POST("/api/admin/providers/{provider_id}/documents/{doc_type}/reject", {
                           params: { path: { provider_id: p.id, doc_type: rejecting.doc.type } },
-                          body: { reason },
+                          body: { reason, file_id: rejecting.doc.file_id ?? null },
                         }),
                       )
                 }

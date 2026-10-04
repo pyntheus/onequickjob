@@ -457,12 +457,16 @@ has tests.
   ahead (it was four weeks) for the first day the provider works, isn't away, suits the customer
   and has room; if the customer's days and the provider's never meet, it takes the provider's
   first working day with room (they rearrange by message). It never picks a day the provider
-  doesn't work or is away; the old fallback (tomorrow at the window's start, whatever the day)
-  is gone. Skipped visits no longer block a slot. (`test_scheduling.py`:
+  doesn't work or is away, or a day without room; the old fallback (tomorrow at the window's
+  start, whatever the day) is gone. With no working day that has room in six months, nothing is
+  booked: `first_slot` raises the domain conflict `no_free_day` ("Dave H. has no free day for
+  this in the next six months, so it can't be booked."), the acceptance's transaction is undone
+  and the request stays open (Codex review). Skipped visits no longer block a slot. (`test_scheduling.py`:
   `test_a_first_visit_longer_than_its_window_starts_at_the_window_start`,
   `test_a_long_visit_only_starts_at_the_window_start`,
   `test_the_first_visit_keeps_to_working_days_and_time_off_beyond_four_weeks`,
-  `test_weekday_only_cleaning_and_flatpack_bookings_get_a_weekday_first_visit`.)
+  `test_weekday_only_cleaning_and_flatpack_bookings_get_a_weekday_first_visit`,
+  `test_no_working_day_with_room_in_six_months_books_nothing`.)
 - **A15. Margaret's weekly re-price (A10) was £32 because her plan had no lawn size** (Session S
   investigation). The seed wrote her fortnightly £32 plan (the prototype's price) with no
   request, so A10 had no lawn size on record and priced both frequencies at the medium band
@@ -540,9 +544,14 @@ has tests.
   "Renewal waiting, checked copy until ...", and the overview "Insurance renewal to check"
   (Check it) instead of an expiry reminder. With no checked copy in date and an upload waiting,
   insurance shows "Renewal waiting" ("Waiting for a check" while signing up), status `renewal`.
+  Every verdict, on a provider's document or a helper's, names the upload the admin reviewed
+  (`file_id`, required, from `AdminDocument.file_id`): if that upload has been replaced since the
+  page was opened, nothing changes (409 `document_changed`; inside the transaction too, through
+  the repository's check), so an unseen upload is never verified or rejected (Codex review).
   (`test_providers.py`: `test_a_renewal_waiting_shows_beside_the_checked_copy_not_as_missing`,
   `test_admins_check_a_helpers_documents_and_mark_them_ready`,
-  `test_a_ready_helper_with_checked_documents_can_be_sent_to_a_visit`.)
+  `test_a_ready_helper_with_checked_documents_can_be_sent_to_a_visit`,
+  `test_a_verdict_is_on_the_upload_the_admin_reviewed`.)
 - **A21. `make seed` resets the demo** (Hasan's brief to S; contract-changes L1 14, L2).
   Before writing, the seed deletes every document demo runs created, in every collection (requests
   and cover requests, offers, bookings, plans, visits, ratings, disputes, threads and messages, the

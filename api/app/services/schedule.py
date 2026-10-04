@@ -10,7 +10,8 @@
   four hours; the morning is three), which starts at the window's start on a day with room
   for all of it and runs over (decisions.md A14). If nothing fits within six months, the
   first working day with room, whatever the customer's days: the provider rearranges by
-  message. Never a day the provider doesn't work or is away.
+  message. Never a day the provider doesn't work or is away; with no working day that has room
+  in six months, nothing is booked (409 no_free_day).
 - Recurring visits keep the first visit's weekday and time; materialised 6 weeks ahead
   (at least the next two), idempotently (unique series_id + local_date).
 - Frequencies: weekly 7 days, fortnightly 14, threeweekly 21, fourweekly 28,
@@ -23,6 +24,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from typing import Literal
 
 from app.core.db import Db, DbSession, transaction
+from app.core.errors import Conflict
 from app.core.timeutil import add_months, london_datetime, london_today, to_london, weekday_key
 from app.models.bookings import Frequency, Series
 from app.models.common import DaysPref, TimePref, Weekday
@@ -105,7 +107,8 @@ async def first_slot(
     """The first visit's start: the earliest day from from_day (tomorrow by default) that the
     provider works, isn't away, suits the customer and has room in the window (slot_on). If no
     such day comes within SEARCH_DAYS, the provider's first working day with room, whatever the
-    customer's days (they can rearrange by message); never a day they don't work or are away."""
+    customer's days (they can rearrange by message); never a day they don't work or are away. If
+    there's none at all, it raises Conflict no_free_day, which undoes the booking (409)."""
     first = from_day or (london_today() + timedelta(days=1))
     last = first + timedelta(days=SEARCH_DAYS - 1)
     span = {"$gte": first.isoformat(), "$lte": last.isoformat()}
@@ -137,9 +140,11 @@ async def first_slot(
         for d in candidates:
             if (slot := slot_on(d, window, mins, busy.get(d, []))) is not None:
                 return slot
-    # Six months with every working day away or full, or no working days at all: the first
-    # working day (else the first day), at the window's start.
-    return london_datetime(working[0] if working else first, WINDOWS[window][0])
+    # No working day with room in six months (none at all, away throughout, or every one full):
+    # nothing can be booked, so the booking's transaction is undone (409).
+    raise Conflict(
+        "no_free_day", f"{provider.short} has no free day for this in the next six months, so it can't be booked."
+    )
 
 
 def occurrences(series: Series, after: date, until: date) -> list[date]:

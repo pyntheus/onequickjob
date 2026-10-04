@@ -8,7 +8,7 @@ from app.core.timeutil import london_today
 from app.models.providers import PaymentAccount, ProviderDocument, TaxDetails
 from app.repos import Providers
 from app.services import lifecycle
-from tests.admin.conftest import jo, ok  # noqa: F401 (the signed-in admin client)
+from tests.admin.conftest import jo, ok, verdict  # noqa: F401 (the signed-in admin client)
 from tests.conftest import sign_in
 from tests.factories import make_provider
 
@@ -34,7 +34,7 @@ async def _ken(db, skills: list[str], *, tax: bool = True, account: bool = True,
 async def test_verifying_the_last_check_activates_texts_and_audits(jo, db, catalogue):  # noqa: F811
     ken = await _ken(db, ["mowing"], docs=("insurance",))
     assert await lifecycle.missing_checks(db, ken) == ["identity"]
-    d = ok(await jo.post(f"/api/admin/providers/{ken.id}/documents/identity/verify", json={}))
+    d = ok(await verdict(jo, f"/api/admin/providers/{ken.id}/documents/identity/verify", {}))
     assert d["status"] == "active"
     msgs = await db["outbox"].find({"template_id": "provider_activated"}).to_list()
     assert len(msgs) == 1 and msgs[0]["recipient"]["phone"] == "+447700900212"
@@ -49,7 +49,7 @@ async def test_verifying_the_last_check_activates_texts_and_audits(jo, db, catal
 
 async def test_a_job_that_needs_dbs_waits_for_the_dbs_check(jo, db, catalogue):  # noqa: F811
     ken = await _ken(db, ["mowing", "cleaning"], docs=("insurance",))
-    ok(await jo.post(f"/api/admin/providers/{ken.id}/documents/identity/verify", json={}))
+    ok(await verdict(jo, f"/api/admin/providers/{ken.id}/documents/identity/verify", {}))
     ken = await Providers(db).get(ken.id)
     assert ken.status == "signing_up" and await lifecycle.missing_checks(db, ken) == ["dbs_basic"]
     d = ok(await jo.get(f"/api/admin/providers/{ken.id}"))
@@ -57,8 +57,8 @@ async def test_a_job_that_needs_dbs_waits_for_the_dbs_check(jo, db, catalogue): 
     issued = london_today().replace(day=1)
     await Providers(db).set_document(ken.id, ProviderDocument(type="dbs_basic", status="pending", file_id="f-dbs"))
     d = ok(
-        await jo.post(
-            f"/api/admin/providers/{ken.id}/documents/dbs_basic/verify", json={"issued_on": issued.isoformat()}
+        await verdict(
+            jo, f"/api/admin/providers/{ken.id}/documents/dbs_basic/verify", {"issued_on": issued.isoformat()}
         )
     )
     assert d["status"] == "active"
@@ -66,7 +66,7 @@ async def test_a_job_that_needs_dbs_waits_for_the_dbs_check(jo, db, catalogue): 
 
 async def test_nothing_happens_while_a_check_is_left(jo, db, catalogue):  # noqa: F811
     ken = await _ken(db, ["mowing"], tax=False, docs=("insurance",))
-    ok(await jo.post(f"/api/admin/providers/{ken.id}/documents/identity/verify", json={}))
+    ok(await verdict(jo, f"/api/admin/providers/{ken.id}/documents/identity/verify", {}))
     assert (await Providers(db).get(ken.id)).status == "signing_up"
     assert await db["outbox"].count_documents({"template_id": "provider_activated"}) == 0
 
@@ -113,6 +113,6 @@ async def test_only_a_provider_signing_up_is_activated(jo, db, catalogue):  # no
     """A suspended provider stays suspended, however complete their checks."""
     ken = await _ken(db, ["mowing"], docs=("insurance",))
     await Providers(db).set_status(ken.id, "suspended", "Checking a complaint")
-    ok(await jo.post(f"/api/admin/providers/{ken.id}/documents/identity/verify", json={}))
+    ok(await verdict(jo, f"/api/admin/providers/{ken.id}/documents/identity/verify", {}))
     assert (await Providers(db).get(ken.id)).status == "suspended"
     assert await db["outbox"].count_documents({"template_id": "provider_activated"}) == 0

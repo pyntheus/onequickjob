@@ -117,7 +117,9 @@ async def verify_document(
 ) -> ProviderDetail:
     """Set the expiry with services.documents.expiry_for (a basic DBS check: 12 months from its
     issue date); F's task reminds the provider 30 days before it lapses."""
-    await providers.verify_document(db, s, provider_id, doc_type, body.issued_on, body.expires_on, actor(admin))
+    await providers.verify_document(
+        db, s, provider_id, doc_type, body.issued_on, body.expires_on, actor(admin), reviewed=body.file_id
+    )
     return await providers.detail(db, provider_id)
 
 
@@ -125,7 +127,7 @@ async def verify_document(
 async def reject_document(
     provider_id: str, doc_type: DocType, body: RejectDocIn, admin: Admin, db: DbDep, s: SettingsDep
 ) -> ProviderDetail:
-    await providers.reject_document(db, s, provider_id, doc_type, body.reason, actor(admin))
+    await providers.reject_document(db, s, provider_id, doc_type, body.reason, actor(admin), reviewed=body.file_id)
     return await providers.detail(db, provider_id)
 
 
@@ -135,7 +137,7 @@ async def verify_helper_document(
 ) -> ProviderDetail:
     """A helper's document, checked as a provider's is; the helper is texted (Session S)."""
     await providers.verify_helper_document(
-        db, s, provider_id, user_id, doc_type, body.issued_on, body.expires_on, actor(admin)
+        db, s, provider_id, user_id, doc_type, body.issued_on, body.expires_on, actor(admin), reviewed=body.file_id
     )
     return await providers.detail(db, provider_id)
 
@@ -144,7 +146,9 @@ async def verify_helper_document(
 async def reject_helper_document(
     provider_id: str, user_id: str, doc_type: DocType, body: RejectDocIn, admin: Admin, db: DbDep, s: SettingsDep
 ) -> ProviderDetail:
-    await providers.reject_helper_document(db, s, provider_id, user_id, doc_type, body.reason, actor(admin))
+    await providers.reject_helper_document(
+        db, s, provider_id, user_id, doc_type, body.reason, actor(admin), reviewed=body.file_id
+    )
     return await providers.detail(db, provider_id)
 
 

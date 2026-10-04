@@ -9,7 +9,7 @@ from app.core.errors import Conflict
 from app.core.timeutil import add_months, london_today
 from app.repos import Providers
 from app.services.eligibility import can_take
-from tests.admin.conftest import jo  # noqa: F401 (the signed-in admin client)
+from tests.admin.conftest import jo, verdict  # noqa: F401 (the signed-in admin client)
 from tests.provider.conftest import TOM_PHONE, add_tom, client_for
 
 
@@ -78,7 +78,7 @@ async def test_an_admin_checking_a_renewal_checks_the_upload_not_the_old_copy(da
     detail = (await jo.get(f"/api/admin/providers/{dave.id}")).json()
     shown = next(d for d in detail["documents"] if d["type"] == "insurance")
     assert shown["status"] == "pending" and shown["expires_on"] == until.isoformat(), "the admin sees the upload"
-    v = await jo.post(f"/api/admin/providers/{dave.id}/documents/insurance/verify", json={})
+    v = await verdict(jo, f"/api/admin/providers/{dave.id}/documents/insurance/verify", {})
     assert v.status_code == 200, v.text
     [doc] = [d for d in (await Providers(db).get(dave.id)).documents if d.type == "insurance"]
     assert (doc.status, doc.file_id, doc.expires_on) == ("verified", fid, until) and doc.file_id != old.file_id
@@ -188,8 +188,8 @@ async def test_rejecting_a_renewal_keeps_the_current_copy_counting(dave_client, 
     fid = await _upload(dave_client)
     until = (london_today() + timedelta(days=400)).isoformat()
     await dave_client.post("/api/p/documents", json={"type": "insurance", "file_id": fid, "expires_on": until})
-    r = await jo.post(
-        f"/api/admin/providers/{dave.id}/documents/insurance/reject", json={"reason": "The name doesn't match"}
+    r = await verdict(
+        jo, f"/api/admin/providers/{dave.id}/documents/insurance/reject", {"reason": "The name doesn't match"}
     )
     assert r.status_code == 200, r.text
     p = await Providers(db).get(dave.id)
@@ -218,7 +218,7 @@ async def test_rejecting_the_only_copy_still_replaces_it(dave_client, db, dave, 
         "/api/p/documents",
         json={"type": "dbs_basic", "file_id": await _upload(dave_client), "issued_on": london_today().isoformat()},
     )
-    r = await jo.post(f"/api/admin/providers/{dave.id}/documents/dbs_basic/reject", json={"reason": "Too blurry"})
+    r = await verdict(jo, f"/api/admin/providers/{dave.id}/documents/dbs_basic/reject", {"reason": "Too blurry"})
     assert r.status_code == 200, r.text
     [only] = [d for d in (await Providers(db).get(dave.id)).documents if d.type == "dbs_basic"]
     assert only.status == "rejected" and only.note == "Too blurry"
@@ -234,9 +234,9 @@ async def test_a_verdict_on_a_replaced_upload_changes_nothing(dave_client, db, d
     b = await _upload(dave_client)
     await dave_client.post("/api/p/documents", json={"type": "insurance", "file_id": b, "expires_on": until})
     before = [d for d in (await Providers(db).get(dave.id)).documents if d.type == "insurance"]
-    for verdict in ("rejected", "verified"):
+    for outcome in ("rejected", "verified"):
         with pytest.raises(Conflict) as e:  # a domain error: repositories never raise HTTP errors
-            await Providers(db).set_document(dave.id, read.model_copy(update={"status": verdict}))
+            await Providers(db).set_document(dave.id, read.model_copy(update={"status": outcome}))
         assert e.value.code == "document_changed"
     after = [d for d in (await Providers(db).get(dave.id)).documents if d.type == "insurance"]
     assert after == before and sorted((d.status, d.file_id == b) for d in after) == [
@@ -262,7 +262,7 @@ async def test_a_verdict_on_a_replaced_upload_answers_409_over_http(dave_client,
         return await real_get(self, id_, session=session)
 
     monkeypatch.setattr(DocumentTypes, "get", read_then_replaced)
-    r = await jo.post(f"/api/admin/providers/{dave.id}/documents/insurance/verify", json={})
+    r = await verdict(jo, f"/api/admin/providers/{dave.id}/documents/insurance/verify", {})
     assert r.status_code == 409
     assert r.json() == {
         "detail": {

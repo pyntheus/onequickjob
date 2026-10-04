@@ -134,6 +134,7 @@ class AdminDocument(BaseModel):
     issued_on: date | None
     expires_on: date | None
     file_url: str | None
+    file_id: str | None = Field(default=None, description="The upload: send it back with a verdict (VerifyDocIn)")
     verified_by: str | None
     verified_at: datetime | None
     note: str | None
@@ -188,12 +189,20 @@ class OnboardingLinkOut(BaseModel):
     status: Literal["pending", "enabled", "restricted"]
 
 
+REVIEWED = (
+    "The upload the admin reviewed (AdminDocument.file_id; null for a copy with no file). If it has been "
+    "replaced since, nothing changes: 409 document_changed"
+)
+
+
 class VerifyDocIn(In):
+    file_id: str | None = Field(description=REVIEWED)
     issued_on: date | None = Field(default=None, description="For a basic DBS check: the issue date (valid 12 months)")
     expires_on: date | None = Field(default=None, description="For documents with a stated expiry, e.g. insurance")
 
 
 class RejectDocIn(In):
+    file_id: str | None = Field(description=REVIEWED)
     reason: str = Field(min_length=3, max_length=300)
 
 

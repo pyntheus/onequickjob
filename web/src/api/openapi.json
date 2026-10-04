@@ -186,6 +186,18 @@
             ],
             "title": "Expires On"
           },
+          "file_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The upload: send it back with a verdict (VerifyDocIn)",
+            "title": "File Id"
+          },
           "file_url": {
             "anyOf": [
               {
@@ -8103,6 +8115,18 @@
       "RejectDocIn": {
         "additionalProperties": false,
         "properties": {
+          "file_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The upload the admin reviewed (AdminDocument.file_id; null for a copy with no file). If it has been replaced since, nothing changes: 409 document_changed",
+            "title": "File Id"
+          },
           "reason": {
             "maxLength": 300,
             "minLength": 3,
@@ -8111,6 +8135,7 @@
           }
         },
         "required": [
+          "file_id",
           "reason"
         ],
         "title": "RejectDocIn",
@@ -9889,6 +9914,18 @@
             "description": "For documents with a stated expiry, e.g. insurance",
             "title": "Expires On"
           },
+          "file_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The upload the admin reviewed (AdminDocument.file_id; null for a copy with no file). If it has been replaced since, nothing changes: 409 document_changed",
+            "title": "File Id"
+          },
           "issued_on": {
             "anyOf": [
               {
@@ -9903,6 +9940,9 @@
             "title": "Issued On"
           }
         },
+        "required": [
+          "file_id"
+        ],
         "title": "VerifyDocIn",
         "type": "object"
       },
