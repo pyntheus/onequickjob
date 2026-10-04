@@ -124,6 +124,10 @@ async def test_reseeding_removes_everything_demo_runs_created(seeded):
         await db[name].insert_one(doc)
     for name, doc in kept.items():
         await db[name].insert_one(doc)
+    # An admin made while a seeded person was missing, with their number, doesn't survive: the seed
+    # needs the number back.
+    await db["users"].delete_one({"_id": sid("user", "sarah")})
+    await db["users"].insert_one({"_id": "clashing-admin", "phone": "+447700900123", "roles": ["admin"]})
     await db["sessions"].insert_many(
         [
             {"_id": "s-sarah", "user_id": sid("user", "sarah"), "created_at": now},
@@ -137,6 +141,7 @@ async def test_reseeding_removes_everything_demo_runs_created(seeded):
     for name, doc in kept.items():
         assert await db[name].find_one({"_id": doc["_id"]}), f"{name} should be kept"
     assert {d["_id"] async for d in db["sessions"].find({})} == {"s-sarah", "s-hasan"}
+    assert await db["users"].find_one({"_id": "clashing-admin"}) is None
     assert summary["removed"]["ledger_entries"] == 1 and summary["removed"]["sessions"] == 1
     for name, doc in kept.items():  # put the module's seed back as it was
         await db[name].delete_one({"_id": doc["_id"]})

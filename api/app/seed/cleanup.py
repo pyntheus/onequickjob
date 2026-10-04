@@ -26,9 +26,13 @@ async def reset_demo(ctx: Ctx) -> dict[str, int]:
     """Delete what demo runs created and what the last seed wrote. Returns, per collection, how
     many documents demo runs had created (the seed's own aren't counted)."""
     seeded_providers = [sid("provider", p["key"]) for p in ctx.people["providers"]]
+    people = [p for group in ("admins", "customers", "pool", "providers", "helpers") for p in ctx.people.get(group, [])]
+    phones = [p["phone"] for p in people if p.get("phone")]
+    emails = [p["email"] for p in people if p.get("email")]
     kept: dict[str, dict[str, Any]] = {
         "audit_log": {"action": {"$regex": r"^pricing\."}},
-        "users": {"roles": "admin"},
+        # an admin who isn't in the seed, unless they'd clash with a seeded person's phone or email
+        "users": {"roles": "admin", "phone": {"$nin": phones}, "email": {"$nin": emails}},
         "tax_identities": {"provider_id": {"$in": seeded_providers}},
     }
     removed: dict[str, int] = {}
