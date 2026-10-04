@@ -16,6 +16,7 @@ of them hits a write conflict; the driver re-runs it, it finds the request booke
 """
 
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import NoReturn
 
 from fastapi import HTTPException, status
@@ -49,8 +50,14 @@ from app.services.bookings import create_booking
 from app.services.eligibility import can_take
 from app.services.notify import link, notify, recipient_for
 
-COUNTER_MIN_RATIO = 0.8  # the prototype's stepper: 80% of the guide ...
+COUNTER_MIN_RATIO = Decimal("0.8")  # the prototype's stepper: 80% of the guide ...
 COUNTER_MAX_RATIO = 3  # ... to three times it, in whole pounds
+
+
+def counter_bounds(guide_pence: int) -> tuple[int, int]:
+    """The range a counter may take: whole pounds from 80% of the guide (half-up to the pound) up
+    to three times it. make_counter checks it; the provider app's stepper and preview show it."""
+    return round_to_pound(D(guide_pence) * COUNTER_MIN_RATIO), guide_pence * COUNTER_MAX_RATIO
 
 
 @dataclass(frozen=True)
@@ -90,11 +97,12 @@ def _check_can_take(provider: Provider, cat: Category, req: JobRequest) -> None:
         )
 
 
-async def _provider_now(db: Db, provider_id: str, session: DbSession) -> Provider:
+async def provider_for_booking(db: Db, provider_id: str, session: DbSession) -> Provider:
     """Inside the transaction, on every attempt: the provider as they are now, for the
-    eligibility check. It writes last_booked_at first, so a suspension or document change that
-    commits while this transaction runs conflicts with it: the driver re-runs the attempt,
-    which then sees the change and refuses."""
+    eligibility check (L1's invite acceptance, which books outside the marketplace, uses it too).
+    It writes last_booked_at first, so a suspension or document change that commits while this
+    transaction runs conflicts with it: the driver re-runs the attempt, which then sees the
+    change and refuses."""
     provider = await Providers(db).update(provider_id, {"last_booked_at": utcnow()}, session=session)
     assert provider is not None, provider_id
     return provider
@@ -345,14 +353,14 @@ async def accept_at_guide(db: Db, s: Settings, ref: str, provider: Provider) -> 
         _taken(req)
 
     async def accept(session: DbSession) -> BookingOutcome:
-        _check_can_take(await _provider_now(db, provider.id, session), cat, req)
+        _check_can_take(await provider_for_booking(db, provider.id, session), cat, req)
         claimed = await claim_request(
             db,
             req.id,
             provider_id=provider.id,
             price_pence=req.guide_pence,
             first_price_pence=req.first_pence,
-            via="guide",
+            via="direct" if req.direct_provider_id else "guide",  # Book again: offered to them only
             expect_guide_pence=req.guide_pence,
             session=session,
         )
@@ -384,8 +392,7 @@ async def make_counter(
         _taken(req)
     if req.cover_for_visit_id:
         fail(status.HTTP_422_UNPROCESSABLE_CONTENT, "cover_is_fixed_price", "Cover is at the regular price.")
-    lo = round(req.guide_pence * COUNTER_MIN_RATIO / 100) * 100
-    hi = req.guide_pence * COUNTER_MAX_RATIO
+    lo, hi = counter_bounds(req.guide_pence)
     if price_pence % 100 or not lo <= price_pence <= hi:
         fail(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -487,7 +494,7 @@ async def accept_counter(db: Db, s: Settings, offer_id: str, customer: Customer)
         await _lapse_unavailable(db, s, offer, req, cat, customer)
 
     async def accept(session: DbSession) -> BookingOutcome:
-        if not can_take(await _provider_now(db, offer.provider_id, session), cat).ok:
+        if not can_take(await provider_for_booking(db, offer.provider_id, session), cat).ok:
             fail(status.HTTP_409_CONFLICT, "provider_unavailable", "That provider can't take this job any more.")
         accepted = await Offers(db).update(
             offer.id,

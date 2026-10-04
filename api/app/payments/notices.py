@@ -22,7 +22,7 @@ from app.repos.categories import Categories
 from app.repos.customers import Customers
 from app.repos.providers import Providers
 from app.repos.users import Users
-from app.services import templates, wording
+from app.services import wording
 from app.services.eligibility import limit_status
 from app.services.notify import link, notify, recipient_for
 
@@ -70,19 +70,6 @@ def _related(visit: Visit, p: Parties) -> Related:
     )
 
 
-VISIT_DONE_NO_PHOTO = templates.register(
-    templates.Template(
-        id="visit_done_customer_no_photo",
-        lane="L2",
-        audience="customer",
-        channels=("sms",),
-        trigger="A provider finishes a visit without adding an after photo, and the card is charged.",
-        body="{brand}: {provider} has finished your {category}. We've charged {price} to your card. "
-        "Rate the visit: {link}",
-    )
-)
-
-
 async def _full_name(db: Db, visit: Visit, session: DbSession) -> str:
     """Who did the visit, in full for the receipt (the short form ends in a full stop: "Dave H.")."""
     if visit.performer.kind == "helper":
@@ -101,7 +88,7 @@ async def charged(db: Db, s: Settings, visit: Visit, charge: Charge, session: Db
     base = f"charge:{visit.id}:visit:paid"
     if p.customer_user and p.customer_user.phone:
         # The photo is mentioned only when there is one (L2).
-        done = "visit_done_customer" if visit.photos.after else VISIT_DONE_NO_PHOTO.id
+        done = "visit_done_customer" if visit.photos.after else "visit_done_customer_no_photo"
         await notify(
             db,
             done,
@@ -176,18 +163,6 @@ async def _limit_reached(
         idempotency_key=f"limit:{provider.id}:{lim.period}:{lim.period_start}:{lim.amount_pence}",
         session=session,
     )
-
-
-TIP_RECEIVED = templates.register(
-    templates.Template(
-        id="tip_received",
-        lane="L3",
-        audience="provider",
-        channels=("sms",),
-        trigger="A customer's tip is charged (with their rating; L1 charges it through app.payments.charging).",
-        body="{brand}: {customer} added a {tip} tip for your {category}. All of it goes to you, with no fee.",
-    )
-)
 
 
 async def tip_paid(db: Db, s: Settings, visit: Visit, charge: Charge, session: DbSession) -> None:

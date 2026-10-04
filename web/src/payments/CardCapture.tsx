@@ -108,9 +108,17 @@ function StripeForm({ setup, onSaved }: { setup: Setup; onSaved: (card: SavedCar
   );
 }
 
+const cardKey = (c?: SavedCard | null) => (c ? `${c.brand}-${c.last4}-${c.exp_month}-${c.exp_year}` : "");
+
 export function CardCapture({ onSaved, saved }: Props) {
   const { data: config } = useConfig();
   const [card, setCard] = useState<SavedCard | null>(saved ?? null);
+  // Follow `saved` when it changes (a returning customer's card loads after this mounts).
+  const [shown, setShown] = useState(cardKey(saved));
+  if (cardKey(saved) !== shown) {
+    setShown(cardKey(saved));
+    setCard(saved ?? null);
+  }
   const [setup, setSetup] = useState<Setup | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);

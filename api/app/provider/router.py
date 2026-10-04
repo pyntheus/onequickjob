@@ -46,7 +46,6 @@ from app.provider import (
 from app.provider import (
     signup as signup_mod,
 )
-from app.provider import templates as _templates  # noqa: F401 (registers L2's extra outbox templates)
 from app.provider import (
     threads as threads_mod,
 )

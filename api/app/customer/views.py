@@ -232,6 +232,8 @@ async def request_detail(
                 if b and b.via == "counter":
                     first = b.first_price_pence if b.first_price_pence != b.price_pence else None
                     text = f"You accepted {pc.short}'s price of {wording.money(b.price_pence)}{_first_text(first)}"
+                elif b and b.via == "direct":
+                    text = f"{pc.short} accepted your request to book them again"
                 else:
                     text = f"{pc.short} accepted your guide price"
                 timeline.append(TimelineEvent(at=e.at, kind="accepted", text=text, provider=pc))

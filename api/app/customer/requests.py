@@ -19,7 +19,6 @@ from app.core.errors import fail
 from app.core.geo import approximate, miles_between
 from app.core.ids import next_ref
 from app.core.timeutil import london_datetime, to_london, utcnow
-from app.customer import templates as _templates  # noqa: F401 (registers L1's templates)
 from app.customer.schemas import NewRequest
 from app.models.categories import Category
 from app.models.common import Channel, GeoPoint, Related

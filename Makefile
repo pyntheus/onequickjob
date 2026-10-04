@@ -12,7 +12,8 @@ SITE_HOST ?= dev.onequickjob.co.uk
 CADDY_FILES_VOLUME ?= oqj-files-main
 
 DOCKER := docker
-COMPOSE := env INSTANCE=$(INSTANCE) docker compose --env-file .env
+# HOST_UID/HOST_GID: the web container runs as you, so nothing in the worktree ends up root's.
+COMPOSE := env INSTANCE=$(INSTANCE) HOST_UID=$(shell id -u) HOST_GID=$(shell id -g) docker compose --env-file .env
 SHARED := $(COMPOSE) -f infra/compose.shared.yml
 APP := $(COMPOSE) -f infra/compose.app.yml
 # Lanes start shared services if they're down but never recreate main's Caddy.
@@ -55,6 +56,7 @@ infra-down: ## Stop the shared Mongo and Caddy (affects every worktree)
 	$(SHARED) down
 
 dev: infra-up ## Bring up this worktree's API and web (and shared services)
+	@mkdir -p web/node_modules  # yours, before Docker can create the mount point as root
 	$(APP) up -d --build --renew-anon-volumes
 	@echo "Waiting for the API..."; for i in $$(seq 1 60); do \
 	  curl -fsS http://127.0.0.1:$(API_PORT)/api/health >/dev/null 2>&1 && break; sleep 1; done

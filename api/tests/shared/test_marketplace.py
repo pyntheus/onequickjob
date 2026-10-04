@@ -470,13 +470,13 @@ async def test_a_counter_lapses_when_documents_run_out_inside_the_acceptance(db,
     req = await make_request(db, customer)
     s = make_settings()
     offer = await marketplace.make_counter(db, s, req.ref, mike, price_pence=3700, reasons=[])
-    original = marketplace._provider_now
+    original = marketplace.provider_for_booking
 
     async def insurance_runs_out(db_, provider_id, session):
         provider = await original(db_, provider_id, session)
         return provider.model_copy(update={"documents": [d for d in provider.documents if d.type != "insurance"]})
 
-    monkeypatch.setattr(marketplace, "_provider_now", insurance_runs_out)
+    monkeypatch.setattr(marketplace, "provider_for_booking", insurance_runs_out)
     with pytest.raises(Exception) as e:
         await marketplace.accept_counter(db, s, offer.id, customer)
     assert (e.value.status_code, e.value.detail["code"]) == (409, "provider_unavailable")
@@ -510,7 +510,7 @@ async def test_a_suspension_during_the_transaction_is_seen_by_its_retry(db, cata
         done.set()
 
     admin = asyncio.create_task(admin_suspends())
-    original, attempts = marketplace._provider_now, []
+    original, attempts = marketplace.provider_for_booking, []
 
     async def provider_now(db_, provider_id, session):
         attempts.append(provider_id)
@@ -520,7 +520,7 @@ async def test_a_suspension_during_the_transaction_is_seen_by_its_retry(db, cata
             await done.wait()  # ... and the suspension commits after it
         return await original(db_, provider_id, session)
 
-    monkeypatch.setattr(marketplace, "_provider_now", provider_now)
+    monkeypatch.setattr(marketplace, "provider_for_booking", provider_now)
     with pytest.raises(HTTPException) as e:
         if path == "guide":
             await marketplace.accept_at_guide(db, s, req.ref, mike)
@@ -691,3 +691,11 @@ async def test_helpers_never_accept_counter_or_price_a_job(app, db, catalogue):
         assert r.json()["detail"]["message"].startswith("Dave takes on jobs and sets the prices.")
     assert (await JobRequests(db).get(req.id)).status == "open"
     assert await Offers(db).count({}) == 0
+
+
+def test_counter_bounds_are_whole_pounds_from_80_percent_to_three_times():
+    """Exposed for the provider app's stepper (contract-changes L2), half-up to the pound."""
+    assert marketplace.counter_bounds(3100) == (2500, 9300)
+    assert marketplace.counter_bounds(2200) == (1800, 6600)
+    assert marketplace.counter_bounds(2190) == (1800, 6570)  # 17.52 -> 18
+    assert marketplace.counter_bounds(1870) == (1500, 5610)  # 14.96 -> 15

@@ -117,3 +117,16 @@ def test_covered_own_customer_visit_is_charged_the_standard_fee():
     assert (cover.fee_pence, cover.provider_pence, cover.mode) == (420, 2380, "standard")
     assert money.split_for_visit(1500, "own_customer", "provider").fee_pence == 100  # the 100p minimum
     assert money.split_for_visit(1500, "own_customer", "cover").fee_pence == 225
+
+
+def test_partial_refunds_add_up_to_the_refund_of_their_total():
+    """refund_split_after (contract-changes L3): each further refund is the difference of the
+    cumulative splits, so the fees refunded always total refund_split of the whole."""
+    original = money.split(3333, "standard")  # fee 500
+    parts = [1000, 1111, 1, 1221]
+    done, fees = 0, 0
+    for amount in parts:
+        part = money.refund_split_after(original, done, amount)
+        assert part.price_pence == amount and part.fee_pence + part.provider_pence == amount
+        done, fees = done + amount, fees + part.fee_pence
+    assert done == 3333 and fees == money.refund_split(original, 3333).fee_pence == original.fee_pence

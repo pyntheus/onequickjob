@@ -103,13 +103,6 @@ async def cover_days(db: Db, reqs: list[JobRequest]) -> dict[str, date]:
 # ------------------------------------------------------------------ job cards
 
 
-def counter_bounds(guide_pence: int) -> tuple[int, int]:
-    """The whole-pound range a counter may take, as marketplace.make_counter checks it:
-    80% of the guide (to the nearest pound) up to three times it."""
-    lo = round_to_pound(D(guide_pence) * D(marketplace.COUNTER_MIN_RATIO))
-    return lo, guide_pence * marketplace.COUNTER_MAX_RATIO
-
-
 def _state(req: JobRequest, provider: Provider, mine: Offer | None) -> str | None:
     if req.status == "booked" and req.booked is not None:
         return "yours" if req.booked.provider_id == provider.id else ("taken" if mine else None)
@@ -333,7 +326,7 @@ async def job_offer(db: Db, s: Settings, provider: Provider, ref: str) -> JobOff
             f"at the usual price. They stay {who.split(' ')[0]}'s customer afterwards."
         )
 
-    lo, hi = counter_bounds(req.guide_pence)
+    lo, hi = marketplace.counter_bounds(req.guide_pence)
     start = min(hi, max(lo, round_to_pound(D(req.guide_pence) * D("1.2"))))
     reasons_for = COUNTER_REASONS.get(cat.id) or COUNTER_REASONS[cat.group]
     can = elig.ok and not own_cover and not dead_cover and req.status == "open"
@@ -378,7 +371,7 @@ async def counter_preview(db: Db, s: Settings, provider: Provider, ref: str, pri
     sets, the first-visit price it scales to (marketplace.scaled_first_price) and what the
     provider would get for each (money.split)."""
     req = await _request_for(db, provider, ref)
-    lo, hi = counter_bounds(req.guide_pence)
+    lo, hi = marketplace.counter_bounds(req.guide_pence)
     problem = None
     if price_pence % 100 or not lo <= price_pence <= hi:
         problem = f"Suggest a whole-pound price between {wording.money(lo)} and {wording.money(hi)}."

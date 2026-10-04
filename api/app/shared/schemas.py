@@ -191,7 +191,7 @@ class BookingConfirmed(BaseModel):
     request_ref: str
     booking_id: str
     booking_ref: str
-    via: Literal["guide", "counter"]
+    via: Literal["guide", "counter", "direct"]
     provider_id: str
     provider_short: str
     price_pence: int

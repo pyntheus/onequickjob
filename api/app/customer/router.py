@@ -17,7 +17,6 @@ from app.core.db import Db, get_db
 from app.core.deps import CurrentUser, current_customer, current_user, gateway_dep, settings_dep
 from app.core.errors import ERROR_RESPONSES, fail, not_found
 from app.customer import account, invites, plan_changes, price_changes, requests, simulator, threads
-from app.customer import templates as _templates  # noqa: F401 (registers L1's outbox templates)
 from app.customer.schemas import (
     BookingCard,
     BookingDetail,

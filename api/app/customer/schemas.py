@@ -110,7 +110,7 @@ class RequestDetail(RequestSummary):
     pending_offers: list[CounterOfferView]
     booked_with: ProviderCard | None
     booked_price_pence: int | None
-    booked_via: Literal["guide", "counter"] | None
+    booked_via: Literal["guide", "counter", "direct"] | None
     demo_simulator: bool = Field(description="DEMO_MODE only: show the Simulate local responses control")
     booked_first_price_pence: int | None = Field(default=None, description="First-visit price agreed, if different")
     alerted: int = Field(default=0, description="How many providers the request was sent to")

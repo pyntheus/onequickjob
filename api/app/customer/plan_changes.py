@@ -85,7 +85,7 @@ async def _booked_guide(db: Db, req: JobRequest) -> int | None:
         offer = await Offers(db).get(b.offer_id)
         if offer is not None:
             return offer.guide_pence
-    if b and b.via == "guide":
+    if b and b.via in ("guide", "direct"):
         return b.price_pence
     return req.guide_pence or None
 

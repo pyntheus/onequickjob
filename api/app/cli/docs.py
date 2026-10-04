@@ -31,8 +31,8 @@ def notifications() -> str:
         "Rules for message copy: UK English; texts start with the brand; say who the agreement is with",
         "where it matters; never promise or guarantee anything; links are full URLs built from",
         "`PUBLIC_BASE_URL`. Sections are grouped by the lane that writes the code that sends each one.",
-        "Lanes may register extra templates from their own package with `templates.register(...)`;",
-        "fold them into the catalogue at integration.",
+        "Every template is in the catalogue file, including the ones the lanes added (folded in by the",
+        "shared-fixes session); add new ones there.",
         "",
         f"{len(templates.all_templates())} templates.",
         "",
@@ -152,8 +152,8 @@ OWNERS: dict[str, tuple[str, str]] = {
     "job_requests": (
         "L1",
         "L1 creates, cancels and answers raises; F marketplace claims (status open -> booked) and withdraws a "
-        "waiting raise (A16); L2 records views and creates cover requests; L3 proposes raises (app.customer."
-        "price_changes.propose)",
+        "waiting raise (A16); L2 records views and creates cover requests; L3 proposes raises (app.services."
+        "guide_raises.propose)",
     ),
     "offers": ("F", "F marketplace (counter, accept, decline, lapse)"),
     "bookings": (

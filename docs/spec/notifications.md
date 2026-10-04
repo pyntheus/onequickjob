@@ -9,10 +9,10 @@ The demo Outbox drawer shows the latest messages; admins search them all at `/ad
 Rules for message copy: UK English; texts start with the brand; say who the agreement is with
 where it matters; never promise or guarantee anything; links are full URLs built from
 `PUBLIC_BASE_URL`. Sections are grouped by the lane that writes the code that sends each one.
-Lanes may register extra templates from their own package with `templates.register(...)`;
-fold them into the catalogue at integration.
+Every template is in the catalogue file, including the ones the lanes added (folded in by the
+shared-fixes session); add new ones there.
 
-45 templates.
+60 templates.
 
 ## Shared (sent by foundation code, or by any lane)
 
@@ -25,8 +25,10 @@ fold them into the catalogue at integration.
 | `booking_confirmed` | Text | provider | A provider's guide acceptance, or a counter the customer accepted, books the job. |
 | `counter_declined` | Text | provider | The customer chooses to keep waiting instead of accepting a counter. |
 | `job_taken` | Text | provider | A request books while the provider's counter was still waiting. |
+| `guide_raise_withdrawn` | Text | customer | A request is booked (at the guide, or a counter the customer accepted) while a raised guide waits for the customer's approval: the raise is withdrawn in the booking's transaction (A12, A16). |
 | `counter_lapsed` | Text | provider | A customer tries to accept a provider's counter, but the provider can no longer take the job (no longer eligible): the counter lapses and the request stays open for others (ruling A9). |
 | `document_expiring` | Text | provider | 30 days before a verified document expires (insurance, a basic DBS check 12 months after issue, waste carrier, ladder and pet cover). Sent once per expiry date by the document_expiry task. |
+| `provider_activated` | Text | provider | A provider signing up has every required check done (ID, insurance, tax details, a payout account, and a basic DBS check if a chosen job needs one): they become active automatically (A19). |
 
 **`login_code`** (subject: Your {brand} sign-in code)
 
@@ -70,6 +72,12 @@ Placeholders: `brand`, `customer`, `guide`, `category`, `area`, `link`
 
 Placeholders: `brand`, `category`, `area`
 
+**`guide_raise_withdrawn`**
+
+> {brand}: {provider} has booked your {category} at {booked_at}, so the higher guide price we suggested ({proposed}) no longer applies. There's nothing you need to do.
+
+Placeholders: `brand`, `provider`, `category`, `booked_at`, `proposed`
+
 **`counter_lapsed`**
 
 > {brand}: {customer} tried to accept your price of {price} for the {category} job in {area}, but you can't take it at the moment. {reason} Your price has lapsed and the job is open to other providers. {link}
@@ -82,6 +90,12 @@ Placeholders: `brand`, `customer`, `price`, `category`, `area`, `reason`, `link`
 
 Placeholders: `brand`, `document`, `date`, `jobs`, `link`
 
+**`provider_activated`**
+
+> {brand}: you're all set, {first}. Your checks are done, so jobs near you will start coming through. {link}
+
+Placeholders: `brand`, `first`, `link`
+
 ## L1 Customer
 
 | Template | Channels | To | Trigger |
@@ -92,6 +106,14 @@ Placeholders: `brand`, `document`, `date`, `jobs`, `link`
 | `plan_changed` | Text | customer | The customer pauses, resumes or changes the frequency of a plan. |
 | `plan_cancelled` | Text | customer | The customer cancels a plan. |
 | `problem_reported` | Text | customer | The customer reports a problem with a visit (a dispute is opened). |
+| `request_closed` | Text | provider | A request closes without being booked (the customer cancels it, or it expires) while the provider's suggested price was still waiting. |
+| `request_expired` | Text | customer | An open request has had no booking for 7 days and closes (request_expiry task). |
+| `guide_raise_proposed` | Text | customer | The team suggests a higher guide price for an open request nobody has taken (admin's Raise guide); nothing changes unless the customer approves it on Finding someone local (A12). |
+| `plan_change_proposed` | Text | provider | A customer asks to change how often their plan's visits happen; the provider accepts or declines the re-priced plan within 48 hours (A10). |
+| `plan_change_requested` | Text | customer | The customer has asked to change how often; the provider has been asked (A10). |
+| `plan_change_accepted` | Text | customer | The provider accepts a change of frequency and its new price (A10). |
+| `plan_change_declined` | Text | customer | The provider declines a change of frequency (A10). |
+| `plan_change_lapsed` | Text | customer | The provider hasn't answered a change of frequency within 48 hours (plan_change_expiry task, A10). |
 | `job_alert` | Text, WhatsApp | provider | A request is broadcast: one per eligible provider, on their chosen channels; held in quiet hours. |
 | `rating_received` | Text | provider | A customer rates a visit. |
 | `dispute_opened` | Text | provider | A customer reports a problem with a provider's visit. |
@@ -132,6 +154,54 @@ Placeholders: `brand`, `category`, `provider`
 > {brand}: thanks for telling us. We've let {provider} know what happened and will text you within a day.
 
 Placeholders: `brand`, `provider`
+
+**`request_closed`**
+
+> {brand}: the {category} job in {area} is no longer available, so your suggested price no longer stands. Thanks for looking.
+
+Placeholders: `brand`, `category`, `area`
+
+**`request_expired`**
+
+> {brand}: we couldn't find someone local for your {category} request this time, so we've closed it. Nothing has been charged. You can ask again whenever you like: {link}
+
+Placeholders: `brand`, `category`, `link`
+
+**`guide_raise_proposed`**
+
+> {brand}: to help find someone local for your {category}, we suggest raising the guide price to {price}{first_text} (it's {current} now). Nothing changes unless you approve it: {link}
+
+Placeholders: `brand`, `category`, `price`, `first_text`, `current`, `link`
+
+**`plan_change_proposed`**
+
+> {brand}: {customer} would like their {category} {new_frequency} instead of {old_frequency}. At that frequency the price would be {price} a visit (it's {current} now). Please accept or decline by {deadline}: {link}
+
+Placeholders: `brand`, `customer`, `category`, `new_frequency`, `old_frequency`, `price`, `current`, `deadline`, `link`
+
+**`plan_change_requested`**
+
+> {brand}: we've asked {provider} about your {category} {new_frequency} at {price} a visit. Your plan carries on as it is unless they accept.
+
+Placeholders: `brand`, `provider`, `category`, `new_frequency`, `price`
+
+**`plan_change_accepted`**
+
+> {brand}: {provider} accepted. Your {category} is now {new_frequency} at {price} a visit. {next_text}
+
+Placeholders: `brand`, `provider`, `category`, `new_frequency`, `price`, `next_text`
+
+**`plan_change_declined`**
+
+> {brand}: {provider} would rather keep your {category} {old_frequency} at {current} a visit, so your plan stays as it is. You can message them from your account.
+
+Placeholders: `brand`, `provider`, `category`, `old_frequency`, `current`
+
+**`plan_change_lapsed`**
+
+> {brand}: {provider} hasn't answered within 48 hours, so your {category} plan stays {old_frequency} at {current} a visit. You can ask again from your account.
+
+Placeholders: `brand`, `provider`, `category`, `old_frequency`, `current`
 
 **`job_alert`**
 
@@ -175,6 +245,9 @@ Placeholders: `brand`, `customer`, `date`
 | `helper_invite` | Text | helper | A provider adds a helper. |
 | `tax_key_date` | Text | provider | A month before 5 October (Self Assessment registration) and 31 January (return and payment). |
 | `callback_requested` | Email | admin | A provider taps "Call me" during sign-up. |
+| `time_off_unarranged` | Text | provider | A visit is booked into a provider's time off after they arranged it (once per visit). |
+| `cover_not_found` | Text | provider | Nobody took a cover visit by the day before, so it's skipped and the customer is told. |
+| `visit_done_customer_no_photo` | Text | customer | A provider finishes a visit without adding an after photo, and the card is charged. |
 
 **`visit_reminder_customer`**
 
@@ -266,6 +339,24 @@ Placeholders: `brand`, `what`, `date`, `link`
 
 Placeholders: `name`, `phone`, `step`
 
+**`time_off_unarranged`**
+
+> {brand}: {customer}'s {category} on {date} has been booked while you're away. Choose cover, a helper or skip it: {link}
+
+Placeholders: `brand`, `customer`, `category`, `date`, `link`
+
+**`cover_not_found`**
+
+> {brand}: nobody was free to cover {customer}'s {category} on {date}, so it's skipped and {customer} has been told. Their next visit is with you as usual.
+
+Placeholders: `brand`, `customer`, `category`, `date`
+
+**`visit_done_customer_no_photo`**
+
+> {brand}: {provider} has finished your {category}. We've charged {price} to your card. Rate the visit: {link}
+
+Placeholders: `brand`, `provider`, `category`, `price`, `link`
+
 ## L3 Admin and payments
 
 | Template | Channels | To | Trigger |
@@ -274,14 +365,16 @@ Placeholders: `name`, `phone`, `step`
 | `refund_issued` | Text | customer | A full or partial refund is made. |
 | `charge_failed_provider` | Text | provider | Charging a visit fails. |
 | `payout_sent` | Text | provider | A payout is sent to the provider's bank (gateway webhook, or weekly with the fake gateway). |
-| `document_verified` | Text | provider | An admin verifies an uploaded document. |
-| `document_rejected` | Text | provider | An admin rejects an uploaded document. |
+| `document_verified` | Text | provider | An admin verifies an uploaded document (a provider's, or a helper's: then the helper is texted). |
+| `document_rejected` | Text | provider | An admin rejects an uploaded document (a provider's, or a helper's: then the helper is texted). |
 | `provider_nudge` | Text | provider | An admin chases a provider from "Providers needing attention". |
 | `dispute_message` | Text | anyone | An admin messages one or both parties in a dispute. |
 | `dispute_proposal` | Text | anyone | An admin proposes a fix (a free return visit or a provider-funded partial refund). |
 | `dispute_closed` | Text | anyone | An admin closes a dispute. |
+| `helper_ready` | Text | provider | An admin marks a provider's helper ready, once their ID has been checked (Session S). |
 | `account_suspended` | Text | provider | An admin suspends a provider. |
 | `account_reinstated` | Text | provider | An admin reinstates a provider. |
+| `tip_received` | Text | provider | A customer's tip is charged (with their rating; L1 charges it through app.payments.charging). |
 
 **`charge_failed_customer`**
 
@@ -343,6 +436,12 @@ Placeholders: `brand`, `title`, `proposal`, `link`
 
 Placeholders: `brand`, `title`, `outcome`
 
+**`helper_ready`**
+
+> {brand}: we've checked {helper}'s details, so you can send them to visits from Today. Each visit still needs the documents its job asks for. {link}
+
+Placeholders: `brand`, `helper`, `link`
+
 **`account_suspended`**
 
 > {brand}: we've paused your account, so you won't get new jobs for now. {reason} We'll be in touch.
@@ -354,3 +453,9 @@ Placeholders: `brand`, `reason`
 > {brand}: your account is active again. New jobs near you will start coming through.
 
 Placeholders: `brand`
+
+**`tip_received`**
+
+> {brand}: {customer} added a {tip} tip for your {category}. All of it goes to you, with no fee.
+
+Placeholders: `brand`, `customer`, `tip`, `category`

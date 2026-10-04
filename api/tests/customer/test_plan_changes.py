@@ -312,6 +312,7 @@ async def test_a_counter_accepted_after_an_approved_raise_keeps_its_own_guide(cl
     from app.customer import price_changes
     from app.models.common import Actor
     from app.repos import JobRequests, Users
+    from app.services import guide_raises
 
     dave = await make_provider(db, "Dave Hughes", "+447700900201", ["mowing"])
     await signed_in_with_card(client, db)
@@ -320,7 +321,7 @@ async def test_a_counter_accepted_after_an_approved_raise_keeps_its_own_guide(cl
     req = await JobRequests(db).by_ref(detail["ref"])
 
     async def raise_(session):
-        return await price_changes.propose(
+        return await guide_raises.propose(
             db,
             make_settings(),
             req,

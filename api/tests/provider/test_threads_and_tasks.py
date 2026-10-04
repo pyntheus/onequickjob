@@ -22,6 +22,20 @@ async def test_messages_with_a_customer(app, dave_client, db, world):
     assert [m["body"] for m in (await dave_client.get(f"/api/p/threads/{tid}/messages")).json()] == ["On my way."]
 
 
+async def test_opening_a_thread_marks_it_read(dave_client, db, world):
+    """Messages.mark_read (contract-changes L1 5, L2): the customer's messages count as unread on
+    the provider's list until the provider opens the thread."""
+    from app.repos import Messages
+
+    tid = (await dave_client.get("/api/p/threads")).json()[0]["id"]
+    for body in ("Is 10 still fine?", "The side gate is open."):
+        await Messages(db).post(tid, world.customer.user_id, "customer", body)
+    assert (await dave_client.get("/api/p/threads")).json()[0]["unread"] == 2
+    await dave_client.get(f"/api/p/threads/{tid}/messages")
+    assert (await dave_client.get("/api/p/threads")).json()[0]["unread"] == 0
+    assert await Messages(db).mark_read(tid, world.dave.user_id) == 0, "nothing left to mark"
+
+
 async def test_someone_elses_thread_is_not_found(client, db, world):
     await sign_in(client, db, "+447700900996")
     from app.repos import MessageThreads

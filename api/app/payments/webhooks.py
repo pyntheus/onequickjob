@@ -28,13 +28,14 @@ from app.adapters.payments.stripe_gateway import (
     ref_id,
     refund_state,
 )
+from app.core import money
 from app.core.config import Settings
 from app.core.db import Db, DbSession, transaction
 from app.core.timeutil import utcnow
 from app.models.common import Related
 from app.models.payments import PaymentEvent
 from app.payments import charging, notices
-from app.payments.refunds import apply_refund_result, refund_split_for
+from app.payments.refunds import apply_refund_result
 from app.repos.payments import PaymentEvents, PaymentRefunds
 from app.repos.providers import Providers
 from app.repos.visits import Visits
@@ -181,7 +182,7 @@ async def external_refund(db: Db, s: Settings, re: Json, session: DbSession) -> 
     amount = min(int(re.get("amount") or 0), charge.amount_pence - charge.refunded_pence)
     if amount <= 0:
         return "ignored", "nothing left on the charge to refund"
-    split = refund_split_for(charging.charged_split(visit, charge, "visit", s), charge.refunded_pence, amount)
+    split = money.refund_split_after(charging.charged_split(visit, charge, "visit", s), charge.refunded_pence, amount)
     refunded = charge.refunded_pence + amount
     await Visits(db).update(
         visit.id,

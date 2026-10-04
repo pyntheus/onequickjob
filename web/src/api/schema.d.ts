@@ -2753,7 +2753,7 @@ export interface components {
              * Via
              * @enum {string}
              */
-            via: "guide" | "counter";
+            via: "guide" | "counter" | "direct";
         };
         /** BookingDetail */
         BookingDetail: {
@@ -5624,7 +5624,7 @@ export interface components {
             /** Booked Price Pence */
             booked_price_pence: number | null;
             /** Booked Via */
-            booked_via: ("guide" | "counter") | null;
+            booked_via: ("guide" | "counter" | "direct") | null;
             booked_with: components["schemas"]["ProviderCard"] | null;
             /** Booking Id */
             booking_id: string | null;
@@ -7287,7 +7287,7 @@ export interface operations {
                 channel?: string | null;
                 template_id?: string | null;
                 user_id?: string | null;
-                /** @description id of the last item on the previous page */
+                /** @description next_before from the previous page */
                 before?: string | null;
                 limit?: number;
             };

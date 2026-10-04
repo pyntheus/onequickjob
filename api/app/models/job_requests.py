@@ -64,7 +64,7 @@ class Booked(Model):
     provider_id: str
     price_pence: Pence
     first_price_pence: Pence | None = Field(default=None, description="First-visit price, if different")
-    via: Literal["guide", "counter"]
+    via: Literal["guide", "counter", "direct"] = Field(description="direct: a Book again request, at its guide")
     offer_id: str | None = None
     at: datetime
 

@@ -150,6 +150,9 @@ in `web/src/api/schema.d.ts` come from it (`make types`).
 | `GET` | `/api/admin/providers/{provider_id}` |  | ProviderDetail |  |
 | `POST` | `/api/admin/providers/{provider_id}/documents/{doc_type}/verify` | VerifyDocIn | ProviderDetail | Set the expiry with services.documents.expiry_for (a basic DBS check: 12 months from its issue date); F's task reminds the provider 30 days before it lapses. |
 | `POST` | `/api/admin/providers/{provider_id}/documents/{doc_type}/reject` | RejectDocIn | ProviderDetail |  |
+| `POST` | `/api/admin/providers/{provider_id}/helpers/{user_id}/documents/{doc_type}/verify` | VerifyDocIn | ProviderDetail | A helper's document, checked as a provider's is; the helper is texted (Session S). |
+| `POST` | `/api/admin/providers/{provider_id}/helpers/{user_id}/documents/{doc_type}/reject` | RejectDocIn | ProviderDetail |  |
+| `POST` | `/api/admin/providers/{provider_id}/helpers/{user_id}/ready` |  | ProviderDetail | The helper can be sent to visits once their ID is checked; the provider is texted (Session S). |
 | `POST` | `/api/admin/providers/{provider_id}/suspend` | SuspendIn | ProviderDetail |  |
 | `POST` | `/api/admin/providers/{provider_id}/reinstate` |  | ProviderDetail |  |
 | `POST` | `/api/admin/providers/{provider_id}/nudge` | NudgeIn | OutboxItem |  |
@@ -173,4 +176,4 @@ in `web/src/api/schema.d.ts` come from it (`make types`).
 | `GET` | `/api/admin/audit` |  | list[AuditEntry] |  |
 | `POST` | `/api/payments/stripe/webhook` |  | WebhookAck | Verify the Stripe-Signature header, then handle payment_intent.*, account.updated, payout.* and charge.refunded idempotently (by event id). Webhooks are the source of truth for final payment states. |
 
-131 endpoints.
+134 endpoints.

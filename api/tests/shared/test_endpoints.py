@@ -201,6 +201,42 @@ async def test_admin_outbox_requires_admin_and_searches(client, db):
     assert len(p1["items"]) == 2 and len(p2["items"]) == 1
 
 
+async def test_admin_outbox_reads_as_a_timeline_whatever_the_ids(client, db):
+    """Contract-changes L3: seeded messages' ids come from a hash, so the outbox pages by
+    (created_at, _id), newest first, with a compound cursor; no message is skipped or repeated."""
+    from datetime import UTC, datetime, timedelta
+
+    from app.models.system import OutboxMessage, Recipient
+    from app.repos import Outbox
+
+    base = datetime(2026, 10, 1, 9, 0, tzinfo=UTC)
+    # ids run the opposite way to the times; two messages share a time (the tie goes by _id)
+    times = [base, base + timedelta(minutes=1), base + timedelta(minutes=1), base + timedelta(minutes=5)]
+    for n, at in enumerate(times):
+        await Outbox(db).insert(
+            OutboxMessage(
+                id=f"{9 - n:024d}",
+                channel="sms",
+                recipient=Recipient(name="Sarah", phone="+447700900123"),
+                template_id="request_sent",
+                body=f"message {n}",
+                created_at=at,
+            )
+        )
+    await sign_in(client, db, "07700 900999")
+    await Users(db).add_role((await Users(db).by_phone("+447700900999")).id, "admin")
+    seen, before = [], None
+    while True:
+        params = {"limit": 2, "template_id": "request_sent", **({"before": before} if before else {})}
+        page = (await client.get("/api/admin/outbox", params=params)).json()
+        seen += [m["body"] for m in page["items"]]
+        if not (before := page["next_before"]):
+            break
+    assert seen == ["message 3", "message 1", "message 2", "message 0"]
+    bad = await client.get("/api/admin/outbox", params={"before": "not-a-cursor"})
+    assert bad.status_code == 422 and bad.json()["detail"]["code"] == "bad_cursor"
+
+
 async def test_demo_endpoints(client, db):
     sarah = await make_user(db, "Sarah Whitfield", "+447700900123", ["customer"])
     await db["users"].update_one({"_id": sarah.id}, {"$set": {"demo_key": "sarah"}})

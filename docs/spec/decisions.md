@@ -399,7 +399,8 @@ Decided by Hasan after reviewing the F report; each has tests.
   was booked at), else (an own customer's plan, which has no request) the engine's price at the
   current frequency. A dearer first visit doesn't apply to an existing plan
   (an unstarted first visit keeps its agreed price). The provider is texted the new price
-  (`plan_change_proposed`, with a single-use link to `/plan-change/{token}`) and accepts or
+  (`plan_change_proposed`, with a single-use link to `/p/plan-change/{token}`, the provider app's
+  page; the old `/plan-change/{token}` redirects there) and accepts or
   declines; the customer is told at each step (`plan_change_requested`, `_accepted`, `_declined`,
   `_lapsed`). Until the provider accepts, the plan carries on unchanged; unanswered for 48 hours
   the change lapses (`plan_change_expiry` task). Accepting applies the frequency and price to the
@@ -426,9 +427,10 @@ Decided by Hasan after reviewing the F report; each has tests.
   team may suggest again. The customer's answer names the proposal it was shown (its id), so a
   stale page can't approve a newer raise (409; Codex review). Admin's waiting list shows
   "Awaiting customer" meanwhile. A provider who
-  accepts the old guide while it waits books at the old guide. (`app.customer.price_changes`,
-  called by `app.admin.overview.raise_guide` inside its transaction;
-  `tests/customer/test_price_changes.py`, `tests/admin/test_overview.py`.)
+  accepts the old guide while it waits books at the old guide, and the raise is withdrawn (A16).
+  (`app.services.guide_raises.propose`, called by `app.admin.overview.raise_guide` inside its
+  transaction; the answers in `app.customer.price_changes`; `tests/customer/test_price_changes.py`,
+  `tests/admin/test_overview.py`.)
 
 ## 2b. Rulings made in the shared-fixes session (S)
 
