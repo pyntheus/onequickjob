@@ -3,7 +3,7 @@ import { FlowTop } from "../../shared/FlowTop";
 import { useToast } from "../../shared/toast-context";
 import { FlowGuard } from "../components/FlowGuard";
 import { IntakeField } from "../components/IntakeField";
-import { answersFor, emptyCounts, lawnFilled } from "../flow";
+import { answersFor, emptyCounts, lawnReady } from "../flow";
 import { useQuoteStep } from "../useQuoteStep";
 
 /** "A few quick questions": every question comes from the category's intake schema. */
@@ -12,7 +12,7 @@ export default function Details() {
   const { flow, update, cat, steps, go, back, photos, setPhotos } = step;
   const notify = useToast();
   const notesId = useId();
-  const needsLawn = !!cat?.measure && !lawnFilled(flow.lawn);
+  const needsLawn = !!cat?.measure && !lawnReady(flow.lawn);
 
   return (
     <FlowGuard loading={step.loading} unknown={step.unknown} needsAddress={!flow.address}>

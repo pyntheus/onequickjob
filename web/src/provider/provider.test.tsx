@@ -242,20 +242,24 @@ describe("the provider app", () => {
     await userEvent.click(screen.getByRole("button", { name: "Minutes taken: −1" }));
     expect(box).toHaveValue("26");
     await userEvent.clear(box);
-    await userEvent.type(box, "45m");
-    expect(box).toHaveValue("45");
+    await userEvent.type(box, "45");
     expect(screen.getByText("The estimate was 38 minutes, so 7 minutes over.")).toBeInTheDocument();
     await userEvent.clear(box);
     await userEvent.type(box, "38");
     expect(screen.getByText("The estimate was 38 minutes, spot on.")).toBeInTheDocument();
     const send = screen.getByRole("button", { name: "Send and get paid" });
-    for (const bad of ["", "0", "601"]) {
+    // Anything but whole minutes from 1 to 600 is refused as typed, never read as another number
+    // ("45.5" isn't 455, "1000" isn't 100).
+    for (const bad of ["", "0", "601", "45.5", "1000", "45m"]) {
       await userEvent.clear(box);
       if (bad) await userEvent.type(box, bad);
-      expect(screen.getByRole("alert")).toHaveTextContent("Enter the minutes it took, from 1 to 600.");
+      expect(box).toHaveValue(bad);
+      expect(screen.getByRole("alert")).toHaveTextContent("Enter the minutes it took, in whole minutes from 1 to 600.");
       expect(box).toHaveAttribute("aria-invalid", "true");
       expect(send).toBeDisabled();
     }
+    await userEvent.clear(box);
+    await userEvent.type(box, "601");
     await userEvent.click(screen.getByRole("button", { name: "Minutes taken: +10" }));
     expect(box).toHaveValue("600");
     expect(screen.getByRole("button", { name: "Minutes taken: +1" })).toBeDisabled();

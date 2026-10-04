@@ -9,7 +9,7 @@ import { Loading } from "../../app/Status";
 import { ApiError } from "../../api/client";
 import { errorText, type QuoteOut } from "../api";
 import { FlowGuard } from "../components/FlowGuard";
-import { lawnFilled, lawnInput, quoteAnswers, type Days, type Time } from "../flow";
+import { lawnInput, lawnReady, quoteAnswers, type Days, type Time } from "../flow";
 import { useQuoteStep } from "../useQuoteStep";
 
 const g = (px: number) => ({ "--g": `${px}px` }) as CSSProperties;
@@ -61,7 +61,7 @@ export default function Price() {
   const q = useQuery({
     queryKey: ["c", "quote", body],
     queryFn: () => call(api.POST("/api/quotes", { body: body! })),
-    enabled: !!body && !!flow.address && (!cat?.measure || lawnFilled(flow.lawn)),
+    enabled: !!body && !!flow.address && (!cat?.measure || lawnReady(flow.lawn)),
     staleTime: Infinity,
     retry: false,
   });
@@ -74,7 +74,7 @@ export default function Price() {
     <FlowGuard loading={step.loading} unknown={step.unknown} needsAddress={!flow.address}>
       <div className="c-flow">
         <FlowTop steps={steps} current="price" onBack={back} />
-        {cat?.measure && !lawnFilled(flow.lawn) ? (
+        {cat?.measure && !lawnReady(flow.lawn) ? (
           <div className="card stack" style={g(12)}>
             <h1 className="h2">Tell us how big the lawn is</h1>
             <button type="button" className="btn btn-primary" onClick={() => go("size")}>

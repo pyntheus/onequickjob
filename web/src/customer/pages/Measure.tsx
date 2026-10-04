@@ -10,7 +10,7 @@ import { errorText, useAreaEstimate, useAreaOptions, type AreaBand, type AreaInp
 import { LawnScene } from "../components/LawnDrawing";
 import { sceneFactor } from "../components/lawn-scene";
 import { FlowGuard } from "../components/FlowGuard";
-import { EMPTY_LAWN, lawnFilled, lawnInput, lawnsOf, type Adjust, type LawnMethod, type LawnSides, type LawnState, type LengthUnit } from "../flow";
+import { EMPTY_LAWN, badSide, lawnFilled, lawnInput, lawnsOf, type Adjust, type LawnMethod, type LawnSides, type LawnState, type LengthUnit } from "../flow";
 import { useQuoteStep } from "../useQuoteStep";
 
 const g = (px: number) => ({ "--g": `${px}px` }) as CSSProperties;
@@ -193,17 +193,27 @@ export default function Measure() {
 
   const own = lawn.method !== "band";
   const filled = lawnFilled(lawn);
-  const [input, settled] = useSettled(own && filled ? lawnInput(lawn) : null);
+  // A side that isn't a number this way takes is never sent: it's pointed out here.
+  const typo = badSide(lawn);
+  const asking = own && filled && !typo;
+  const [input, settled] = useSettled(asking ? lawnInput(lawn) : null);
   const est = useAreaEstimate(input);
-  const failure = est.error instanceof ApiError ? est.error : null;
-  const bad = {
-    lawn: typeof failure?.extra?.lawn === "number" ? failure.extra.lawn : undefined,
-    side: typeof failure?.extra?.side === "string" ? failure.extra.side : undefined,
-    errorId,
-  };
-  const result = own && filled && est.data ? est.data : null;
+  // The API's reason (naming the lawn and side), or a failure to reach it, with a retry.
+  const apiError = est.error instanceof ApiError ? est.error : null;
+  const failure = typo
+    ? { message: typo.message, lawn: typo.lawn, side: typo.side, retry: false }
+    : asking && est.isError && !est.isFetching
+      ? {
+          message: errorText(est.error, "We couldn't work out the size just now. Check your connection and try again."),
+          lawn: typeof apiError?.extra?.lawn === "number" ? apiError.extra.lawn : undefined,
+          side: typeof apiError?.extra?.side === "string" ? apiError.extra.side : undefined,
+          retry: !apiError || apiError.status >= 500,
+        }
+      : null;
+  const bad = { lawn: failure?.lawn, side: failure?.side, errorId };
+  const result = asking && est.data ? est.data : null;
   const resultLawns = result?.measure.lawns ?? [];
-  const ready = own ? filled && settled && est.isSuccess && !est.isFetching : !!lawn.band;
+  const ready = own ? asking && settled && est.isSuccess && !est.isFetching : !!lawn.band;
   const lawns = lawnsOf(lawn);
   const setLawns = (next: LawnSides[]) => setLawn(lawn.method === "measured" ? { measured: next } : { paced: next });
 
@@ -262,10 +272,17 @@ export default function Measure() {
                 bad={bad}
               />
               <div aria-live="polite" className="stack" style={g(12)}>
-                {failure && filled ? (
-                  <p className="field-error" id={errorId}>
-                    {errorText(failure)}
-                  </p>
+                {failure ? (
+                  <div className="stack" style={g(10)}>
+                    <p className="field-error" id={errorId}>
+                      {failure.message}
+                    </p>
+                    {failure.retry && (
+                      <button type="button" className="btn btn-ghost add-lawn" onClick={() => void est.refetch()}>
+                        Try again
+                      </button>
+                    )}
+                  </div>
                 ) : result ? (
                   <div className="lawn-grid">
                     <div className="lawn-cell stack" style={g(10)}>
@@ -303,7 +320,11 @@ export default function Measure() {
         </button>
         {!ready && !failure && (
           <p className="small center muted">
-            {lawn.method === "band" ? "Choose the size that's closest to continue." : filled ? "Working out the size…" : "Fill in the length and width to continue."}
+            {lawn.method === "band"
+              ? "Choose the size that's closest to continue."
+              : filled
+                ? "Working out the size…"
+                : "Fill in the length and width to continue."}
           </p>
         )}
       </div>

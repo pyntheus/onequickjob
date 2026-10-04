@@ -133,11 +133,24 @@ describe("lawn size", () => {
     expect(await screen.findByText("That's about 12 × 8 metres (96 m²)")).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "Your lawn drawn to scale, with a car and a person" })).toBeInTheDocument();
     await waitFor(() => expect(go).toBeEnabled());
-    // Only whole strides can be typed, and nothing was asked until both sides were filled.
-    await userEvent.type(box("Strides long"), "x");
-    expect(box("Strides long")).toHaveValue("12");
     expect(asked.at(-1)).toEqual({ method: "paced", adjust: "right", unit: "m", lawns: [{ length: "12", width: "8" }] });
+    // Nothing was asked until both sides were filled, and what's typed is never turned into
+    // another number: "12.5" strides is pointed out here, not sent as 125 or 12.
     expect(asked.every((b) => (b as { lawns: { width: string }[] }).lawns[0].width !== "")).toBe(true);
+    const before = asked.length;
+    await userEvent.type(box("Strides long"), ".5");
+    expect(box("Strides long")).toHaveValue("12.5");
+    expect(await screen.findByText("The length is a whole number of strides, like 12.")).toBeInTheDocument();
+    expect(box("Strides long")).toHaveAttribute("aria-invalid", "true");
+    expect(go).toBeDisabled();
+    expect(screen.queryByText(/That's about/)).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Strides long: +1" }));
+    expect(box("Strides long")).toHaveValue("14"); // from 12.5, the nearest whole number, 13, plus 1
+    await userEvent.clear(box("Strides long"));
+    await userEvent.type(box("Strides long"), "12");
+    expect(await screen.findByText("That's about 12 × 8 metres (96 m²)")).toBeInTheDocument();
+    expect(asked.slice(before).every((b) => (b as { lawns: { length: string }[] }).lawns[0].length !== "12.5")).toBe(true);
+    await waitFor(() => expect(go).toBeEnabled());
     await userEvent.click(go);
     await waitFor(() => expect(router.state.location.pathname).toBe("/quote/mowing/details"));
     expect(JSON.parse(sessionStorage.getItem(FLOW_KEY) ?? "{}").lawn).toMatchObject({ method: "paced", paced: [{ length: "12", width: "8" }] });
@@ -196,9 +209,10 @@ describe("lawn size", () => {
     await userEvent.click(await screen.findByRole("tab", { name: "I know the size" }));
     expect(screen.getByRole("button", { name: "Metres" })).toHaveAttribute("aria-pressed", "true");
     await userEvent.click(screen.getByRole("button", { name: "Feet" }));
-    await userEvent.type(box("Length"), "30,5");
-    expect(box("Length")).toHaveValue("30.5");
-    await userEvent.type(box("Length"), "55");
+    await userEvent.type(box("Length"), "30,555");
+    expect(box("Length")).toHaveValue("30.555");
+    expect(await screen.findByText("The length needs to be a number like 7.5, with up to two decimal places.")).toBeInTheDocument();
+    await userEvent.type(box("Length"), "{Backspace}");
     expect(box("Length")).toHaveValue("30.55");
     await userEvent.type(box("Width"), "20");
     expect(await screen.findByText("That's about 9.1 × 6.1 metres (56 m²)")).toBeInTheDocument();
@@ -211,6 +225,28 @@ describe("lawn size", () => {
     expect(box("Width")).not.toHaveAttribute("aria-invalid");
     expect(screen.queryByText(/That's about/)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+  });
+
+  it("says so when the size can't be worked out just now, and tries again", async () => {
+    withFlow({ address, addressText: address.label });
+    let down = true;
+    sizeApi({
+      "POST /api/area/estimate": () => {
+        if (down) throw new TypeError("Failed to fetch");
+        return areaEstimate("paced", [[12, 8]]);
+      },
+    });
+    renderAt("/quote/mowing/size");
+    await userEvent.click(await screen.findByRole("tab", { name: "Pace it out" }));
+    await userEvent.type(box("Strides long"), "12");
+    await userEvent.type(box("Strides wide"), "8");
+    expect(await screen.findByText("We couldn't work out the size just now. Check your connection and try again.")).toBeInTheDocument();
+    expect(screen.queryByText("Working out the size…")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+    down = false;
+    await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText("That's about 12 × 8 metres (96 m²)")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled());
   });
 
   it("keeps a flow saved before the three ways", async () => {

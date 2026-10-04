@@ -5,6 +5,7 @@
  */
 import { createContext, useContext } from "react";
 import type { Schemas } from "../api/client";
+import { DECIMAL, WHOLE } from "../shared/number-text";
 import type { Address, Category } from "./api";
 
 export type Adjust = "smaller" | "right" | "bigger";
@@ -123,6 +124,34 @@ export function lawnsOf(lawn: LawnState): LawnSides[] {
 export function lawnFilled(lawn: LawnState): boolean {
   if (lawn.method === "band") return !!lawn.band;
   return lawnsOf(lawn).every((l) => l.length.trim() !== "" && l.width.trim() !== "");
+}
+
+export type BadSide = { lawn: number; side: keyof LawnSides; message: string };
+
+/** The first side typed that isn't a number the chosen way takes (whole strides; metres or feet
+ * with up to two decimal places), so it's never sent as some other number. Whether the sizes are
+ * in range is the API's call. */
+export function badSide(lawn: LawnState): BadSide | null {
+  if (lawn.method === "band") return null;
+  const lawns = lawnsOf(lawn);
+  for (const [i, l] of lawns.entries()) {
+    for (const side of ["length", "width"] as const) {
+      const text = l[side].trim();
+      if (text === "" || (lawn.method === "paced" ? WHOLE : DECIMAL).test(text)) continue;
+      const what = lawns.length > 1 ? `Lawn ${i + 1}: the ${side}` : `The ${side}`;
+      const message =
+        lawn.method === "paced"
+          ? `${what} is a whole number of strides, like 12.`
+          : `${what} needs to be a number like 7.5, with up to two decimal places.`;
+      return { lawn: i, side, message };
+    }
+  }
+  return null;
+}
+
+/** Filled in, and every side a number the chosen way takes: ready to be priced. */
+export function lawnReady(lawn: LawnState): boolean {
+  return lawnFilled(lawn) && badSide(lawn) === null;
 }
 
 /** The lawn step's answer as the API takes it (POST /api/area/estimate and /api/quotes). */

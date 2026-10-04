@@ -8,7 +8,7 @@ type NumberFieldProps = {
   /** The text as typed; the caller decides what's valid. */
   value: string;
   onChange: (value: string) => void;
-  /** −1 and +1 stay inside these. */
+  /** −1 and +1 stay inside these (the caller checks what's typed). */
   min?: number;
   max?: number;
   /** Decimals allowed (two places at most): no −1 and +1 buttons. */
@@ -18,19 +18,6 @@ type NumberFieldProps = {
   invalid?: boolean;
   describedBy?: string;
 };
-
-const DECIMAL = /^\d{0,4}([.]\d{0,2})?$/;
-
-/** Clean up what was typed: digits only (whole numbers, no longer than max), or a decimal with
- * at most two places (a comma counts as the point). Returns null to keep the old value. */
-function cleanNumber(raw: string, decimals: boolean, max?: number): string | null {
-  if (decimals) {
-    const v = raw.replace(",", ".").replace(/[^\d.]/g, "");
-    return DECIMAL.test(v) ? v : null;
-  }
-  const v = raw.replace(/\D/g, "");
-  return max !== undefined ? v.slice(0, String(max).length) : v;
-}
 
 /**
  * A number you can type, with −1 and +1 buttons beside it (whole numbers), or a decimal with
@@ -48,10 +35,9 @@ export function NumberField({ id, label, value, onChange, min = 0, max, decimals
       value={value}
       aria-invalid={invalid || undefined}
       aria-describedby={describedBy}
-      onChange={(e) => {
-        const v = cleanNumber(e.target.value, decimals, max);
-        if (v !== null) onChange(v);
-      }}
+      // What's typed is kept as typed (a comma counts as the decimal point), never trimmed or
+      // stripped into another number: the caller says when it isn't a valid one.
+      onChange={(e) => onChange(decimals ? e.target.value.replace(",", ".") : e.target.value)}
     />
   );
   if (decimals) {
@@ -62,7 +48,10 @@ export function NumberField({ id, label, value, onChange, min = 0, max, decimals
       </div>
     );
   }
-  const n = Number.parseInt(value, 10);
+  // −1 and +1 count from the nearest whole number to what's typed (from the minimum if it's empty
+  // or not a number), and stay inside min and max.
+  const typed = value.trim() === "" ? Number.NaN : Number(value.trim());
+  const n = Number.isFinite(typed) ? Math.round(typed) : Number.NaN;
   const step = (by: number) => {
     const from = Number.isNaN(n) ? (by > 0 ? min - by : min) : n;
     const next = Math.max(min, max === undefined ? from + by : Math.min(max, from + by));

@@ -11,6 +11,7 @@ import { Button } from "../../shared/Button";
 import { Chip } from "../../shared/Chip";
 import { fmt } from "../../shared/format";
 import { NumberField } from "../../shared/NumberField";
+import { wholeNumber } from "../../shared/number-text";
 import { pKeys, useHelperMode, useProviderMutation, useVisit, type FinishOut, type ProviderVisit } from "../api";
 import { BackLink, ErrorNote } from "../components";
 import { css } from "../util";
@@ -57,9 +58,11 @@ function FinishForm({ v, timerMinutes, onDone }: { v: ProviderVisit; timerMinute
   const fromTimer = timerMinutes !== null && timerMinutes >= 1;
   const start = fromTimer ? timerMinutes : v.est_mins;
   const [typed, setTyped] = useState(String(Math.min(MAX_MINS, Math.max(1, start))));
-  const mins = Number.parseInt(typed, 10);
-  const valid = Number.isInteger(mins) && mins >= 1 && mins <= MAX_MINS;
-  const add = (n: number) => setTyped(String(Math.min(MAX_MINS, Math.max(1, (Number.isNaN(mins) ? 0 : mins) + n))));
+  // Exactly what's typed: "45.5" or "1000" is refused, never read as some other number.
+  const whole = wholeNumber(typed);
+  const mins = whole ?? Number.NaN;
+  const valid = whole !== null && whole >= 1 && whole <= MAX_MINS;
+  const add = (n: number) => setTyped(String(Math.min(MAX_MINS, Math.max(1, (whole ?? 0) + n))));
   const [flags, setFlags] = useState<string[]>([]);
   const [note, setNote] = useState("");
   const options = [...(FLAGS[v.category_id] ?? INSIDE), NONE];
@@ -122,7 +125,7 @@ function FinishForm({ v, timerMinutes, onDone }: { v: ProviderVisit; timerMinute
           </span>
         ) : (
           <span className="field-error" id="mins-note" role="alert">
-            Enter the minutes it took, from 1 to {MAX_MINS}.
+            Enter the minutes it took, in whole minutes from 1 to {MAX_MINS}.
           </span>
         )}
       </div>
