@@ -604,14 +604,16 @@ Decided by Hasan after reviewing session S's report; each has tests.
   the customer sees the commission at the new price, in the invite's agency wording ("... and Dave
   pays us a small fee of £1.10 a visit (5%). It isn't added to your price."; `PendingPlanChange.split`
   from money.py). Applying any change of frequency (this approval, or A10's acceptance) is refused
-  with 409 `time_taken` if the dates it adds within six months (from where its fill starts, the new
-  first day included) would run into the provider's other visits or plans (`schedule.first_clash`, on the same busy times as A14); it writes the provider, so
+  with 409 `time_taken` if the dates it adds (every date its fill makes, from where the fill starts,
+  the new first day included and past a long pause too, as `schedule.fill_dates` says; and every plan
+  date in the six months after) would run into the provider's other visits or plans (`schedule.first_clash`, on the same busy times as A14); it writes the provider, so
   a booking or another change for them committing meanwhile conflicts with it (Codex review).
   (`test_plan_changes.py`: `test_an_own_customers_plan_is_never_repriced_by_the_engine`,
   `test_the_provider_or_the_customer_can_keep_an_own_customers_plan_as_it_is`,
   `test_each_wait_on_an_own_customers_change_lapses_after_48_hours`; `test_scheduling.py`:
   `test_a_change_of_frequency_cant_double_book_the_provider`,
-  `test_a_change_of_frequency_checks_the_new_anchor_day_too`; web: `account.test.tsx`,
+  `test_a_change_of_frequency_checks_the_new_anchor_day_too`,
+  `test_a_change_of_frequency_checks_dates_made_past_a_long_pause`; web: `account.test.tsx`,
   `provider.test.tsx`.)
 - **A23. A provider who works none of the customer's chosen days isn't eligible.** For a request
   whose customer chose weekdays (or weekends), a provider who works none of those days gets no job

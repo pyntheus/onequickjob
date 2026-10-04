@@ -203,11 +203,28 @@ def overlaps(start: datetime, mins: int, busy: list[Busy]) -> bool:
     return False
 
 
-async def first_clash(db: Db, series: Series, after: date, *, session: DbSession | None = None) -> date | None:
-    """The first date after `after`, within six months, that the plan would add (it has no visit going
-    ahead on it yet) and that runs into the provider's other visits or plans: a change of frequency
-    mustn't double-book them (Codex review of A22). None if there's none."""
-    last = after + timedelta(days=SEARCH_DAYS)
+def fill_dates(series: Series, after: date, today: date, upcoming: int = 0) -> list[date]:
+    """The dates ensure_horizon makes after `after`: up to the horizon (six weeks from today), or, if
+    that leaves fewer than MIN_UPCOMING with the `upcoming` ones already made, the next ones looking
+    up to 400 days further (past a long pause)."""
+    until = today + timedelta(days=HORIZON_DAYS)
+    dates = occurrences(series, after, until)
+    if upcoming + len(dates) < MIN_UPCOMING:
+        dates = occurrences(series, after, until + timedelta(days=400))[: MIN_UPCOMING - upcoming] or dates
+    return dates
+
+
+async def first_clash(
+    db: Db, series: Series, after: date, *, today: date | None = None, session: DbSession | None = None
+) -> date | None:
+    """The first date after `after` that the plan would add (it has no visit going ahead on it yet)
+    and that runs into the provider's other visits or plans: a change of frequency mustn't
+    double-book them (Codex reviews of A22). It checks every date the fill from `after` makes now
+    (fill_dates, so past a long pause too) and every plan date in the six months after `after`,
+    which later top-ups make. None if there's none."""
+    today = today or london_today()
+    window = occurrences(series, after, after + timedelta(days=SEARCH_DAYS))
+    candidates = sorted(set(window) | set(fill_dates(series, after, today)))
     own = {
         v.local_date
         for v in await Visits(db).find(
@@ -215,10 +232,10 @@ async def first_clash(db: Db, series: Series, after: date, *, session: DbSession
             session=session,
         )
     }
-    dates = [d for d in occurrences(series, after, last) if d not in own]
+    dates = [d for d in candidates if d not in own]
     if not dates:
         return None
-    busy = await provider_busy(db, series.provider_id, dates[0], last, except_series=series.id, session=session)
+    busy = await provider_busy(db, series.provider_id, dates[0], dates[-1], except_series=series.id, session=session)
     hh, mm = (int(x) for x in series.start_time.split(":"))
     clashes = (d for d in dates if overlaps(london_datetime(d, time(hh, mm)), series.est_mins, busy.get(d, [])))
     return next(clashes, None)
@@ -290,7 +307,6 @@ async def ensure_horizon(
         return []
     today = today or london_today()
     visits = Visits(db)
-    until = today + timedelta(days=HORIZON_DAYS)
     if from_day is None:
         last = await visits.find_one({"series_id": series.id}, sort=[("local_date", -1)], session=session)
         after = max(last.local_date if last else series.anchor_date - timedelta(days=1), today)
@@ -299,9 +315,7 @@ async def ensure_horizon(
         )
     else:
         after, upcoming = from_day, 0
-    dates = occurrences(series, after, until)
-    if upcoming + len(dates) < MIN_UPCOMING:
-        dates = occurrences(series, after, until + timedelta(days=400))[: MIN_UPCOMING - upcoming] or dates
+    dates = fill_dates(series, after, today, upcoming)
     hh, mm = (int(x) for x in series.start_time.split(":"))
     made: list[Visit] = []
     for d in dates:
