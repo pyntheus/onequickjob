@@ -461,12 +461,16 @@ has tests.
   start, whatever the day) is gone. With no working day that has room in six months, nothing is
   booked: `first_slot` raises the domain conflict `no_free_day` ("Dave H. has no free day for
   this in the next six months, so it can't be booked."), the acceptance's transaction is undone
-  and the request stays open (Codex review). Skipped visits no longer block a slot. (`test_scheduling.py`:
+  and the request stays open (Codex review). Regular plans are made only six weeks ahead, so the
+  search also counts each active plan's later dates as taken (pauses aside); a first visit chosen
+  beyond the horizon never collides with the visit a later top-up makes (Codex re-check). Skipped
+  visits no longer block a slot. (`test_scheduling.py`:
   `test_a_first_visit_longer_than_its_window_starts_at_the_window_start`,
   `test_a_long_visit_only_starts_at_the_window_start`,
   `test_the_first_visit_keeps_to_working_days_and_time_off_beyond_four_weeks`,
   `test_weekday_only_cleaning_and_flatpack_bookings_get_a_weekday_first_visit`,
-  `test_no_working_day_with_room_in_six_months_books_nothing`.)
+  `test_no_working_day_with_room_in_six_months_books_nothing`,
+  `test_a_first_visit_beyond_the_horizon_avoids_a_regulars_later_dates`.)
 - **A15. Margaret's weekly re-price (A10) was £32 because her plan had no lawn size** (Session S
   investigation). The seed wrote her fortnightly £32 plan (the prototype's price) with no
   request, so A10 had no lawn size on record and priced both frequencies at the medium band

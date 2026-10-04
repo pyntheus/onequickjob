@@ -21,7 +21,7 @@
 """
 
 from datetime import UTC, date, datetime, time, timedelta
-from typing import Literal
+from typing import Literal, NamedTuple
 
 from app.core.db import Db, DbSession, transaction
 from app.core.errors import Conflict
@@ -75,16 +75,23 @@ def _round_up_half_hour(dt: datetime) -> datetime:
     return local + timedelta(minutes=(-local.minute) % 30)
 
 
-def slot_on(day: date, window: TimePref, mins: int, busy: list[Visit]) -> datetime | None:
+class Busy(NamedTuple):
+    """Time the provider is already taken: a stored visit, or a regular's date not yet made."""
+
+    scheduled_start: datetime
+    est_mins: int
+
+
+def slot_on(day: date, window: TimePref, mins: int, busy: list[Busy] | list[Visit]) -> datetime | None:
     """First start time on day in window that fits mins around the provider's other visits that
-    day (busy, by start time), with the travel buffer either side. A visit ends by the window's
-    end; one longer than the window may only start at the window's start, and runs over."""
+    day (busy), with the travel buffer either side. A visit ends by the window's end; one longer
+    than the window may only start at the window's start, and runs over."""
     start_t, end_t = WINDOWS[window]
     window_start = to_london(london_datetime(day, start_t))
     length = timedelta(minutes=mins)
     latest = max(window_start, to_london(london_datetime(day, end_t)) - length)
     candidate = window_start
-    for v in busy:
+    for v in sorted(busy, key=lambda b: b.scheduled_start):
         v_start = v.scheduled_start
         v_end = v_start + timedelta(minutes=v.est_mins)
         if candidate < v_end + TRAVEL_BUFFER and candidate + length + TRAVEL_BUFFER > v_start:
@@ -124,13 +131,20 @@ async def first_slot(
             session=session,
         )
     ]
-    busy: dict[date, list[Visit]] = {}
+    busy: dict[date, list[Busy]] = {}
     for v in await Visits(db).find(
         {"provider_id": provider.id, "local_date": span, "status": {"$nin": ["cancelled", "skipped"]}},
-        sort=[("scheduled_start", 1)],
         session=session,
     ):
-        busy.setdefault(v.local_date, []).append(v)
+        busy.setdefault(v.local_date, []).append(Busy(v.scheduled_start, v.est_mins))
+    # Regular plans are made only six weeks ahead: their later dates are taken too (pauses aside),
+    # so a first visit chosen beyond the horizon never collides with a top-up (Codex re-check).
+    for series in await SeriesRepo(db).find({"provider_id": provider.id, "status": "active"}, session=session):
+        made = await Visits(db).find_one({"series_id": series.id}, sort=[("local_date", -1)], session=session)
+        after = max(made.local_date if made else series.anchor_date - timedelta(days=1), first - timedelta(days=1))
+        hh, mm = (int(x) for x in series.start_time.split(":"))
+        for d in occurrences(series, after, last):
+            busy.setdefault(d, []).append(Busy(london_datetime(d, time(hh, mm)), series.est_mins))
     working = [
         d
         for d in (first + timedelta(days=k) for k in range(SEARCH_DAYS))

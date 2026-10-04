@@ -305,3 +305,30 @@ async def test_no_working_day_with_room_in_six_months_books_nothing(db, catalogu
         await marketplace.accept_at_guide(db, make_settings(), req.ref, dave)
     assert (await JobRequests(db).get(req.id)).status == "open" and await db["bookings"].count_documents({}) == 0
     assert (await Providers(db).get(dave.id)).last_booked_at is None, "the whole acceptance was undone"
+
+
+async def test_a_first_visit_beyond_the_horizon_avoids_a_regulars_later_dates(db, catalogue):
+    """Codex re-check (high): regular plans are only made six weeks ahead, so the search also
+    counts their later dates as taken. A first visit eight weeks out doesn't land on a regular's
+    Monday morning, and the later top-up that makes that Monday's visit can't overlap it."""
+    from app.repos import Providers, SeriesRepo
+
+    dave = await make_provider(db, "Dave Hughes", "+447700900201", ["mowing"], days=["mon", "tue"])
+    mon = next_weekday(london_today(), 0)
+    regular = _series("weekly", mon).model_copy(update={"provider_id": dave.id, "est_mins": 180})
+    await SeriesRepo(db).insert(regular)
+    await schedule.ensure_horizon(db, regular, dave)  # six weeks of Mondays, 09:00 to 12:00
+    eight_weeks = mon + timedelta(days=56)
+    assert await Visits(db).count({"series_id": regular.id, "local_date": eight_weeks.isoformat()}) == 0
+    slot = to_london(await schedule.first_slot(db, dave, "any", "morning", 60, from_day=eight_weeks))
+    assert slot.date() == eight_weeks + timedelta(days=1), "the Tuesday: Monday morning is the regular's"
+    # Later, the top-up makes that Monday's visit; nothing overlaps the first visit.
+    the_day_before = eight_weeks - timedelta(days=1)
+    await schedule.ensure_horizon(db, await SeriesRepo(db).get(regular.id), dave, today=the_day_before)
+    monday = await Visits(db).find_one({"series_id": regular.id, "local_date": eight_weeks.isoformat()})
+    assert monday is not None and to_london(monday.scheduled_start).strftime("%H:%M") == "09:00"
+    assert to_london(monday.scheduled_start).date() != slot.date()
+    # An afternoon job can still go on that Monday.
+    pm = to_london(await schedule.first_slot(db, dave, "any", "afternoon", 60, from_day=eight_weeks))
+    assert pm.date() == eight_weeks and pm.strftime("%H:%M") == "13:00"
+    assert (await Providers(db).get(dave.id)).working_days == ["mon", "tue"]
