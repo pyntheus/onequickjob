@@ -2,7 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Lock } from "lucide-react";
 import { useState, type CSSProperties, type FormEvent } from "react";
 import { ApiError, api, call } from "../api/client";
-import { queryKeys, useConfig, type Me } from "../api/queries";
+import { setSignedIn, useConfig, type Me } from "../api/queries";
 import { Button } from "./Button";
 import { TextField } from "./Field";
 
@@ -53,7 +53,7 @@ export function SignInForm({
       const me = await call(
         api.POST("/api/auth/verify", { body: { identifier: identifier.trim(), code: code.trim(), name: name ?? null } }),
       );
-      qc.setQueryData(queryKeys.me, me);
+      await setSignedIn(qc, me);
       await qc.invalidateQueries();
       onSignedIn?.(me);
     } catch (err) {

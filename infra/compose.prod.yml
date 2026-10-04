@@ -1,0 +1,40 @@
+# Production-style run on the droplet (make prod-up): the API from an image with the code baked
+# in, no auto-reload, restarting on its own (also after a reboot). The web app is built into
+# var/www and served by the shared Caddy (compose.shared.yml) behind basic auth, so there's no
+# web container and no dev server here.
+#
+# It shares the main worktree's .env, database (oqj_main) and files volume with `make dev`, but
+# not its ports: the dev API and web bind 127.0.0.1:8000 and :5170; this API binds only
+# 127.0.0.1:${PROD_API_PORT:-8090} (for make status). Caddy reaches it on the oqj network.
+name: oqj-prod
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: infra/api.prod.Dockerfile
+    image: oqj-api:prod
+    container_name: oqj-prod-api
+    restart: unless-stopped
+    env_file: ../.env
+    environment:
+      APP_ENV: prod
+      MONGO_URL: mongodb://oqj-mongo:27017/?replicaSet=rs0
+      FILES_DIR: /data/files
+      SEED_DIR: /app/seed
+      TASKS_ENABLED: "true"
+    ports:
+      - "127.0.0.1:${PROD_API_PORT:-8090}:8000"
+    volumes:
+      - files:/data/files
+    networks: [oqj]
+
+networks:
+  oqj:
+    name: oqj
+    external: true
+
+volumes:
+  files:
+    name: ${CADDY_FILES_VOLUME:-oqj-files-main}
+    external: true

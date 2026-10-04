@@ -105,12 +105,12 @@ export default function Categories() {
                 {current && <span className="ident">{current.category.pricing_model}</span>}
               </div>
               <p className="small muted">The quote flow, provider matching and document checks all render from this.</p>
-              {record ? <pre className="code">{JSON.stringify(schemaOf(record), null, 2)}</pre> : <p className="small muted">Loading…</p>}
+              {record ? <pre className="code" tabIndex={0} role="region" aria-label="Intake schema">{JSON.stringify(schemaOf(record), null, 2)}</pre> : <p className="small muted">Loading…</p>}
             </div>
             <div className="card stack" style={gap("12px")}>
               <h2 className="h3">Never listed</h2>
               <p className="small muted">Shown to customers on the home page, with who to use instead.</p>
-              <div className="table-wrap">
+              <div className="table-wrap" tabIndex={0} role="region" aria-label="Categories">
                 <table className="table">
                   <thead>
                     <tr>

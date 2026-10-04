@@ -33,9 +33,10 @@ Detail lives in `docs/spec/`: start with `decisions.md` and `lanes.md`.
    `DEMO_MODE=false`, in the API as well as the web.
 6. **First acceptance is atomic**: use `app.services.marketplace`, never your own update.
 7. Times stored UTC, shown Europe/London; phones E.164; UK English copy.
-8. **Stay in your lane** (`docs/spec/lanes.md`). Don't edit files you don't own; write
-   `docs/spec/contract-changes/<lane>.md` instead. Shared logic is in `app/services`: call it,
-   don't copy it.
+8. **Stay in your lane** (`docs/spec/lanes.md`). The lanes are finished: change any file, but
+   in the area it belongs to (lanes.md). If sessions run in parallel again, don't edit files
+   another session owns; write `docs/spec/contract-changes/<session>.md` instead. Shared logic
+   is in `app/services`: call it, don't copy it.
 9. **Never merge.** Push your branch, open a PR, report. Hasan merges.
 
 **Stop and ask (in your report, don't guess):** anything that changes money, fees or pricing

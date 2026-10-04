@@ -23,3 +23,7 @@ vite.config.ts.timestamp-*
 .idea/
 .vscode/
 *.swp
+
+# End-to-end runs
+e2e/report/
+e2e/results/

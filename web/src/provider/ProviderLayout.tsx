@@ -2,14 +2,14 @@ import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type CSSProperties, type MutableRefObject } from "react";
 import { Link, Outlet, useLocation, useNavigate, useSearchParams } from "react-router";
 import { ApiError, api, call } from "../api/client";
-import { hasRole, queryKeys, useMe, type Me } from "../api/queries";
+import { hasRole, queryKeys, setSignedIn, useMe, type Me } from "../api/queries";
 import { Loading, Notice } from "../app/Status";
 import { Brand } from "../shared/Brand";
 import { Button } from "../shared/Button";
 import { SignInForm } from "../shared/SignInForm";
 import "./install";
 import { useHelperMode } from "./api";
-import { TABS, tabOf } from "./tabs";
+import { HELPER_TABS, TABS, tabOf } from "./tabs";
 
 /** The service worker caches the app shell only (public/p/sw.js), in built apps: never in the
  * Vite dev server, where it would fight hot reloading. */
@@ -79,7 +79,7 @@ function useMagicLink(lastRef: LastUser): { pending: boolean; error: string | nu
     call(api.POST("/api/auth/magic", { body: { token } }))
       .then(async (res) => {
         const before = qc.getQueryData<Me>(queryKeys.me)?.user_id ?? null;
-        qc.setQueryData(queryKeys.me, res.me);
+        await setSignedIn(qc, res.me);
         if (before === res.me.user_id) {
           await qc.invalidateQueries();
         } else {
@@ -149,9 +149,11 @@ export function ProviderLayout() {
   useServiceWorker();
   const { pathname } = useLocation();
   const { data: me } = useMe();
+  const { helper, known } = useHelperMode();
   const signup = pathname.startsWith("/p/signup");
   const open = TOKEN_PAGES.some((prefix) => pathname.startsWith(prefix));
   const current = tabOf(pathname);
+  const tabs = helper ? HELPER_TABS : TABS;
   return (
     <div className="p-app">
       <div className="p-col">
@@ -165,9 +167,9 @@ export function ProviderLayout() {
         <main id="main" className="p-body" tabIndex={-1}>
           <Body signup={signup} open={open} />
         </main>
-        {!signup && me && (
+        {!signup && me && known && (
           <nav className="p-nav" aria-label="Provider">
-            {TABS.map(({ id, label, icon: I, to }) => (
+            {tabs.map(({ id, label, icon: I, to }) => (
               <Link key={id} to={to} className={current === id ? "on" : ""} aria-current={current === id ? "page" : undefined}>
                 <I size={22} strokeWidth={current === id ? 2.5 : 2} aria-hidden="true" />
                 {label}

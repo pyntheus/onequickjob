@@ -30,3 +30,10 @@
 .code-box .code-digits{font-family:var(--font-head);font-size:26px;letter-spacing:.12em;font-variant-numeric:tabular-nums}
 /* Keep the admin sidebar's footer copy clear of the floating demo controls. */
 body:has(.demo-fabs) .a-side{padding-bottom:170px}
+/* Phones and tablets: the floating demo controls sit above the bottom of the screen (and the
+   provider app's nav), over the last thing on a page, often its main button. Every page gets
+   room to scroll that clear of them (found by the e2e journeys at 375px). */
+@media(max-width:899px){
+  body:has(.demo-fabs) main#main{padding-bottom:calc(120px + env(safe-area-inset-bottom))}
+  body:has(.demo-fabs) .p-body{padding-bottom:calc(130px + env(safe-area-inset-bottom))}
+}

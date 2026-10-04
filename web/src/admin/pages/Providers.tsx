@@ -96,7 +96,7 @@ export default function Providers() {
       </div>
       <QueryState isLoading={isLoading} error={error}>
         <div className="card">
-          <div className="table-wrap">
+          <div className="table-wrap" tabIndex={0} role="region" aria-label="Providers">
             <table className="table">
               <thead>
                 <tr>

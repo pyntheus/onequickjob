@@ -1,5 +1,5 @@
 /** Shared TanStack Query hooks. Lanes add their own hooks in their own directories. */
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, type QueryClient } from "@tanstack/react-query";
 import { ApiError, api, call, type Schemas } from "./client";
 
 export type Me = Schemas["Me"];
@@ -20,6 +20,14 @@ export function useConfig() {
     queryFn: () => call(api.GET("/api/config")),
     staleTime: Infinity,
   });
+}
+
+/** Record who has just signed in (a code, a job-alert link). A fetch of /api/auth/me already in
+ * flight went out with the old session, or none, and would overwrite this when it lands, so it's
+ * cancelled first (its answer is dropped). */
+export async function setSignedIn(qc: QueryClient, me: Me): Promise<void> {
+  await qc.cancelQueries({ queryKey: queryKeys.me });
+  qc.setQueryData(queryKeys.me, me);
 }
 
 /** The signed-in user, or null when signed out (401). */

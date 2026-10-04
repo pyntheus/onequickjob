@@ -286,7 +286,8 @@ export default function Signup() {
         {list.steps.map((s, i) => {
           const expanded = current === s.key && (s.state !== "done" || open === s.key);
           return (
-            <div key={s.key} className={expanded ? "card stack" : "card flat stack"} style={{ ...css(12), padding: 16, opacity: s.state === "todo" ? 0.6 : 1 }}>
+            // A step still to come has a dashed border, not faded text (faded text failed WCAG contrast).
+            <div key={s.key} className={(expanded ? "card stack" : "card flat stack") + (s.state === "todo" ? " step-todo" : "")} style={{ ...css(12), padding: 16 }}>
               <div className="row" style={css(12)}>
                 <span className={"box step-num" + (s.state === "done" ? " on" : "")} aria-hidden="true">
                   {s.state === "done" ? <Check size={15} strokeWidth={3} /> : <span className="xs" style={{ fontWeight: 700 }}>{i + 1}</span>}

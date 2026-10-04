@@ -9,7 +9,7 @@
 .p-body .small{font-size:15.5px}
 .p-body .xs{font-size:14px}
 .p-body .label{font-size:16.5px}
-.p-nav{display:grid;grid-template-columns:repeat(4,1fr);background:var(--surface);border-top:1px solid var(--hair);padding:4px 4px calc(8px + env(safe-area-inset-bottom));flex:none;position:sticky;bottom:0;z-index:5}
+.p-nav{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;background:var(--surface);border-top:1px solid var(--hair);padding:4px 4px calc(8px + env(safe-area-inset-bottom));flex:none;position:sticky;bottom:0;z-index:5}
 .p-nav a{background:none;border:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:60px;font-size:13.5px;font-weight:600;color:var(--muted);text-decoration:none;border-radius:var(--radius-sm)}
 .pt .p-nav a{color:var(--muted)}
 .pt .p-nav a.on{color:var(--primary)}
@@ -76,3 +76,7 @@ input[type="file"]:focus-visible + *,label.btn:focus-within{outline:3px solid va
 @media(max-width:420px){.grid2.narrow-stack{grid-template-columns:1fr}}
 .p-app .btn svg{flex:none}
 .p-app .grid2 .btn{padding:0 10px;white-space:normal;text-align:center}
+/* Sign-up: a step still to come (dashed, at full contrast). */
+.step-todo{border-style:dashed}
+/* Keyboard focus (and anchors) scroll clear of the sticky bottom nav (WCAG 2.4.11). */
+html:has(.p-nav){scroll-padding-bottom:calc(84px + env(safe-area-inset-bottom))}

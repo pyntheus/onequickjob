@@ -1,4 +1,5 @@
-# Shared by every worktree on the droplet: one Mongo, one Caddy. Project name is fixed.
+# Shared by every worktree on the droplet: one Mongo, one Caddy. Project name is fixed. Both
+# restart on their own, also after a reboot (Docker starts at boot).
 #
 # SECURITY: Docker publishes ports around the ufw firewall, so ONLY Caddy publishes
 # ports (80 and 443). Mongo publishes none: it is reachable only on the private "oqj"
@@ -57,11 +58,13 @@ services:
       SITE_HOST: ${SITE_HOST:?set SITE_HOST in .env}
       BASIC_AUTH_USER: ${BASIC_AUTH_USER:?set BASIC_AUTH_USER in .env}
       BASIC_AUTH_PASSWORD: ${BASIC_AUTH_PASSWORD:?set BASIC_AUTH_PASSWORD in .env}
-      CADDY_WEB_UPSTREAM: ${CADDY_WEB_UPSTREAM:-oqj-main-web:5173}
-      CADDY_API_UPSTREAM: ${CADDY_API_UPSTREAM:-oqj-main-api:8000}
+      CADDY_API_UPSTREAM: ${CADDY_API_UPSTREAM:-oqj-prod-api:8000}
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - ./caddy/entrypoint.sh:/etc/caddy/entrypoint.sh:ro
+      # The built web app (make prod-up writes var/www; make infra-up creates it first, so
+      # Docker never makes it as root).
+      - ../var/www:/srv/www:ro
       - caddy-data:/data
       - caddy-config:/config
       - files:/srv/files:ro

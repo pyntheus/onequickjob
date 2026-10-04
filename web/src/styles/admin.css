@@ -14,7 +14,9 @@
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
 .kpi{padding:16px 18px}
 .kpi .v{font-family:var(--font-head);font-weight:var(--head-weight);letter-spacing:var(--head-track);font-size:30px;line-height:1.1;margin-top:4px;font-variant-numeric:tabular-nums}
-.table-wrap{overflow-x:auto}
+/* position:relative keeps visually hidden header text (.sr-only, absolutely positioned) inside
+   the scroller, so a wide table never widens the page. */
+.table-wrap{overflow-x:auto;position:relative}
 .table{width:100%;border-collapse:collapse;font-size:14.5px}
 .table th{text-align:left;font-size:13px;font-weight:600;color:var(--muted);padding:10px 12px;border-bottom:1px solid var(--hair);white-space:nowrap}
 .table td{padding:13px 12px;border-bottom:1px solid var(--hair);white-space:nowrap;vertical-align:middle;font-variant-numeric:tabular-nums}
@@ -56,3 +58,5 @@
 .stripe-box{padding:12px;border:var(--bw) solid var(--line-strong);border-radius:var(--radius-sm);background:var(--surface)}
 /* On phones the sidebar is a top bar: drop the room demo.css keeps for the floating demo controls. */
 @media(max-width:860px){body:has(.demo-fabs) .a-shell .a-side{padding-bottom:8px}}
+/* A closed dispute: a quieter background, text at full contrast (opacity failed WCAG contrast). */
+.dispute-closed{background:var(--soft);box-shadow:none}
