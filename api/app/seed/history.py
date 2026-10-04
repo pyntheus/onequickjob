@@ -373,9 +373,8 @@ async def seed_dave_fill(ctx: Ctx, diary: Diary) -> None:
             remaining -= v.charge.provider_pence
 
 
-async def seed_dave_records(ctx: Ctx) -> list[tuple[str, str]]:
-    """Mileage (last three weeks of working days) and the three expenses. Returns the
-    (provider_id, date) pairs used, for clash clean-up."""
+async def seed_dave_records(ctx: Ctx) -> None:
+    """Mileage (last three weeks of working days) and the three expenses."""
     dave = ctx.providers["dave"]
     home = dave.home.location
     by_day: dict[date, list] = defaultdict(list)
@@ -386,7 +385,6 @@ async def seed_dave_records(ctx: Ctx) -> list[tuple[str, str]]:
             and ctx.today - timedelta(days=21) <= v.local_date < ctx.today
         ):
             by_day[v.local_date].append(v)
-    used: list[tuple[str, str]] = []
     for day, visits in sorted(by_day.items()):
         visits.sort(key=lambda v: v.scheduled_start)
         stops = [("Home", home.lat, home.lng)]
@@ -422,7 +420,6 @@ async def seed_dave_records(ctx: Ctx) -> list[tuple[str, str]]:
                 **ctx.timestamps(at),
             )
         )
-        used.append((dave.id, day.isoformat()))
     for e in ctx.scenario["expenses"]:
         day = ctx.day(e["days_ago"])
         ctx.w.add(
@@ -437,4 +434,3 @@ async def seed_dave_records(ctx: Ctx) -> list[tuple[str, str]]:
                 **ctx.timestamps(ctx.at(day, "17:45")),
             )
         )
-    return used

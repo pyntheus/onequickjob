@@ -136,7 +136,12 @@ OWNERS: dict[str, tuple[str, str]] = {
     "login_codes": ("F", "F only (services.auth)"),
     "magic_links": ("F", "F mints and consumes; L1 (job alerts) and L2 (helper invites) mint via create_magic_link"),
     "customers": ("L1", "L1; F test factories; L1 invite acceptance creates own-customer customers"),
-    "providers": ("L2", "L2 (self-service, sign-up); L3 via Providers.set_document / set_status; L1 via apply_rating"),
+    "providers": (
+        "L2",
+        "L2 (self-service, sign-up); L3 via Providers.set_document / set_helper_document / set_helper_status / "
+        "set_status, and patch(payment_account) on account.updated, admin onboarding and Check status; "
+        "services.lifecycle activates (A19); L1 via apply_rating",
+    ),
     "tax_identities": ("L2", "L2 writes (sign-up, sealed); L3 reads for the HMRC export"),
     "categories": ("L3", "Seed only in the prototype (viewing only); L3 owns future editing"),
     "category_groups": ("L3", "Seed only"),
@@ -146,10 +151,16 @@ OWNERS: dict[str, tuple[str, str]] = {
     "quotes": ("F", "F (POST /api/quotes); L1 sets request_id"),
     "job_requests": (
         "L1",
-        "L1 creates and cancels; F marketplace claims (status open -> booked); L2 records views; L3 raises guides",
+        "L1 creates, cancels and answers raises; F marketplace claims (status open -> booked) and withdraws a "
+        "waiting raise (A16); L2 records views and creates cover requests; L3 proposes raises (app.customer."
+        "price_changes.propose)",
     ),
     "offers": ("F", "F marketplace (counter, accept, decline, lapse)"),
-    "bookings": ("F", "F services.bookings.create_booking (marketplace, and L1's invite acceptance); L1 cancels"),
+    "bookings": (
+        "F",
+        "F services.bookings.create_booking (marketplace, L1's invite acceptance, L2's own customers); L1 cancels "
+        "and changes frequency; app.payments.charging completes a one-off once its visit is paid",
+    ),
     "series": ("F", "F creates; L1 pauses, changes frequency, cancels; F task tops up the horizon"),
     "visits": (
         "L2",
@@ -166,6 +177,10 @@ OWNERS: dict[str, tuple[str, str]] = {
     "expenses": ("L2", "L2"),
     "time_off": ("L2", "L2"),
     "own_customer_invites": ("L2", "L2 creates (and records blocked attempts); L1 accepts"),
+    "plan_changes": ("L1", "L1 (app.customer.plan_changes): asked, answered by the provider's link, lapsed (A10)"),
+    "payment_events": ("L3", "L3 (app.payments.webhooks): each Stripe event once, with its outcome"),
+    "payment_refunds": ("L3", "L3 (app.payments.refunds): each refund's intent, gateway result and fee return"),
+    "payment_attempts": ("L3", "L3 (app.payments.charging): each charge attempt's intent, by idempotency key"),
     "audit_log": ("F", "Every lane via services.audit.audit (admin actions, pricing, money changes)"),
     "files": ("F", "F (POST /api/files) for every lane"),
 }
@@ -215,8 +230,8 @@ def domain() -> str:
         "- Money is integer pence in fields ending `_pence`; `SignedPence` may be negative (refunds).",
         "- Datetimes are timezone-aware UTC. `IsoDate` fields are London calendar dates stored as",
         "  `YYYY-MM-DD` strings. Phones are E.164.",
-        "- Seeded documents carry `_seed: true` (ignored by the models) so `make seed` can replace",
-        "  them without touching data people created.",
+        "- Seeded documents carry `_seed: true` (ignored by the models). `make seed` resets the demo:",
+        "  it removes what demo runs created and writes the seeded documents again (decisions.md A21).",
         "- **Owner** decides the schema and adds repo functions; changes by anyone else go through",
         "  `docs/spec/contract-changes/<lane>.md`. **Writers** lists who else writes and how.",
         "- One repository class per collection in `api/app/repos/` (the catalogue's four are in",

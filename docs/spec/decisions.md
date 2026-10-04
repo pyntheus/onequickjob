@@ -269,10 +269,8 @@ and integration (I) folds the accepted ones in here.
   £72. Seeded dates are relative to the day of seeding, so the demo always looks current.
 - **R36a. How the seed stays idempotent.** Every seeded document has a deterministic id and a
   `_seed: true` marker; each run deletes the marked documents and writes them again, so running
-  it twice (or on another day) never accumulates anything. Data people created is kept, except
-  what would clash with the demo (bookings and offers made on seeded requests, users who signed
-  in with a seeded phone, visits the horizon task added to seeded plans...), which is removed
-  with a printed note: `make seed` puts the demo back. Magic-link and invite tokens are minted
+  it twice (or on another day) never accumulates anything. Since A21, `make seed` also removes
+  everything demo runs created, so it always puts the demo back exactly. Magic-link and invite tokens are minted
   fresh each run. Prototype document expiry dates are kept as absolute dates (only Alan's is
   relative, so he always shows as expiring), so Gary's insurance lapses on 19 November 2026.
 - **R37. Fake gateway**: every card is a Visa ending 4242 (12/28) and every charge succeeds,
@@ -543,6 +541,25 @@ has tests.
   (`test_providers.py`: `test_a_renewal_waiting_shows_beside_the_checked_copy_not_as_missing`,
   `test_admins_check_a_helpers_documents_and_mark_them_ready`,
   `test_a_ready_helper_with_checked_documents_can_be_sent_to_a_visit`.)
+- **A21. `make seed` resets the demo** (Hasan's brief to S; contract-changes L1 14, L2).
+  Before writing, the seed deletes every document demo runs created, in every collection (requests
+  and cover requests, offers, bookings, plans, visits, ratings, disputes, threads and messages, the
+  outbox, ledger entries, mileage, expenses, time off, plan changes, payment attempts, events and
+  refunds, uploads, the fake gateway's records, sign-ups and their sessions, the reference
+  counters...), as well as the previous run's seeded documents (`app.seed.cleanup.reset_demo`). It
+  keeps only what isn't demo state: the catalogue and address cache, pricing versions admins
+  drafted or approved with their `pricing.*` audit entries (R14), seeded providers' sealed tax
+  identities (sealing isn't deterministic), admins who aren't in the seed, and the sessions of
+  everyone who remains. A second run leaves the same state document for document (fresh outbox
+  ids and tokens aside), Mary's invite can be accepted after every re-seed, and the summary lists
+  what was removed. Uploaded files' bytes stay on the volume (only their records go). Platform
+  regulars are seeded from the booked request they came from (A15), and Tom with his documents
+  (A17). The collections L1 and L3 created at start-up (`plan_changes`, `payment_events`,
+  `payment_refunds`, `payment_attempts`) are registered in `app.repos.ALL` and documented in
+  `domain.md`; the start-up workarounds (`app/customer/store.py`, `app/payments/store.py`) are
+  gone. (`test_seed.py`: `test_seeding_twice_changes_nothing`,
+  `test_reseeding_removes_everything_demo_runs_created`,
+  `test_marys_invite_can_be_accepted_after_every_reseed`.)
 
 ## 3. Open questions (for Hasan)
 

@@ -50,7 +50,7 @@ make dev        # shared Mongo + Caddy, then this worktree's API and web (ports 
 make test       # pytest in the api container (against <MONGO_DB>_test) + vitest
 make lint       # ruff, eslint, tsc, and generated API types up to date
 make types      # after changing the API: regenerate web/src/api/schema.d.ts
-make seed       # demo data (idempotent); make seed-reset drops and reseeds
+make seed       # reset the demo data (idempotent); make seed-reset drops the database and reseeds
 make check      # nothing but Caddy and sshd exposed publicly
 make docs       # regenerate notifications.md, api.md, domain.md from the code
 make rotate-tax-key  # new tax data key: current, re-encrypt, retire the old (decisions.md A8)

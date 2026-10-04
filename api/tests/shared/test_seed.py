@@ -51,23 +51,119 @@ async def _snapshot(db) -> tuple[dict[str, int], dict[str, list[dict]]]:
     return counts, docs
 
 
+# Whose ids are minted fresh each run (outbox messages written through notify, magic links).
+FRESH_IDS = {"outbox", "magic_links"}
+
+
+async def _everything(db) -> dict[str, list[dict]]:
+    out = {}
+    for name in sorted(await db.list_collection_names()):
+        docs = await db[name].find({}).sort("_id", 1).to_list()
+        out[name] = [len(docs)] if name in FRESH_IDS else docs
+    return out
+
+
 async def test_seeding_twice_changes_nothing(seeded):
+    """A21: a second run leaves exactly the same state, document for document (outbox messages
+    and magic links are minted with fresh ids and tokens, so only their numbers are compared;
+    invite tokens are fresh too)."""
     db, _ = seeded
     before = await _snapshot(db)
+    everything = await _everything(db)
     await seed(db, make_settings(), now=NOW)
     after = await _snapshot(db)
     assert after[0] == before[0], "per-collection counts must not change"
     for collection, docs in before[1].items():
         assert all(d is not None for d in docs), f"missing seeded {collection}"
         assert after[1][collection] == docs, f"{collection} documents changed on re-seed"
+    again = await _everything(db)
+    assert set(again) == set(everything)
+    for name, docs in everything.items():
+        if name == "own_customer_invites":  # Mary's link carries a fresh token each run
+            docs = [{**d, "token_hash": None, "outbox_id": None} for d in docs]
+            again[name] = [{**d, "token_hash": None, "outbox_id": None} for d in again[name]]
+        assert again[name] == docs, f"{name} changed on re-seed"
 
 
-async def test_reseeding_keeps_what_people_created(seeded):
+async def test_reseeding_removes_everything_demo_runs_created(seeded):
+    """A21 (contract-changes L1 14, L2): make seed resets the demo. What demo runs create goes
+    (ledger entries, mileage, time off, cover requests, plan changes, payment attempts, events and
+    refunds, sign-ups, messages...); admins' pricing versions and their audit entries, admins
+    outside the seed and the sessions of people who remain are kept."""
+    from app.core.timeutil import utcnow
+
     db, _ = seeded
-    await db["job_requests"].insert_one({"_id": "user-made", "ref": "R-2301", "status": "open"})
-    await seed(db, make_settings(), now=NOW)
-    assert await db["job_requests"].find_one({"_id": "user-made"})
-    await db["job_requests"].delete_one({"_id": "user-made"})
+    now = utcnow()
+    made = {
+        "ledger_entries": {"_id": "demo-ledger", "provider_id": sid("provider", "dave"), "gross_pence": 3100},
+        "mileage_logs": {"_id": "demo-mileage", "provider_id": sid("provider", "dave")},
+        "time_off": {"_id": "demo-time-off", "provider_id": sid("provider", "dave"), "status": "planned"},
+        "job_requests": {"_id": "demo-cover", "ref": "R-2301", "cover_for_visit_id": "v", "status": "open"},
+        "plan_changes": {"_id": "demo-plan-change", "series_id": sid("series", "margaret"), "status": "pending"},
+        "payment_attempts": {"_id": "visit:x:visit:1"},
+        "payment_events": {"_id": "evt_demo"},
+        "payment_refunds": {"_id": "demo-refund"},
+        "bookings": {"_id": "demo-booking", "invite_id": sid("invite", "mary")},
+        "series": {"_id": "demo-series", "booking_id": "demo-booking"},
+        "visits": {"_id": "demo-visit", "booking_id": "demo-booking"},
+        "ratings": {"_id": "demo-rating", "visit_id": sid("visit", "cal:40")},
+        "users": {"_id": "demo-user", "phone": "+447700900140", "roles": ["customer"]},
+        "customers": {"_id": "demo-customer", "user_id": "demo-user"},
+        "outbox": {"_id": "demo-message", "template_id": "request_sent"},
+        "files": {"_id": "demo-file"},
+        "fake_gateway": {"_id": "ch_demo", "kind": "charge"},
+        "counters": {"_id": "request", "seq": 7},
+        "audit_log": {"_id": "demo-audit", "action": "provider.suspended"},
+    }
+    kept = {
+        "pricing_versions": {"_id": "admins-draft", "version": 2, "status": "draft"},
+        "audit_log": {"_id": "pricing-audit", "action": "pricing.drafted"},
+        "users": {"_id": "hasan", "phone": "+447700900999", "roles": ["admin"]},
+    }
+    for name, doc in made.items():
+        await db[name].insert_one(doc)
+    for name, doc in kept.items():
+        await db[name].insert_one(doc)
+    await db["sessions"].insert_many(
+        [
+            {"_id": "s-sarah", "user_id": sid("user", "sarah"), "created_at": now},
+            {"_id": "s-demo", "user_id": "demo-user", "created_at": now},
+            {"_id": "s-hasan", "user_id": "hasan", "created_at": now},
+        ]
+    )
+    summary = await seed(db, make_settings(), now=NOW)
+    for name, doc in made.items():
+        assert await db[name].find_one({"_id": doc["_id"]}) is None, f"{name} from a demo run survived"
+    for name, doc in kept.items():
+        assert await db[name].find_one({"_id": doc["_id"]}), f"{name} should be kept"
+    assert {d["_id"] async for d in db["sessions"].find({})} == {"s-sarah", "s-hasan"}
+    assert summary["removed"]["ledger_entries"] == 1 and summary["removed"]["sessions"] == 1
+    for name, doc in kept.items():  # put the module's seed back as it was
+        await db[name].delete_one({"_id": doc["_id"]})
+    await db["sessions"].delete_many({})
+
+
+async def test_marys_invite_can_be_accepted_after_every_reseed(app, seeded):
+    """Contract-changes L1 item 14: after Mary accepts in a demo, make seed puts her invite back
+    and it can be accepted again (her booking, plan, visits and sign-up from the last run are gone)."""
+    from tests.conftest import new_client, sign_in
+    from tests.customer.helpers import address
+
+    db, _ = seeded
+    for _ in range(2):
+        invite = await db["own_customer_invites"].find_one({"_id": sid("invite", "mary")})
+        msg = await db["outbox"].find_one({"_id": invite["outbox_id"]})
+        token = msg["body"].split("/invite/")[1].split()[0]
+        async with await new_client(app) as c:
+            await sign_in(c, db, "07700 900140", "Mary Bishop")
+            setup = (await c.post("/api/c/payment/setup")).json()
+            await c.post(f"/api/c/payment/setup/{setup['setup_id']}/confirm")
+            r = await c.post(f"/api/c/invites/{token}/accept", json={"agree_terms": True, "address": address()})
+            assert r.status_code == 201, r.text
+        assert await db["bookings"].count_documents({"invite_id": sid("invite", "mary")}) == 1
+        await seed(db, make_settings(), now=NOW)
+        assert await db["bookings"].count_documents({"invite_id": sid("invite", "mary")}) == 0
+        assert (await db["own_customer_invites"].find_one({"_id": sid("invite", "mary")}))["status"] == "invited"
 
 
 async def test_catalogue_and_one_live_pricing_version(seeded):

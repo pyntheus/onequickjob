@@ -1,8 +1,5 @@
-"""plan_changes (A10). Owner: L1.
-
-Not yet in app.repos.ALL (F's registry): the customer router creates the collection and its
-indexes at start-up (app.customer.store.ensure_customer_collections) until integration adds it.
-"""
+"""plan_changes (A10). Owner: L1. Registered in app.repos.ALL, so ensure_indexes creates it before
+any transaction."""
 
 from app.core.db import DbSession
 from app.models.plan_changes import PlanChange

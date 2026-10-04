@@ -105,7 +105,7 @@ types-check: ## Fail if the generated API types are stale (run make types)
 	diff -q $$tmp/openapi.json web/src/api/openapi.json >/dev/null && diff -q $$tmp/schema.d.ts web/src/api/schema.d.ts >/dev/null \
 	  || { echo "Generated API types are stale: run make types" >&2; exit 1; }
 
-seed: infra-up ## Load demo data into this worktree's database (idempotent)
+seed: infra-up ## Reset the demo data in this worktree's database (idempotent; keeps admins' pricing versions)
 	$(APP) run --rm --no-deps api python -m app.seed
 
 seed-reset: infra-up ## Drop this worktree's database and seed it again

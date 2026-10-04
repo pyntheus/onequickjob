@@ -45,7 +45,7 @@ system "sent", including sign-in codes and job alerts with their links.
 | `make test-api ARGS="tests/shared/test_marketplace.py -x"` | A subset of the API tests |
 | `make lint` | ruff, eslint, TypeScript, and a check that generated API types are current |
 | `make types` | Regenerate `web/src/api/schema.d.ts` from the API's OpenAPI schema |
-| `make seed` | Load demo data (idempotent: run it as often as you like) |
+| `make seed` | Reset the demo: removes what demo runs created and loads the demo data (idempotent; keeps admins' pricing versions) |
 | `make seed-reset` | Drop this worktree's database and seed it again |
 | `make rotate-tax-key` | Add a tax data key, make it current, re-encrypt NI numbers and birth dates, retire the old key |
 | `make check` | Fail if anything other than Caddy (80, 443) and sshd is exposed publicly |

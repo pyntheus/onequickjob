@@ -6,11 +6,9 @@ Logic lives in the modules beside this one: requests, simulator, account, thread
 views (read-only presenters).
 """
 
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, FastAPI, Query, Request, status
+from fastapi import APIRouter, Depends, Query, Request, status
 
 from app.adapters.payments.base import CardSetup, CustomerRef, PaymentGateway
 from app.core import money
@@ -47,7 +45,6 @@ from app.customer.schemas import (
     SimulationStarted,
     VisitsOut,
 )
-from app.customer.store import ensure_customer_collections
 from app.customer.views import (
     Lookup,
     booking_card,
@@ -70,14 +67,7 @@ from app.repos.users import Users
 from app.repos.visits import Visits
 from app.shared.schemas import MessageOut, NewMessage, ThreadSummary
 
-
-@asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    await ensure_customer_collections(app.state.db)
-    yield
-
-
-router = APIRouter(prefix="/api/c", tags=["L1 customer"], responses=ERROR_RESPONSES, lifespan=lifespan)
+router = APIRouter(prefix="/api/c", tags=["L1 customer"], responses=ERROR_RESPONSES)
 User_ = Annotated[CurrentUser, Depends(current_user)]
 Cust = Annotated[Customer, Depends(current_customer)]
 DbDep = Annotated[Db, Depends(get_db)]

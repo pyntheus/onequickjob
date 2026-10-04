@@ -22,7 +22,6 @@ from app.models.providers import (
 from app.models.users import User
 from app.repos.providers import TaxIdentities
 from app.seed.catalogue import read_json
-from app.seed.cleanup import clear_clashing_people
 from app.seed.context import Ctx, sid
 from app.services.documents import expiry_for
 
@@ -212,7 +211,6 @@ async def seed_people(ctx: Ctx) -> None:
             Helper(user_id=u.id, name=h["name"], relationship=h["relationship"], status="ready", documents=docs)
         )
 
-    await clear_clashing_people(ctx)
     for u in ctx.users.values():
         w.add(u)
     for c in ctx.customers.values():
