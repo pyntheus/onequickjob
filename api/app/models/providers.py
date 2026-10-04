@@ -49,10 +49,14 @@ class EarningsLimit(Model):
 
 
 class Helper(Model):
+    """A linked user who does visits in the provider's place; the provider is paid. Helpers go
+    through the same checks: their documents are kept here, not on the provider's own list."""
+
     user_id: str
     name: str
     relationship: str = ""
     status: Literal["invited", "checking", "ready", "removed"] = "invited"
+    documents: list[ProviderDocument] = Field(default_factory=list)
 
 
 class PaymentAccount(Model):
@@ -102,6 +106,7 @@ class Provider(Timestamped):
     status_reason: str | None = None
     stats: ProviderStats = Field(default_factory=ProviderStats)
     joined_on: IsoDate | None = None
+    email: str | None = Field(default=None, description="Contact email given at sign-up (lower-cased)")
     last_booked_at: datetime | None = Field(
         default=None,
         description="When they last took a job. Written in the booking's transaction, so a suspension or "

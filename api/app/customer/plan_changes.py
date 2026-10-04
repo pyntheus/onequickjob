@@ -229,7 +229,7 @@ async def request_change(
                     "price": wording.money(priced.price_pence),
                     "current": wording.money(series.price_pence),
                     "deadline": deadline,
-                    "link": link(f"/plan-change/{token}", s),
+                    "link": link(f"/p/plan-change/{token}", s),
                 },
                 session=session,
             )

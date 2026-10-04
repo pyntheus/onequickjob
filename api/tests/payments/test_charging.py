@@ -38,7 +38,7 @@ async def test_a_visit_is_charged_once_with_the_standard_fee(db, catalogue):
     assert c.idempotency_key == f"visit:{v.id}:visit" and c.charge_id and c.charged_at
     [entry] = await LedgerEntries(db).find({"visit_id": v.id})
     assert (entry.kind, entry.gross_pence, entry.fee_pence, entry.net_pence) == ("charge", 3000, 450, 2550)
-    assert sorted(await outbox(db, v.id)) == ["payment_on_its_way", "receipt", "visit_done_customer"]
+    assert sorted(await outbox(db, v.id)) == ["payment_on_its_way", "receipt", "visit_done_customer_no_photo"]
 
     again = await charging.charge_visit(db, S, fake(db), v.id)  # a repeated finish
     assert again.charge == c

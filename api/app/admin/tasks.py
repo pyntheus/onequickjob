@@ -23,8 +23,10 @@ LOOK_BACK = timedelta(days=7)
 @periodic("settle_pending_payments", every_seconds=300)
 async def settle_pending_payments(db: Db, s: Settings) -> None:
     """Charges and refunds whose outcome we didn't hear (an interrupted call, Stripe unreachable,
-    a refund still processing, our fee still to return): ask again, safely."""
+    a refund still processing, our fee still to return): ask again, safely. Finished visits
+    whose charge never started (the finishing request stopped first) are started (L2)."""
     gateway = make_payment_gateway(s, db)
+    await charging.start_unstarted(db, s, gateway, older_than=SETTLE_AFTER)
     now = utcnow()
     for purpose in ("visit", "tip"):
         field = charging.field_for(purpose)

@@ -10,9 +10,11 @@ Three steps, never one transaction (CLAUDE.md, "Writing to several collections")
 3. record the result in one transaction: the charge state, the ledger entry and the messages.
 
 Webhooks (app.payments.webhooks) settle the final state through the same step 3. L2's finish
-endpoint can call charge_visit once it has saved the finished visit; the admin's "Retry
-charge" calls retry_charge, which starts a new attempt with a new key after cancelling the
-old one (a declined attempt's key would return the same decline for 24 hours).
+endpoint calls charge_visit once it has saved the finished visit (start_unstarted, from the
+settle task, starts it if that request stopped first); the admin's "Retry charge" calls
+retry_charge, which starts a new attempt with a new key after cancelling the old one (a
+declined attempt's key would return the same decline for 24 hours). A visit's successful
+charge also completes a one-off booking (state-machines.md) in step 3, whichever path records it.
 """
 
 import logging
@@ -20,7 +22,7 @@ import re
 from datetime import timedelta
 from typing import Literal
 
-from fastapi import status
+from fastapi import HTTPException, status
 
 from app.adapters.payments.base import PLATFORM_FAILURE, ChargeResult, PaymentGateway, VisitRef
 from app.core import money
@@ -32,6 +34,7 @@ from app.models.common import Actor, Related
 from app.models.payments import ChargeAttempt
 from app.models.visits import Charge, Visit
 from app.payments import notices
+from app.repos.bookings import Bookings
 from app.repos.payments import ChargeAttempts
 from app.repos.visits import Visits
 from app.services import ledger, wording
@@ -171,6 +174,13 @@ async def apply_result(
             split = charged_split(updated, new, purpose, s)
             await ledger.record_charge(
                 db, updated, split, at=at, gateway=gateway, charge_id=new.charge_id, session=session
+            )
+            # A one-off is complete once its visit is finished and paid (state-machines.md).
+            await Bookings(db).update(
+                updated.booking_id,
+                {"status": "completed"},
+                extra_filter={"status": "active", "recurring": False},
+                session=session,
             )
             await notices.charged(db, s, updated, new, session)
             if new.payment_intent_id:
@@ -325,6 +335,29 @@ async def charge_visit(
     key = attempt_key(visit.id, purpose)
     visit = await _record_intent(db, visit, purpose, split, gateway.name, key, expect=charge)
     return await _attempt(db, s, gateway, visit, purpose, split, key)
+
+
+async def start_unstarted(db: Db, s: Settings, gateway: PaymentGateway, *, older_than: timedelta) -> int:
+    """For the periodic task: visits finished more than older_than ago whose charge never started
+    (the request that finished one stopped before charge_visit recorded its intent), oldest
+    first, however old: finished work is never left unpaid because nobody started its charge.
+    Each is charged the normal way; a first attempt, so nothing can be paid twice. Returns how
+    many it tried."""
+    tried = 0
+    for visit in await Visits(db).find(
+        {"status": "finished", "charge.status": "none", "finished_at": {"$lte": utcnow() - older_than}},
+        sort=[("finished_at", 1)],
+        limit=50,
+    ):
+        tried += 1
+        try:
+            await charge_visit(db, s, gateway, visit.id)
+        except HTTPException as e:
+            if e.status_code != status.HTTP_409_CONFLICT:  # 409: another request started it just now
+                log.exception("couldn't start the charge of visit %s", visit.id)
+        except Exception:
+            log.exception("couldn't start the charge of visit %s", visit.id)
+    return tried
 
 
 async def settle_unknown(db: Db, s: Settings, gateway: PaymentGateway, visit: Visit, purpose: Purpose) -> Visit:

@@ -1599,6 +1599,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/p/limit/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Preview Limit
+         * @description The limit screen's figures for a limit that hasn't been saved yet.
+         */
+        get: operations["preview_limit_api_p_limit_preview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/p/mileage": {
         parameters: {
             query?: never;
@@ -1647,6 +1667,27 @@ export interface paths {
          * @description 409 platform_customer if the number already belongs to a platform customer (recorded as blocked).
          */
         post: operations["invite_own_customer_api_p_own_customers_invites_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/p/own-customers/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Own Customer Preview
+         * @description What the provider keeps from their own price for an own customer (money.py, 5% with a
+         *     100p minimum), so the invite form never works out a fee itself.
+         */
+        get: operations["own_customer_preview_api_p_own_customers_preview_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1727,6 +1768,27 @@ export interface paths {
          *     guide price first, the job goes to them. Re-sending replaces your pending suggestion.
          */
         post: operations["provider_counter_api_p_requests__ref__counter_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/p/requests/{ref}/counter-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Counter Preview
+         * @description What a suggested price means before it's sent (decisions.md A1): the per-visit price, the
+         *     first-visit price it scales to and what the provider would get for each.
+         */
+        get: operations["counter_preview_api_p_requests__ref__counter_preview_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1960,6 +2022,26 @@ export interface paths {
         post?: never;
         /** Cancel Time Off */
         delete: operations["cancel_time_off_api_p_time_off__time_off_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/p/time-off/{time_off_id}/arrange": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Arrange More
+         * @description Arrange visits booked into time off after it was arranged (cover, helper or skip).
+         */
+        post: operations["arrange_more_api_p_time_off__time_off_id__arrange_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -2281,8 +2363,15 @@ export interface components {
              * Format: date
              */
             local_date: string;
+            /** Start Time */
+            start_time: string;
             /** Visit Id */
             visit_id: string;
+            /**
+             * With Helper
+             * @description Already sent to this helper
+             */
+            with_helper: string | null;
         };
         /** AlertSettings */
         AlertSettings: {
@@ -2368,6 +2457,11 @@ export interface components {
             estimator: string;
             /** Tolerance Note */
             tolerance_note: string;
+        };
+        /** ArrangeMoreIn */
+        ArrangeMoreIn: {
+            /** Arrangements */
+            arrangements: components["schemas"]["ArrangementIn"][];
         };
         /** ArrangementIn */
         ArrangementIn: {
@@ -2926,6 +3020,35 @@ export interface components {
              */
             status: "pending" | "accepted" | "declined" | "lapsed" | "withdrawn";
         };
+        /**
+         * CounterPreview
+         * @description What a suggested price means, worked out by the API (decisions.md A1): the provider sets the
+         *     per-visit price; a dearer first visit scales by the same ratio. The web never does this maths.
+         */
+        CounterPreview: {
+            /** Fee Percent */
+            fee_percent: number;
+            /** First Price Pence */
+            first_price_pence: number | null;
+            /** First Provider Pence */
+            first_provider_pence: number | null;
+            /** Price Pence */
+            price_pence: number;
+            /**
+             * Problem
+             * @description Why this price can't be sent, if it can't
+             */
+            problem: string | null;
+            /** Provider Pence */
+            provider_pence: number;
+            /**
+             * Text
+             * @description e.g. "Your price: £36 a visit. The first visit becomes £66."
+             */
+            text: string;
+            /** Valid */
+            valid: boolean;
+        };
         /** CounterRequest */
         CounterRequest: {
             /**
@@ -3214,16 +3337,36 @@ export interface components {
         };
         /** DocumentOut */
         DocumentOut: {
+            /** Days Left */
+            days_left: number | null;
             /** Expires On */
             expires_on: string | null;
+            /**
+             * Expiring Soon
+             * @description Verified and runs out within 30 days
+             */
+            expiring_soon: boolean;
             /** File Url */
             file_url: string | null;
             /** Issued On */
             issued_on: string | null;
             /** Label */
             label: string;
+            /** Needs Expiry Date */
+            needs_expiry_date: boolean;
+            /**
+             * Needs Issue Date
+             * @description Upload asks for the issue date (a basic DBS check)
+             */
+            needs_issue_date: boolean;
             /** Note */
             note: string | null;
+            renewal: components["schemas"]["RenewalOut"] | null;
+            /**
+             * Required For
+             * @description Names of the jobs you do that need it
+             */
+            required_for: string[];
             /**
              * Status
              * @enum {string}
@@ -3276,6 +3419,8 @@ export interface components {
         };
         /** EarningsOut */
         EarningsOut: {
+            /** Bank Last4 */
+            bank_last4: string | null;
             limit: components["schemas"]["LimitView"];
             /** Next Payout Date */
             next_payout_date: string | null;
@@ -3283,6 +3428,11 @@ export interface components {
             own_customers_active: number;
             /** Payouts */
             payouts: components["schemas"]["Payout"][];
+            /**
+             * Pending Pence
+             * @description Charged but not yet paid out
+             */
+            pending_pence: number;
             /** Week Jobs */
             week_jobs: number;
             /** Week Net Pence */
@@ -3465,10 +3615,17 @@ export interface components {
         /** FinishOut */
         FinishOut: {
             /**
+             * Charge Message
+             * @description What happened to the payment, in a sentence
+             */
+            charge_message: string;
+            /**
              * Charge Status
              * @enum {string}
              */
             charge_status: "succeeded" | "pending" | "requires_action" | "failed";
+            /** Customer First */
+            customer_first: string;
             /** Est Mins */
             est_mins: number;
             /** Fee Pence */
@@ -3552,6 +3709,8 @@ export interface components {
              * @enum {string}
              */
             status: "invited" | "checking" | "ready" | "removed";
+            /** Status Text */
+            status_text: string;
             /** User Id */
             user_id: string;
         };
@@ -3724,6 +3883,8 @@ export interface components {
             category_id: string;
             /** Category Name */
             category_name: string;
+            /** Cover Date */
+            cover_date?: string | null;
             /** District */
             district: string;
             /**
@@ -3733,6 +3894,12 @@ export interface components {
             frequency_label: string;
             /** Guide Pence */
             guide_pence: number;
+            /**
+             * Is Cover
+             * @description One visit of another provider's regular, while they're away
+             * @default false
+             */
+            is_cover: boolean;
             /** Miles */
             miles: number;
             /** Mins */
@@ -3756,8 +3923,11 @@ export interface components {
              * @description Another of your visits within a mile on the same day
              */
             route_hint: string | null;
-            /** State */
-            state: ("yours" | "countered" | "taken") | null;
+            /**
+             * State
+             * @description yours: you booked it; countered: your price is waiting; taken: it went to someone else; lapsed: your price lapsed while the job is still open (you couldn't take it any more)
+             */
+            state: ("yours" | "countered" | "taken" | "lapsed") | null;
             /**
              * Unit
              * @enum {string}
@@ -3766,30 +3936,80 @@ export interface components {
         };
         /** JobOffer */
         JobOffer: {
+            /**
+             * Address Line
+             * @description The exact address, only once the job is yours
+             */
+            address_line: string | null;
             /** @description About 1 km resolution: exact address only once booked */
             approx: components["schemas"]["GeoPoint"];
             /** Booked By Me */
             booked_by_me: boolean;
+            /**
+             * Can Counter
+             * @description Cover is at the regular price, so it can't be countered
+             */
+            can_counter: boolean;
             /** Can Take */
             can_take: boolean;
             card: components["schemas"]["JobCard"];
+            /** Counter Max Pence */
+            counter_max_pence: number;
+            /** Counter Min Pence */
+            counter_min_pence: number;
+            /**
+             * Counter Note
+             * @description What happened to your last suggested price, if it isn't waiting
+             */
+            counter_note: string | null;
+            /** Counter Reasons */
+            counter_reasons: string[];
+            /** Counter Start Pence */
+            counter_start_pence: number;
+            /** Cover Text */
+            cover_text: string | null;
             customer: components["schemas"]["CustomerMeta"];
             /** Facts */
             facts: components["schemas"]["Fact"][];
             /** Fee Percent */
             fee_percent: number;
             /**
+             * First Pence
+             * @description First-visit guide price, when the first visit costs more
+             */
+            first_pence: number | null;
+            /** First Provider Pence */
+            first_provider_pence: number | null;
+            /** First Reason */
+            first_reason: string | null;
+            /** First Visit Date */
+            first_visit_date: string | null;
+            /**
              * First Visit Text
              * @description Once yours: when it's been added to your round
              */
             first_visit_text: string | null;
+            /** Is Cover */
+            is_cover: boolean;
             /** Missing Documents */
             missing_documents: ("identity" | "insurance" | "waste_carrier" | "ladder_cover" | "dbs_basic" | "pet_cover")[];
             my_counter: components["schemas"]["Offer"] | null;
+            /** Not Eligible Reasons */
+            not_eligible_reasons: string[];
             /** Note */
             note: string | null;
             /** Over Limit By Pence */
             over_limit_by_pence: number | null;
+            /**
+             * Request Status
+             * @enum {string}
+             */
+            request_status: "open" | "booked" | "cancelled" | "expired";
+            /**
+             * Unit
+             * @enum {string}
+             */
+            unit: "a visit" | "one-off" | "a clean" | "a walk";
         };
         /** KeyDate */
         KeyDate: {
@@ -3932,6 +4152,11 @@ export interface components {
              * @description When alerts restart if the limit is reached
              */
             resumes_on: string;
+            /**
+             * Used Percent
+             * @description How far through the limit, 0 to 100, for the progress bar
+             */
+            used_percent: number;
         };
         /** MagicRequest */
         MagicRequest: {
@@ -4778,6 +5003,11 @@ export interface components {
              * @description "Morning, Dave"
              */
             greeting: string;
+            /**
+             * Helper
+             * @description A helper is using the app: their visits only, no jobs or money
+             */
+            helper: boolean;
             limit: components["schemas"]["LimitView"];
             /** New Jobs */
             new_jobs: components["schemas"]["JobCard"][];
@@ -4785,8 +5015,15 @@ export interface components {
             rating_avg: number | null;
             /** Rating Count */
             rating_count: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "signing_up" | "active" | "payouts_paused" | "suspended";
             /** Today Text */
             today_text: string;
+            /** Unread Messages */
+            unread_messages: number;
             /** Week Earned Pence */
             week_earned_pence: number;
             /** Week Jobs */
@@ -4881,22 +5118,46 @@ export interface components {
             before_photos: string[];
             /** Booking Id */
             booking_id: string;
+            /** Can Start */
+            can_start: boolean;
             /** Category Id */
             category_id: string;
             /** Category Name */
             category_name: string;
+            /** Category Name Lower */
+            category_name_lower: string;
             /** Charge Status */
             charge_status: string;
+            /** Customer First */
+            customer_first: string;
             /** Customer Name */
             customer_name: string;
             /** Directions Url */
             directions_url: string;
+            /**
+             * Early Start Demo
+             * @description DEMO_MODE only: a future visit may be started now, for the demo
+             */
+            early_start_demo: boolean;
+            /**
+             * Elapsed Seconds
+             * @description Timer: seconds since it was started, at the time of this response
+             */
+            elapsed_seconds: number | null;
             /** Est Mins */
             est_mins: number;
+            /** Fee Percent */
+            fee_percent: number;
             /** Finished At */
             finished_at: string | null;
+            /** Flags */
+            flags: string[];
+            /** Flags None */
+            flags_none: boolean;
             /** Id */
             id: string;
+            /** Is First */
+            is_first: boolean;
             /**
              * Local Date
              * Format: date
@@ -4904,8 +5165,17 @@ export interface components {
             local_date: string;
             /** Minutes Actual */
             minutes_actual: number | null;
+            /** Minutes From Timer */
+            minutes_from_timer: boolean;
             /** Note */
             note: string;
+            /** Overrun */
+            overrun: boolean | null;
+            /**
+             * Performer
+             * @enum {string}
+             */
+            performer: "provider" | "helper" | "cover";
             /** Performer Name */
             performer_name: string;
             /** Price Pence */
@@ -4917,6 +5187,11 @@ export interface components {
              * Format: date-time
              */
             scheduled_start: string;
+            /**
+             * Start Note
+             * @description Why it can't be started yet, if it can't
+             */
+            start_note: string | null;
             /** Started At */
             started_at: string | null;
             /**
@@ -4924,8 +5199,12 @@ export interface components {
              * @enum {string}
              */
             status: "scheduled" | "in_progress" | "finished" | "skipped" | "cancelled";
+            /** Summary */
+            summary: string;
             /** Thread Id */
             thread_id: string | null;
+            /** Window Text */
+            window_text: string;
         };
         /** PublicConfig */
         PublicConfig: {
@@ -5201,6 +5480,29 @@ export interface components {
             /** Visit Id */
             visit_id?: string | null;
         };
+        /**
+         * RenewalOut
+         * @description A new copy uploaded while the current one is still valid: it waits for checks, and the
+         *     current one keeps counting until then (and after, if the new copy isn't accepted).
+         */
+        RenewalOut: {
+            /** Expires On */
+            expires_on: string | null;
+            /** File Url */
+            file_url: string | null;
+            /** Issued On */
+            issued_on: string | null;
+            /**
+             * Note
+             * @description Why it wasn't accepted, when rejected
+             */
+            note?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "missing" | "pending" | "verified" | "rejected" | "expired";
+        };
         /** RequestDetail */
         RequestDetail: {
             /**
@@ -5355,12 +5657,31 @@ export interface components {
             address_line: string;
             /** Area */
             area: string;
+            /** Category Id */
+            category_id: string;
             /** Category Name */
             category_name: string;
+            /**
+             * Charge Status
+             * @enum {string}
+             */
+            charge_status: "none" | "pending" | "succeeded" | "requires_action" | "failed" | "refunded" | "partially_refunded";
+            /**
+             * Cover Allowed
+             * @description The customer's plan allows cover (one-offs always do)
+             */
+            cover_allowed: boolean;
+            /**
+             * Cover State
+             * @enum {string}
+             */
+            cover_state: "none" | "offered" | "covered";
             /** Customer Name */
             customer_name: string;
             /** Est Mins */
             est_mins: number;
+            /** Is First */
+            is_first: boolean;
             /** Is Now */
             is_now: boolean;
             /** Miles From Previous */
@@ -5374,6 +5695,8 @@ export interface components {
              * @enum {string}
              */
             performer: "provider" | "helper" | "cover";
+            /** Performer Name */
+            performer_name: string;
             /** Start Time */
             start_time: string;
             /**
@@ -5451,13 +5774,27 @@ export interface components {
         SignupChecklist: {
             /** Done Count */
             done_count: number;
+            /** Limit On */
+            limit_on: boolean;
+            /**
+             * Payment Account Status
+             * @enum {string}
+             */
+            payment_account_status: "none" | "pending" | "enabled" | "restricted";
             /** Provider Id */
             provider_id: string | null;
+            /** Status */
+            status: ("signing_up" | "active" | "payouts_paused" | "suspended") | null;
             /** Steps */
             steps: components["schemas"]["SignupStep"][];
         };
         /** SignupStart */
         SignupStart: {
+            /**
+             * Address Id
+             * @description From /api/address/search, for your home
+             */
+            address_id?: string | null;
             /** Email */
             email?: string | null;
             /** Name */
@@ -5555,18 +5892,32 @@ export interface components {
             costs_profit_pence: number;
             /** Difference Pence */
             difference_pence: number;
+            /**
+             * Ends On
+             * Format: date
+             */
+            ends_on: string;
             /** Expenses */
             expenses: components["schemas"]["ExpenseOut"][];
             /** Expenses Pence */
             expenses_pence: number;
             /** Fees Pence */
             fees_pence: number;
+            /**
+             * Jobs
+             * @description Charged visits in the year
+             */
+            jobs: number;
             /** Key Dates */
             key_dates: components["schemas"]["KeyDate"][];
             /** Mileage Miles */
             mileage_miles: number;
             /** Mileage Pence */
             mileage_pence: number;
+            /** Mileage Rate Text */
+            mileage_rate_text: string;
+            /** Mtd Note */
+            mtd_note: string;
             /** Received Pence */
             received_pence: number;
             /**
@@ -5576,6 +5927,11 @@ export interface components {
             starts_on: string;
             /** Tax Year */
             tax_year: string;
+            /**
+             * Tax Years
+             * @description Tax years with records, newest first
+             */
+            tax_years: string[];
             /** Trips */
             trips: components["schemas"]["MileageDay"][];
             /**
@@ -5643,6 +5999,11 @@ export interface components {
              * Format: date
              */
             to_date: string;
+            /**
+             * Unarranged
+             * @description Visits booked into it since it was arranged
+             */
+            unarranged: components["schemas"]["AffectedVisit"][];
         };
         /** TimeOffRange */
         TimeOffRange: {
@@ -5683,6 +6044,8 @@ export interface components {
             day_text: string;
             /** Helpers */
             helpers: components["schemas"]["HelperOut"][];
+            /** Is Today */
+            is_today: boolean;
             /** Items */
             items: components["schemas"]["RoundItem"][];
             /**
@@ -5690,6 +6053,11 @@ export interface components {
              * Format: date
              */
             local_date: string;
+            /**
+             * Upcoming Days
+             * @description The next days with visits, for the day picker
+             */
+            upcoming_days: string[];
         };
         /** UnfilledRequest */
         UnfilledRequest: {
@@ -13691,6 +14059,92 @@ export interface operations {
             };
         };
     };
+    preview_limit_api_p_limit_preview_get: {
+        parameters: {
+            query: {
+                period: string;
+                amount_pence: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LimitView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     mileage_api_p_mileage_get: {
         parameters: {
             query?: {
@@ -13871,6 +14325,92 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["InviteOut"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    own_customer_preview_api_p_own_customers_preview_get: {
+        parameters: {
+            query: {
+                /** @description Integer pence */
+                price_pence: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeeSplit"];
                 };
             };
             /** @description Bad Request */
@@ -14291,6 +14831,94 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Offer"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    counter_preview_api_p_requests__ref__counter_preview_get: {
+        parameters: {
+            query: {
+                /** @description Integer pence */
+                price_pence: number;
+            };
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CounterPreview"];
                 };
             };
             /** @description Bad Request */
@@ -15604,9 +16232,99 @@ export interface operations {
             };
         };
     };
+    arrange_more_api_p_time_off__time_off_id__arrange_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                time_off_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ArrangeMoreIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TimeOffOut"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     today_api_p_today_get: {
         parameters: {
             query?: {
+                /** @description A London date; default today */
                 date?: string | null;
             };
             header?: never;

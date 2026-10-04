@@ -52,35 +52,48 @@ def test_every_endpoint_has_typed_models(route: APIRoute):
 LANE_ROUTES = [r for r in ROUTES if lane_of(r.path) and r.path not in IMPLEMENTED_IN_F]
 
 
+async def stub_lane(route: APIRoute) -> str | None:
+    """The lane a stub names when called bare, or None once it's built."""
+    params = {name: None for name in inspect.signature(route.endpoint).parameters}
+    try:
+        await route.endpoint(**params)
+    except HTTPException as e:
+        if e.status_code == 501:
+            return e.detail["lane"]
+    except Exception:  # noqa: S110 - an implemented endpoint called with None for everything
+        pass
+    return None
+
+
 @pytest.mark.parametrize("route", LANE_ROUTES, ids=lambda r: f"{sorted(r.methods)[0]} {r.path}")
 async def test_lane_endpoints_are_501_stubs_owned_by_their_lane(route: APIRoute):
     """Until its lane builds it, a lane endpoint is a 501 stub naming that lane. Once built (it
     no longer answers 501 when called bare), its own lane's tests cover it (L3 contract change)."""
     lane = lane_of(route.path)
     assert any(t.startswith(lane) for t in route.tags), f"{route.path} is tagged with its lane {lane}"
-    params = {name: None for name in inspect.signature(route.endpoint).parameters}
-    try:
-        await route.endpoint(**params)
-    except HTTPException as e:
-        if e.status_code == 501:
-            assert e.detail["lane"] == lane
-            return
-    except Exception:  # noqa: S110 - an implemented endpoint called with None for everything
-        pass
-    pytest.skip("implemented by its lane")
+    stub = await stub_lane(route)
+    if stub is None:
+        pytest.skip("implemented by its lane")
+    assert stub == lane
 
 
 async def test_a_stub_answers_501_over_http(client, db):
+    """A stub's 501 over HTTP, on a GET stub still left (L2 contract change: /api/p/signup, the
+    one this called, is built; once every lane endpoint is, there's none to call)."""
     from tests.conftest import sign_in
 
     await sign_in(client, db, "07700 900456")
     r = await client.get("/api/c/requests")
     assert r.status_code in (404, 501)  # no customer profile yet -> 404 from the dependency
-    r = await client.get("/api/p/signup")
+    stubs = [rt for rt in LANE_ROUTES if "GET" in rt.methods and "{" not in rt.path and await stub_lane(rt)]
+    if not stubs:
+        pytest.skip("every lane endpoint is built")
+    lane = lane_of(stubs[0].path)
+    r = await client.get(stubs[0].path)
     assert r.status_code == 501 and r.json()["detail"] == {
         "code": "not_implemented",
-        "message": "Not built yet. Lane L2 implements this endpoint.",
-        "lane": "L2",
+        "message": f"Not built yet. Lane {lane} implements this endpoint.",
+        "lane": lane,
     }
 
 
