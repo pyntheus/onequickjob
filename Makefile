@@ -16,6 +16,9 @@ DOCKER := docker
 COMPOSE := env INSTANCE=$(INSTANCE) HOST_UID=$(shell id -u) HOST_GID=$(shell id -g) docker compose --env-file .env
 SHARED := $(COMPOSE) -f infra/compose.shared.yml
 APP := $(COMPOSE) -f infra/compose.app.yml
+PROD := $(COMPOSE) -f infra/compose.prod.yml
+PROD_API_PORT ?= 8090
+BACKUP_DIR ?= /srv/oqj/backups
 # Lanes start shared services if they're down but never recreate main's Caddy.
 NO_RECREATE := $(if $(filter main,$(INSTANCE)),,--no-recreate)
 # Tests set their own SECRET_KEY and tax data keys (tests/conftest.py), never this worktree's.
@@ -23,7 +26,8 @@ TEST_ENV := -e MONGO_DB=$(MONGO_DB)_test -e TASKS_ENABLED=false -e SERVE_FILES=f
             -e PAYMENT_GATEWAY=fake -e IDEAL_POSTCODES_KEY=
 
 .PHONY: help env check-env install dev up down infra-up infra-down logs ps test test-api test-web lint lint-api lint-web \
-        fmt types types-check seed seed-reset rotate-tax-key rotate-tax-key-locked check docs shell-api mongosh
+        fmt types types-check seed seed-reset rotate-tax-key rotate-tax-key-locked check docs shell-api mongosh \
+        prod-web prod-up prod-down prod-logs status backup-now restore-test backup-timer e2e
 
 help: ## List the targets
 	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  make %-12s %s\n", $$1, $$2}'
@@ -47,6 +51,7 @@ check-env:
 	@test -f .env || { echo "No .env here. Run: make env" >&2; exit 1; }
 
 infra-up: check-env ## Start the shared Mongo and Caddy (idempotent)
+	@mkdir -p var/www  # Caddy serves the built app from here: yours, before Docker can make it as root
 	@$(DOCKER) network inspect oqj >/dev/null 2>&1 || $(DOCKER) network create oqj >/dev/null
 	@for v in $(CADDY_FILES_VOLUME) oqj-files-$(INSTANCE); do \
 	  $(DOCKER) volume inspect $$v >/dev/null 2>&1 || $(DOCKER) volume create $$v >/dev/null; done
@@ -57,15 +62,49 @@ infra-down: ## Stop the shared Mongo and Caddy (affects every worktree)
 
 dev: infra-up ## Bring up this worktree's API and web (and shared services)
 	@mkdir -p web/node_modules  # yours, before Docker can create the mount point as root
-	$(APP) up -d --build --renew-anon-volumes
+	@# The dev API shares oqj_main with the production-style API: only one of them runs the
+	@# periodic tasks. (Start prod while dev is up? Run make dev again.)
+	@tasks=true; if $(DOCKER) ps -q -f name=^oqj-prod-api$$ | grep -q .; then tasks=false; \
+	  echo "The production-style API is running and does the periodic tasks, so this dev API won't."; fi; \
+	  DEV_TASKS_ENABLED=$$tasks $(APP) up -d --build --renew-anon-volumes
 	@echo "Waiting for the API..."; for i in $$(seq 1 60); do \
 	  curl -fsS http://127.0.0.1:$(API_PORT)/api/health >/dev/null 2>&1 && break; sleep 1; done
 	@curl -fsS http://127.0.0.1:$(API_PORT)/api/health && echo
 	@echo "API  http://127.0.0.1:$(API_PORT)/api/docs   (this machine only)"
 	@echo "Web  http://127.0.0.1:$(WEB_PORT)/           (this machine only; tunnel: ssh -N -L $(WEB_PORT):127.0.0.1:$(WEB_PORT) oqj-dev)"
-	@if [ "$(INSTANCE)" = main ]; then echo "Site https://$(SITE_HOST)/  (basic auth: grep BASIC_AUTH .env)"; fi
+	@if [ "$(INSTANCE)" = main ]; then echo "Site https://$(SITE_HOST)/ serves the production-style build: make prod-up"; fi
 
 up: dev
+
+# ---------------------------------------------------------------- production-style run
+prod-web: ## Build the web app into var/www, where Caddy serves it
+	@test -d web/node_modules/.bin || (cd web && npm ci --no-audit --no-fund)
+	cd web && npm run build -- --outDir ../var/build --emptyOutDir
+	@# In place (Caddy's bind mount follows the directory, not its name); assets before index.html.
+	rsync -a --delete-after var/build/ var/www/
+
+prod-up: infra-up prod-web ## Production-style: the built web app via Caddy, the API without reload (restarts on its own, also after a reboot)
+	$(PROD) up -d --build --wait --remove-orphans
+	@$(MAKE) --no-print-directory status
+
+prod-down: ## Stop the production-style API (Caddy keeps serving the built app; /api answers 502 until prod-up)
+	$(PROD) down
+
+prod-logs: ## Follow the production-style API's logs
+	$(PROD) logs -f --tail=100
+
+status: ## Container health, then the API's health directly and through Caddy (basic auth from .env)
+	@SITE_HOST=$(SITE_HOST) PROD_API_PORT=$(PROD_API_PORT) scripts/status.sh
+
+# ---------------------------------------------------------------- backups
+backup-now: ## Dump $(MONGO_DB) now into /srv/oqj/backups (gzip; 14 days kept)
+	@MONGO_DB=$(MONGO_DB) BACKUP_DIR=$(BACKUP_DIR) scripts/backup.sh
+
+restore-test: ## Restore the latest backup into a scratch database, compare counts with $(MONGO_DB), drop it
+	@MONGO_DB=$(MONGO_DB) BACKUP_DIR=$(BACKUP_DIR) scripts/restore-test.sh
+
+backup-timer: ## Install the nightly backup (03:00 Europe/London) as a systemd timer (uses sudo)
+	@scripts/install-backup-timer.sh
 
 down: ## Stop this worktree's API and web
 	$(APP) down

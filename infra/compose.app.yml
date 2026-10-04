@@ -16,6 +16,8 @@ services:
       MONGO_URL: mongodb://oqj-mongo:27017/?replicaSet=rs0
       FILES_DIR: /data/files
       SEED_DIR: /app/seed
+      # Off when the production-style API (sharing this database) is running: make dev decides.
+      TASKS_ENABLED: ${DEV_TASKS_ENABLED:-true}
     command: ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/api/app"]
     ports:
       - "127.0.0.1:${API_PORT:?set API_PORT in .env}:8000"

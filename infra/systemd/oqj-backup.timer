@@ -1,0 +1,11 @@
+# Installed by make backup-timer. Nightly at 03:00 London time (BST or GMT); a run missed while
+# the droplet was off happens at the next boot (Persistent).
+[Unit]
+Description=OneQuickJob: nightly backup at 03:00 Europe/London
+
+[Timer]
+OnCalendar=*-*-* 03:00:00 Europe/London
+Persistent=true
+
+[Install]
+WantedBy=timers.target

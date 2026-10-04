@@ -1,6 +1,10 @@
 # Private prototype: HTTPS (automatic, Let's Encrypt) and basic auth on EVERYTHING,
 # including /files. Credentials come from .env (BASIC_AUTH_USER, BASIC_AUTH_PASSWORD);
 # entrypoint.sh hashes the password at start-up.
+#
+# Production-style (make prod-up): the built web app from /srv/www (var/www on the host), the
+# production API (oqj-prod-api) for /api, uploads from the files volume. No dev server is
+# involved; `make dev` is reached through an SSH tunnel to its loopback ports instead.
 {
 	servers {
 		# HTTP/3 would need UDP 443, which the firewall doesn't open.
@@ -33,7 +37,16 @@
 		reverse_proxy {$CADDY_API_UPSTREAM}
 	}
 
+	# The built app. Hashed assets never change, so browsers keep them; everything else (the
+	# HTML shell, the provider app's manifest and service worker) is checked every time. Any
+	# path that isn't a file is one of the app's routes: index.html renders it.
 	handle {
-		reverse_proxy {$CADDY_WEB_UPSTREAM}
+		root * /srv/www
+		@hashed path /assets/*
+		header @hashed Cache-Control "public, max-age=31536000, immutable"
+		@shell not path /assets/*
+		header @shell Cache-Control "no-cache"
+		try_files {path} /index.html
+		file_server
 	}
 }
