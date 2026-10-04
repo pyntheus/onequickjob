@@ -149,7 +149,6 @@ const covered = request("R-2292", {
   in_reach: 8,
   in_reach_doing_it: 4,
 });
-const uncovered = request("R-2284");
 const provider = {
   type: "Feature",
   id: "p-dave",
@@ -197,6 +196,8 @@ const hexes = (shade: string) => ({
 });
 
 let calls: URLSearchParams[] = [];
+/** What the stand-in API answers next: changes made "meanwhile" by others. */
+const server = { gone: new Set<string>(), r2284: {} as Record<string, unknown>, daveStatus: "active" };
 function serveMap() {
   calls = [];
   return mockApi({
@@ -204,16 +205,20 @@ function serveMap() {
       calls.push(url.searchParams);
       const layers = url.searchParams.getAll("layers");
       const shade = url.searchParams.get("shade") ?? "open";
+      const unc = request("R-2284", server.r2284);
+      const here = (ref: string) => !server.gone.has(ref);
+      const dave = { ...provider, properties: { ...provider.properties, status: server.daveStatus, covers: server.daveStatus === "active" } };
+      const done = { ...booking, id: "b2", properties: { ...booking.properties, booking_id: "b2", visits: 2, visit_date: "2026-09-20" } };
       return {
         generated_at: "2026-10-04T21:45:00Z",
         from_date: url.searchParams.get("from"),
         to_date: url.searchParams.get("to"),
         waiting_after_minutes: 60,
-        open: layers.includes("open") ? fc([covered, uncovered]) : null,
-        uncovered: layers.includes("uncovered") ? fc([uncovered]) : null,
+        open: layers.includes("open") ? fc([covered, unc].filter((f) => here(f.properties.ref))) : null,
+        uncovered: layers.includes("uncovered") ? fc([unc].filter((f) => here(f.properties.ref))) : null,
         booked: layers.includes("booked") ? fc([booking], { visits: 3 }) : null,
-        completed: layers.includes("completed") ? fc([], { visits: 0 }) : null,
-        providers: layers.includes("providers") ? fc([provider]) : null,
+        completed: layers.includes("completed") ? fc(here("b2") ? [done] : [], { visits: here("b2") ? 2 : 0 }) : null,
+        providers: layers.includes("providers") ? fc([dave]) : null,
         reach: layers.includes("providers") ? fc([]) : null,
         hexes: shade === "none" ? null : hexes(shade),
       };
@@ -226,6 +231,9 @@ const map = () => maps[maps.length - 1];
 
 beforeEach(() => {
   maps.length = 0;
+  server.gone.clear();
+  server.r2284 = {};
+  server.daveStatus = "active";
 });
 afterEach(() => {
   vi.restoreAllMocks();
@@ -335,6 +343,55 @@ describe("the admin map", () => {
     expect(screen.getByRole("region", { name: "Details" })).toBeInTheDocument(); // still an open request
     await user.click(screen.getByRole("checkbox", { name: /Open requests/ }));
     expect(screen.queryByRole("region", { name: "Details" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the details in step with the latest data, and closes them when the marker has gone", async () => {
+    const user = userEvent.setup();
+    serveMap();
+    const { qc } = renderWithProviders(<MapPage />, { path: "/admin/map" });
+    const details = () => screen.queryByRole("region", { name: "Details" });
+    const refresh = () => act(() => qc.invalidateQueries());
+
+    // A request: its guide is raised, then a provider books it.
+    await user.click(await screen.findByRole("button", { name: "Uncovered: Lawn mowing in Princes Risborough, HP27 (R-2284)" }));
+    expect(details()).toHaveTextContent("£28");
+    server.r2284 = { guide_pence: 3100, age_text: "27 hours" };
+    await refresh();
+    await waitFor(() => expect(details()).toHaveTextContent("£31"));
+    expect(details()).toHaveTextContent("Open 27 hours");
+    server.gone.add("R-2284");
+    await refresh();
+    await waitFor(() => expect(details()).not.toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: /\(R-2284\)$/ })).not.toBeInTheDocument();
+
+    // A provider suspended meanwhile shows as suspended.
+    await waitFor(() => expect(map()?.sources.providers?.data.features).toHaveLength(1));
+    map().hits = [{ layer: { id: "providers-disc", source: "providers" }, properties: { provider_id: "p-dave" }, geometry: provider.geometry }];
+    await act(() => map().click());
+    expect(details()).toHaveTextContent("StatusActive");
+    server.daveStatus = "suspended";
+    await refresh();
+    await waitFor(() => expect(details()).toHaveTextContent("Suspended: their radius covers no one yet"));
+
+    // A completed job outside newly chosen dates.
+    await user.click(screen.getByRole("checkbox", { name: /Completed jobs/ }));
+    await waitFor(() => expect(map().sources.completed.data.features).toHaveLength(1));
+    map().hits = [{ layer: { id: "completed-points", source: "completed" }, properties: { booking_id: "b2" }, geometry: booking.geometry }];
+    await act(() => map().click());
+    expect(details()).toHaveTextContent("Completed: 2 visits in the dates chosen");
+    server.gone.add("b2");
+    fireEvent.change(screen.getByLabelText("From"), { target: { value: "2026-09-25" } });
+    await waitFor(() => expect(details()).not.toBeInTheDocument());
+
+    // Switching a layer off closes its panel for good, even when it's switched back on.
+    map().hits = [{ layer: { id: "providers-disc", source: "providers" }, properties: { provider_id: "p-dave" }, geometry: provider.geometry }];
+    await act(() => map().click());
+    expect(details()).toBeInTheDocument();
+    await user.click(screen.getByRole("checkbox", { name: /Providers/ }));
+    expect(details()).not.toBeInTheDocument();
+    await user.click(screen.getByRole("checkbox", { name: /Providers/ }));
+    await waitFor(() => expect(last().getAll("layers")).toContain("providers"));
+    expect(details()).not.toBeInTheDocument();
   });
 
   it("opens a provider from the map, placed at their postcode, with a link to their page", async () => {

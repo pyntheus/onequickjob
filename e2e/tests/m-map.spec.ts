@@ -97,8 +97,10 @@ test("Jo finds where demand outruns coverage and follows it to dispatch, all fro
   await expect(panel).toContainText("Outside every active provider's travel radius");
   await panel.getByRole("link", { name: "Open R-2297 in dispatch" }).click();
 
-  await expect(page).toHaveURL(/\/admin#request-R-2297$/);
-  await expect(page.getByRole("heading", { level: 1, name: "This week" })).toBeVisible();
+  // Software WebGL (SwiftShader) on a phone-sized canvas can hold the page for a while after the
+  // map has flown somewhere, so the move to Overview gets longer than the usual 15 seconds.
+  await expect(page).toHaveURL(/\/admin#request-R-2297$/, { timeout: 60_000 });
+  await expect(page.getByRole("heading", { level: 1, name: "This week" })).toBeVisible({ timeout: 60_000 });
   const card = page.locator("#request-R-2297");
   await expect(card).toBeFocused();
   await expect(card).toHaveClass(/\blinked\b/);

@@ -6,7 +6,7 @@
 import { MapPin } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { fmt } from "../../shared/format";
-import { useMapData, type MapLayerName, type MapQuery } from "../api";
+import { useMapData, type MapData, type MapLayerName, type MapQuery } from "../api";
 import { AdminHeader } from "../components";
 import { MapCanvas, type LngLat, type Selected } from "../map/MapCanvas";
 import { MapPanel } from "../map/MapPanel";
@@ -46,7 +46,8 @@ export function MapPage() {
   });
   const [shadeBy, setShadeBy] = useState<JobLayer>("open");
   const [range, setRange] = useState({ from: daysBefore(today, 29), to: today });
-  const [selected, setSelected] = useState<Selected | null>(null);
+  // What's selected, by identity: its details always come from the latest data (A30).
+  const [picked, setPicked] = useState<Picked | null>(null);
   const [focus, setFocus] = useState<{ at: LngLat } | null>(null);
 
   const query: MapQuery = {
@@ -56,9 +57,14 @@ export function MapPage() {
     to: range.to,
   };
   const { data, error, isFetching } = useMapData(query);
-  const flip = (t: Toggle) => setOn((o) => ({ ...o, [t]: !o[t] }));
-  // The panel closes with the layer its marker is on.
-  const panel = selected && shownOn(selected, on) ? selected : null;
+  const flip = (t: Toggle) => {
+    const next = { ...on, [t]: !on[t] };
+    setOn(next);
+    // The panel closes with the layer its marker is on.
+    if (picked && !shownOn(picked, next)) setPicked(null);
+  };
+  // Gone from the latest data (booked meanwhile, out of the dates chosen...): no panel.
+  const panel = picked && shownOn(picked, on) ? resolve(picked, data) : null;
 
   const uncovered = data?.uncovered?.features ?? [];
   const count = (t: Toggle): string | null => {
@@ -93,10 +99,10 @@ export function MapPage() {
             visible={on}
             shade={on.hexes ? shadeBy : null}
             selected={panel}
-            onSelect={setSelected}
+            onSelect={(s) => setPicked(s && pickOf(s))}
             focus={focus}
           />
-          {panel && <MapPanel selected={panel} onClose={() => setSelected(null)} />}
+          {panel && <MapPanel selected={panel} onClose={() => setPicked(null)} />}
         </div>
 
         <aside className="map-side stack" style={gap("14px")}>
@@ -232,7 +238,7 @@ export function MapPage() {
                             aria-label={`Show ${p.ref} on the map`}
                             onClick={() => {
                               setFocus({ at });
-                              setSelected({ kind: "request", pin: p, at });
+                              setPicked({ kind: "request", ref: p.ref, uncovered: p.uncovered });
                             }}
                           >
                             <MapPin size={15} aria-hidden="true" /> Show
@@ -251,10 +257,36 @@ export function MapPage() {
   );
 }
 
-function shownOn(s: Selected, on: Record<Toggle, boolean>): boolean {
-  if (s.kind === "request") return on.open || (s.pin.uncovered && on.uncovered);
-  if (s.kind === "job") return on[s.layer];
+type Picked =
+  | { kind: "request"; ref: string; uncovered: boolean }
+  | { kind: "job"; layer: "booked" | "completed"; id: string }
+  | { kind: "provider"; id: string };
+
+function pickOf(s: Selected): Picked {
+  if (s.kind === "request") return { kind: "request", ref: s.pin.ref, uncovered: s.pin.uncovered };
+  if (s.kind === "job") return { kind: "job", layer: s.layer, id: s.pin.booking_id };
+  return { kind: "provider", id: s.pin.provider_id };
+}
+
+function shownOn(p: Picked, on: Record<Toggle, boolean>): boolean {
+  if (p.kind === "request") return on.open || (p.uncovered && on.uncovered);
+  if (p.kind === "job") return on[p.layer];
   return on.providers;
+}
+
+/** The picked marker as the latest data has it, or null if it isn't there any more. */
+function resolve(p: Picked, data: MapData | undefined): Selected | null {
+  if (!data) return null;
+  if (p.kind === "request") {
+    const f = [...(data.open?.features ?? []), ...(data.uncovered?.features ?? [])].find((g) => g.properties.ref === p.ref);
+    return f ? { kind: "request", pin: f.properties, at: f.geometry.coordinates as LngLat } : null;
+  }
+  if (p.kind === "job") {
+    const f = data[p.layer]?.features.find((g) => g.properties.booking_id === p.id);
+    return f ? { kind: "job", layer: p.layer, pin: f.properties, at: f.geometry.coordinates as LngLat } : null;
+  }
+  const f = data.providers?.features.find((g) => g.properties.provider_id === p.id);
+  return f ? { kind: "provider", pin: f.properties, at: f.geometry.coordinates as LngLat } : null;
 }
 
 function Layer({
