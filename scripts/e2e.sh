@@ -20,9 +20,19 @@ export E2E_USER E2E_PASS E2E_BASE_URL="${E2E_BASE_URL:-https://${SITE_HOST:-dev.
 
 run() {
   docker run --rm --network host --ipc=host --user "$(id -u):$(id -g)" -e HOME=/tmp -e npm_config_cache=/tmp/.npm \
-    -e E2E_USER -e E2E_PASS -e E2E_BASE_URL -v "$PWD/e2e:/e2e" -w /e2e "$IMAGE" "$@"
+    -e E2E_USER -e E2E_PASS -e E2E_BASE_URL -e CADDY_LOG -v "$PWD/e2e:/e2e" -w /e2e "$IMAGE" "$@"
 }
 [ -d e2e/node_modules/@playwright/test ] || run npm ci --no-audit --no-fund
+
+# Caddy's access log from now on, for the basic-auth spec (x-basic-auth): it fails on a 401 in its
+# run. Credentials and links' tokens are already out of it (the Caddyfile); deleted at the end.
+mkdir -p e2e/results
+access_log=e2e/results/caddy-access.log
+(umask 077; : > "$access_log")
+docker logs -f --since "$(date -u +%Y-%m-%dT%H:%M:%SZ)" oqj-caddy > "$access_log" 2>/dev/null &
+follower=$!
+trap 'kill "$follower" 2>/dev/null; rm -f "$access_log"' EXIT
+export CADDY_LOG="/e2e/results/caddy-access.log"
 
 status=0
 for project in $PROJECTS; do

@@ -27,6 +27,9 @@ function useProviderManifest() {
     const link = document.createElement("link");
     link.rel = "manifest";
     link.href = "/p/manifest.webmanifest";
+    // Browsers fetch a manifest without credentials unless asked: behind the site's basic auth
+    // that's a 401 every time the app opens, and no installable app.
+    link.crossOrigin = "use-credentials";
     const theme = document.createElement("meta");
     theme.name = "theme-color";
     theme.content = "#1E4B38";

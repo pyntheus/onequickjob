@@ -46,7 +46,7 @@ is a ten-minute tour.
 | `make down` | Stop the development API and web |
 | `make test` | All tests: pytest in the API container (database `<MONGO_DB>_test`) and vitest |
 | `make test-api ARGS="tests/shared/test_marketplace.py -x"` | A subset of the API tests |
-| `make e2e` | Playwright journeys and accessibility checks at 375px and desktop against the production-style stack (re-seeds; failures leave a screenshot and page snapshot in `e2e/results/<width>`, never a trace, and API errors have the site password taken out) |
+| `make e2e` | Playwright journeys and accessibility checks at 375px and desktop against the production-style stack (re-seeds; failures leave a screenshot and page snapshot in `e2e/results/<width>`, never a trace, and API errors have the site password taken out). One browses for three minutes after typing the site password once and fails on any 401 in Caddy's access log |
 | `make lint` | ruff, eslint, TypeScript, and a check that generated API types are current |
 | `make types` | Regenerate `web/src/api/schema.d.ts` from the API's OpenAPI schema |
 | `make seed` | Reset the demo: removes what demo runs created and loads the demo data (idempotent; keeps admins' pricing versions) |
@@ -77,6 +77,12 @@ oqj-prod-api ──> oqj-mongo (single-node replica set rs0; no published port; 
   Docker starts at boot and brings back Mongo, Caddy and the API. `make status` checks them all.
   A container stopped on purpose (`make prod-down`) stays stopped.
 - Only Caddy publishes ports. The API binds 127.0.0.1 only, Mongo nothing. `make check` verifies it.
+- Basic auth covers every path. A browser keeps the password and sends it with every request
+  until one is answered 401, which it takes as the password being refused: it forgets it and asks
+  again. So the API never answers 401 (signed out is a 403 with the code `not_signed_in`), and the
+  provider app's manifest is fetched with credentials (`crossorigin="use-credentials"`).
+- Caddy's access log is `docker logs oqj-caddy` (kept to 50 MB), with passwords, cookies and the
+  links' single-use tokens taken out.
 - Mongo runs as a single-node replica set (`rs0`) so writes that span collections can use
   transactions. Its healthcheck initiates the set the first time and is a no-op afterwards.
   It allows 64000 open files and caps its cache at 1.5 GB (`infra/compose.shared.yml`).

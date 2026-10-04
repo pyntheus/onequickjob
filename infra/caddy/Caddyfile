@@ -15,6 +15,18 @@
 {$SITE_HOST} {
 	encode zstd gzip
 
+	# Access log to stdout (docker logs oqj-caddy; Docker keeps 5 x 10 MB, compose.shared.yml).
+	# Caddy already writes Authorization, Cookie and Set-Cookie as REDACTED; the filters take
+	# the single-use tokens out of links (invites, plan changes, job alerts' ?t=) too. make e2e's
+	# basic-auth check reads it for 401s.
+	log {
+		output stdout
+		format filter {
+			request>uri regexp "(/(?:invite|invites|plan-change|plan-changes)/)[^/?#]+|([?&]t=)[^&#]+" "${1}${2}REDACTED"
+			request>headers>Referer regexp "(/(?:invite|invites|plan-change|plan-changes)/)[^/?#]+|([?&]t=)[^&#]+" "${1}${2}REDACTED"
+		}
+	}
+
 	basic_auth {
 		{$BASIC_AUTH_USER} {$BASIC_AUTH_HASH}
 	}

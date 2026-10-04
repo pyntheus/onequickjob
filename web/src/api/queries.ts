@@ -30,7 +30,8 @@ export async function setSignedIn(qc: QueryClient, me: Me): Promise<void> {
   qc.setQueryData(queryKeys.me, me);
 }
 
-/** The signed-in user, or null when signed out (401). */
+/** The signed-in user, or null when signed out (a 403 with the code "not_signed_in", never a 401:
+ * app.core.deps.current_user says why). */
 export function useMe() {
   return useQuery({
     queryKey: queryKeys.me,
@@ -38,7 +39,7 @@ export function useMe() {
       try {
         return await call(api.GET("/api/auth/me"));
       } catch (e) {
-        if (e instanceof ApiError && e.status === 401) return null;
+        if (e instanceof ApiError && e.code === "not_signed_in") return null;
         throw e;
       }
     },

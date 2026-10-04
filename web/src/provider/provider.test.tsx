@@ -63,6 +63,8 @@ describe("the provider app", () => {
     expect(job).toHaveAttribute("href", "/p/j/R-2292");
     expect(within(job).getByText("Over your weekly limit")).toBeInTheDocument();
     expect(within(job).getByText("you get £56.10")).toBeInTheDocument();
+    // Fetched with the site's basic auth, like every other request (a 401 otherwise).
+    expect(document.head.querySelector('link[rel="manifest"]')).toHaveAttribute("crossorigin", "use-credentials");
   });
 
   it("sends a new provider to sign-up", async () => {
@@ -411,7 +413,7 @@ describe("a plan change, answered in the provider app (A10)", () => {
     to_price_pence: 2800, provider_pence: 2380, expires_at: "2026-10-05T09:00:00Z", kind: "reprice", awaiting: "provider",
     declined_by: null, price_min_pence: 500, price_max_pence: 50000,
   };
-  const unauthorised = () => jsonResponse(401, { detail: { code: "not_signed_in", message: "Please sign in." } });
+  const unauthorised = () => jsonResponse(403, { detail: { code: "not_signed_in", message: "Please sign in." } });
 
   it("needs no sign-in: the link's token is the authority, and declining keeps the plan", async () => {
     let declined = false;
@@ -469,7 +471,7 @@ describe("an own customer's change of frequency, priced by the provider (A22)", 
     to_frequency_label: "every week", from_price_pence: 2500, to_price_pence: null, provider_pence: null,
     price_min_pence: 500, price_max_pence: 50000, expires_at: "2026-10-05T09:00:00Z",
   };
-  const unauthorised = () => jsonResponse(401, { detail: { code: "not_signed_in", message: "Please sign in." } });
+  const unauthorised = () => jsonResponse(403, { detail: { code: "not_signed_in", message: "Please sign in." } });
 
   it("names a price, shows what they'd keep from the API, and waits for the customer", async () => {
     let sent: unknown = null;

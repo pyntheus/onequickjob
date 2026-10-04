@@ -164,7 +164,7 @@ describe("Finding someone local", () => {
   });
 
   it("asks a signed-out visitor to sign in", async () => {
-    mockApi({ ...base(false), "GET /api/auth/me": () => json(401, { detail: { code: "not_signed_in", message: "Please sign in." } }) });
+    mockApi({ ...base(false), "GET /api/auth/me": () => json(403, { detail: { code: "not_signed_in", message: "Please sign in." } }) });
     renderAt("/requests/R-2301");
     expect(await screen.findByRole("heading", { name: "Sign in to see your request" })).toBeInTheDocument();
   });

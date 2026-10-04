@@ -9,7 +9,7 @@ from app.models.providers import ProviderDocument
 from app.repos import JobRequests, Providers, Visits
 from app.services import marketplace
 from tests.admin.conftest import ok
-from tests.conftest import make_settings, sign_in
+from tests.conftest import make_settings, sign_in, signed_out
 from tests.factories import make_customer, make_provider, make_request
 from tests.payments.helpers import card_customer, finished_visit, payable_provider
 
@@ -20,7 +20,7 @@ async def aged(db, req, hours: int):
 
 
 async def test_admin_only(client, db, catalogue):
-    assert (await client.get("/api/admin/overview")).status_code == 401
+    assert signed_out(await client.get("/api/admin/overview"))
     await sign_in(client, db, "07700 900456")
     r = await client.get("/api/admin/overview")
     assert r.status_code == 403 and r.json()["detail"]["code"] == "admins_only"
