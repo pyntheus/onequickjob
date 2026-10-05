@@ -1,10 +1,10 @@
 """Overview and dispatch: figures from real data, the waiting list, the WhatsApp text and
 raising a guide price (audit-logged, whole pounds, first visit scaled as for a counter)."""
 
-from datetime import timedelta
+from datetime import time, timedelta
 
 from app.core import money
-from app.core.timeutil import utcnow
+from app.core.timeutil import london_datetime, london_today, utcnow, week_start
 from app.models.providers import ProviderDocument
 from app.repos import JobRequests, Providers, Visits
 from app.services import marketplace
@@ -44,7 +44,9 @@ async def test_overview_from_real_data(jo, db, catalogue):
 
     d = ok(await jo.get("/api/admin/overview"))
     kpis = {k["label"]: k for k in d["kpis"]}
-    assert kpis["Requests"]["value"] == "2"
+    # The week starts on Monday in London: in its first five hours, the aged request is last week's.
+    this_week = old.created_at >= london_datetime(week_start(london_today()), time(0))
+    assert kpis["Requests"]["value"] == ("2" if this_week else "1")
     assert kpis["Job value"]["value"] == "£30" and kpis["Our revenue"]["value"] == "£4.50"
     assert kpis["Our revenue"]["sub"] == "15% of job value"
     [waiting] = d["waiting"]
