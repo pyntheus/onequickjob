@@ -102,7 +102,10 @@ function JobDetails({ s }: { s: Extract<Selected, { kind: "job" }> }) {
           {fmt(p.price_pence)} a visit{p.own_customer ? " (a customer the provider brought)" : ""}
         </dd>
         <dt>Provider</dt>
-        <dd>{p.provider_short || "Not known"}</dd>
+        <dd>
+          {p.provider_short || "Not known"}
+          {p.covering_for ? `, covering for ${p.covering_for}` : ""}
+        </dd>
         <dt>Booking</dt>
         <dd>{p.booking_ref}</dd>
       </dl>

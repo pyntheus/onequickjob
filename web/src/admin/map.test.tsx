@@ -73,7 +73,20 @@ const { FakeMap, FakeMarker, maps } = vi.hoisted(() => {
     getZoom() {
       return 11;
     }
-    fitBounds() {}
+    /** Screen position: 1 px per 0.0001°, so markers 0.003° apart are 30 px apart. */
+    scale = 10_000;
+    project([lng, lat]: [number, number]) {
+      return { x: lng * this.scale, y: -lat * this.scale };
+    }
+    fitted: unknown[] = [];
+    /** Zoom in by `times`, as a wheel or the + button would. */
+    zoomIn(times: number) {
+      this.scale *= times;
+      this.handlers.zoomend?.forEach((h) => h());
+    }
+    fitBounds(bounds: unknown) {
+      this.fitted.push(bounds);
+    }
     flyTo() {}
     easeTo() {}
     remove() {}
@@ -197,7 +210,13 @@ const hexes = (shade: string) => ({
 
 let calls: URLSearchParams[] = [];
 /** What the stand-in API answers next: changes made "meanwhile" by others. */
-const server = { gone: new Set<string>(), r2284: {} as Record<string, unknown>, daveStatus: "active" };
+const server = {
+  gone: new Set<string>(),
+  r2284: {} as Record<string, unknown>,
+  daveStatus: "active",
+  covered: false,
+  neighbour: false, // a second uncovered request 0.0005° from R-2284
+};
 function serveMap() {
   calls = [];
   return mockApi({
@@ -206,6 +225,8 @@ function serveMap() {
       const layers = url.searchParams.getAll("layers");
       const shade = url.searchParams.get("shade") ?? "open";
       const unc = request("R-2284", server.r2284);
+      const next = { ...request("R-2295", { category_name: "Window cleaning" }), geometry: point(-0.8335, 51.7245) };
+      const uncs = server.neighbour ? [unc, next] : [unc];
       const here = (ref: string) => !server.gone.has(ref);
       const dave = { ...provider, properties: { ...provider.properties, status: server.daveStatus, covers: server.daveStatus === "active" } };
       const done = { ...booking, id: "b2", properties: { ...booking.properties, booking_id: "b2", visits: 2, visit_date: "2026-09-20" } };
@@ -214,9 +235,11 @@ function serveMap() {
         from_date: url.searchParams.get("from"),
         to_date: url.searchParams.get("to"),
         waiting_after_minutes: 60,
-        open: layers.includes("open") ? fc([covered, unc].filter((f) => here(f.properties.ref))) : null,
-        uncovered: layers.includes("uncovered") ? fc([unc].filter((f) => here(f.properties.ref))) : null,
-        booked: layers.includes("booked") ? fc([booking], { visits: 3 }) : null,
+        open: layers.includes("open") ? fc([covered, ...uncs].filter((f) => here(f.properties.ref))) : null,
+        uncovered: layers.includes("uncovered") ? fc(uncs.filter((f) => here(f.properties.ref))) : null,
+        booked: layers.includes("booked")
+          ? fc([server.covered ? { ...booking, properties: { ...booking.properties, provider_id: "p-mike", provider_short: "Mike R.", covering_for: "Dave H." } } : booking], { visits: 3 })
+          : null,
         completed: layers.includes("completed") ? fc(here("b2") ? [done] : [], { visits: here("b2") ? 2 : 0 }) : null,
         providers: layers.includes("providers") ? fc([dave]) : null,
         reach: layers.includes("providers") ? fc([]) : null,
@@ -234,6 +257,8 @@ beforeEach(() => {
   server.gone.clear();
   server.r2284 = {};
   server.daveStatus = "active";
+  server.covered = false;
+  server.neighbour = false;
 });
 afterEach(() => {
   vi.restoreAllMocks();
@@ -343,6 +368,40 @@ describe("the admin map", () => {
     expect(screen.getByRole("region", { name: "Details" })).toBeInTheDocument(); // still an open request
     await user.click(screen.getByRole("checkbox", { name: /Open requests/ }));
     expect(screen.queryByRole("region", { name: "Details" })).not.toBeInTheDocument();
+  });
+
+  it("shows uncovered requests too close to tell apart as one button that zooms in", async () => {
+    const user = userEvent.setup();
+    server.neighbour = true;
+    serveMap();
+    renderWithProviders(<MapPage />, { path: "/admin/map" });
+    const group = await screen.findByRole("button", { name: "2 uncovered requests close together (R-2284, R-2295): zoom in" });
+    expect(group).toHaveTextContent("2");
+    expect(screen.queryByRole("button", { name: /^Uncovered: / })).not.toBeInTheDocument();
+    await user.click(group);
+    expect(map().fitted.at(-1)).toEqual([
+      [-0.834, 51.7243],
+      [-0.8335, 51.7245],
+    ]);
+    act(() => map().zoomIn(8));
+    expect(await screen.findByRole("button", { name: "Uncovered: Lawn mowing in Princes Risborough, HP27 (R-2284)" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Uncovered: Window cleaning in Princes Risborough, HP27 (R-2295)" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /close together/ })).not.toBeInTheDocument();
+  });
+
+  it("names who does a covered visit, and links to them", async () => {
+    const user = userEvent.setup();
+    server.covered = true;
+    serveMap();
+    renderWithProviders(<MapPage />, { path: "/admin/map" });
+    await user.click(await screen.findByRole("checkbox", { name: /Booked visits/ }));
+    await waitFor(() => expect(map()?.sources.booked?.data.features).toHaveLength(1));
+    map().hits = [{ layer: { id: "booked-points", source: "booked" }, properties: { booking_id: "b1" }, geometry: booking.geometry }];
+    await act(() => map().click());
+    const panel = screen.getByRole("region", { name: "Details" });
+    expect(panel).toHaveTextContent("ProviderMike R., covering for Dave H.");
+    expect(panel).toHaveTextContent("Booked: 3 visits to come, the next on 6 Oct 2026");
+    expect(within(panel).getByRole("link", { name: "Mike R.'s page" })).toHaveAttribute("href", "/admin/providers/p-mike");
   });
 
   it("keeps the details in step with the latest data, and closes them when the marker has gone", async () => {

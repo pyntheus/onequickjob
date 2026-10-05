@@ -68,6 +68,7 @@ export function MapCanvas({
   const [loaded, setLoaded] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [shown, setShown] = useState<Toggle[]>([]);
+  const [zoomed, setZoomed] = useState(0); // counts zoom changes, for grouping uncovered demand
 
   useEffect(() => {
     latest.current = { data, onSelect };
@@ -100,6 +101,7 @@ export function MapCanvas({
       return;
     }
     map.touchZoomRotate.disableRotation();
+    map.on("zoomend", () => setZoomed((n) => n + 1));
     map.addControl(new NavigationControl({ showCompass: false }), "top-right");
     map.on("error", (e) => {
       const source = (e as { sourceId?: string }).sourceId;
@@ -181,47 +183,50 @@ export function MapCanvas({
     setShown(visible.uncovered ? [...now, "uncovered"] : now);
   }, [visible, loaded, shade]);
 
-  // Uncovered demand: a button on the map for each. A button stays while its request is still
-  // uncovered (refreshes and selections don't rebuild it), so keyboard focus stays on it.
+  // Uncovered demand: a button on the map for each request, or one for a group too close
+  // together to tell apart at this zoom (it shows how many, and zooms in). Groups are worked out
+  // again whenever the zoom changes. A button stays while its request (or group) does, so
+  // keyboard focus stays on it through refreshes and selections.
   useEffect(() => {
     const map = mapRef.current;
-    const wanted = map && loaded && visible.uncovered ? (data?.uncovered?.features ?? []) : [];
-    const refs = new Set(wanted.map((f) => f.properties.ref));
-    for (const [ref, marker] of markers.current) {
-      if (refs.has(ref)) continue;
+    const wanted = map && loaded && visible.uncovered ? groupsOf(map, data?.uncovered?.features ?? []) : [];
+    const keys = new Set(wanted.map((g) => g.key));
+    for (const [key, marker] of markers.current) {
+      if (keys.has(key)) continue;
       marker.remove();
-      markers.current.delete(ref);
+      markers.current.delete(key);
     }
     if (!map) return;
-    for (const f of wanted) {
-      const ref = f.properties.ref;
-      const at = f.geometry.coordinates as LngLat;
-      const label = `Uncovered: ${f.properties.category_name} in ${f.properties.area}, ${f.properties.district} (${ref})`;
-      const kept = markers.current.get(ref);
+    for (const g of wanted) {
+      const kept = markers.current.get(g.key);
       if (kept) {
-        kept.setLngLat(at);
-        kept.getElement().setAttribute("aria-label", label);
+        kept.setLngLat(g.at);
+        kept.getElement().setAttribute("aria-label", g.label);
         continue;
       }
       const el = document.createElement("button");
       el.type = "button";
-      el.className = "map-uncovered";
-      el.textContent = "!";
-      el.setAttribute("aria-label", label);
+      el.className = "map-uncovered" + (g.refs.length > 1 ? " many" : "");
+      el.textContent = g.refs.length > 1 ? String(g.refs.length) : "!";
+      el.setAttribute("aria-label", g.label);
       el.addEventListener("click", (ev) => {
         ev.stopPropagation();
-        const now = latest.current.data?.uncovered?.features.find((g) => g.properties.ref === ref);
+        if (g.refs.length > 1) {
+          map.fitBounds(g.bounds, { padding: 90, maxZoom: 15.5 });
+          return;
+        }
+        const now = latest.current.data?.uncovered?.features.find((f) => f.properties.ref === g.refs[0]);
         if (now) latest.current.onSelect({ kind: "request", pin: now.properties, at: now.geometry.coordinates as LngLat });
       });
-      markers.current.set(ref, new Marker({ element: el }).setLngLat(at).addTo(map));
+      markers.current.set(g.key, new Marker({ element: el }).setLngLat(g.at).addTo(map));
     }
-  }, [data, loaded, visible.uncovered]);
+  }, [data, loaded, visible.uncovered, zoomed]);
 
   // The selected one stands out.
   useEffect(() => {
     const ref = selected?.kind === "request" ? selected.pin.ref : null;
-    for (const [r, marker] of markers.current) marker.getElement().classList.toggle("on", r === ref);
-  }, [selected, data, loaded, visible.uncovered]);
+    for (const [key, marker] of markers.current) marker.getElement().classList.toggle("on", key === ref);
+  }, [selected, data, loaded, visible.uncovered, zoomed]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -246,6 +251,42 @@ export function MapCanvas({
       )}
     </div>
   );
+}
+
+type Uncovered = NonNullable<MapData["uncovered"]>["features"][number];
+type Group = { key: string; refs: string[]; at: LngLat; bounds: [LngLat, LngLat]; label: string };
+/** Buttons closer than this (px) overlap, or nearly: they're shown as one. */
+const SPREAD = 32;
+
+/** Uncovered requests grouped by where they fall on screen now: each group is one button. */
+function groupsOf(map: MapLibreMap, features: Uncovered[]): Group[] {
+  const groups: { x: number; y: number; members: Uncovered[] }[] = [];
+  for (const f of [...features].sort((a, b) => a.properties.ref.localeCompare(b.properties.ref))) {
+    const p = map.project(f.geometry.coordinates as LngLat);
+    const near = groups.find((g) => Math.hypot(g.x - p.x, g.y - p.y) < SPREAD);
+    if (near) near.members.push(f);
+    else groups.push({ x: p.x, y: p.y, members: [f] });
+  }
+  return groups.map(({ members }) => {
+    const points = members.map((f) => f.geometry.coordinates as LngLat);
+    const lngs = points.map((p) => p[0]);
+    const lats = points.map((p) => p[1]);
+    const refs = members.map((f) => f.properties.ref);
+    const one = members[0].properties;
+    return {
+      key: refs.join(" "),
+      refs,
+      at: [lngs.reduce((a, b) => a + b) / lngs.length, lats.reduce((a, b) => a + b) / lats.length],
+      bounds: [
+        [Math.min(...lngs), Math.min(...lats)],
+        [Math.max(...lngs), Math.max(...lats)],
+      ],
+      label:
+        refs.length === 1
+          ? `Uncovered: ${one.category_name} in ${one.area}, ${one.district} (${one.ref})`
+          : `${refs.length} uncovered requests close together (${refs.join(", ")}): zoom in`,
+    };
+  });
 }
 
 /** South-west and north-east corners of every point in the data, or null if there are none. */

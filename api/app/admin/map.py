@@ -213,7 +213,8 @@ def _jobs(
     latest: bool,
 ) -> JobLayer:
     """One pin per booking: its visits in the layer, dated by the next one (booked) or the latest
-    (completed). A visit whose booking isn't found has no address and is left out."""
+    (completed), with that visit's provider and price. A visit whose booking isn't found has no
+    address and is left out."""
     by_booking: dict[str, list[Visit]] = defaultdict(list)
     for v in visits:
         if v.booking_id in bookings:
@@ -224,7 +225,10 @@ def _jobs(
         vs.sort(key=lambda v: v.scheduled_start)
         shown = vs[-1] if latest else vs[0]
         a: Address = b.address
-        p = providers.get(b.provider_id)
+        # The shown visit's provider: on a cover that's the covering provider, not the booking's.
+        p = providers.get(shown.provider_id)
+        covering = shown.performer.kind == "cover" or shown.provider_id != b.provider_id
+        regular = providers.get(b.provider_id) if covering else None
         features.append(
             JobFeature(
                 id=booking_id,
@@ -236,9 +240,10 @@ def _jobs(
                     category_name=names.get(b.category_id, b.category_id),
                     area=a.area,
                     district=a.district,
-                    provider_id=b.provider_id,
+                    provider_id=shown.provider_id,
                     provider_short=p.short if p else "",
-                    own_customer=b.source == "own_customer",
+                    covering_for=regular.short if regular else None,
+                    own_customer=b.source == "own_customer" and not covering,
                     visits=len(vs),
                     visit_date=shown.local_date,
                     price_pence=shown.price_pence,

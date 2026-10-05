@@ -725,12 +725,17 @@ A28, section 2e, are the lawn-sizes session's.)
   dispatch list's rule). Booked visits are visits `scheduled` or `in_progress` from today on;
   completed jobs are `finished` visits dated in the range. Both are one pin per booking at its
   address, counting its visits and dated by the next (or the latest), so a weekly regular isn't
-  six pins on one house; a visit whose booking can't be found has no address and is left out.
+  six pins on one house; the pin names that visit's provider and price: on a time-off cover, the
+  covering provider (who does it and is paid) and whom they cover for, and a covered visit is
+  never shown as an own customer's (A4; Codex re-check). A visit whose booking can't be found
+  has no address and is left out.
   Pins carry the area and district, never the street, postcode or customer (the exact position
   is the marker itself). There is no admin page for a single request, so a request links to its
   card on Overview's dispatch list (`/admin#request-R-2297`, scrolled to and focused), which is
   where its actions are (WhatsApp text, raise the guide); a request open less than an hour isn't
-  on that list yet and the panel says so. Jobs and providers link to the provider's page.
+  on that list yet and the panel says so. Jobs and providers link to the provider's page. The details panel
+  keeps the marker by identity and always shows it as the latest data has it, closing when it's
+  gone (booked meanwhile, out of the dates chosen) or its layer is switched off (Codex review).
   (`tests/admin/test_map.py`; `web/src/admin/map.test.tsx`; e2e `m-map.spec.ts`.)
 - **A31. The basemap is ours.** No runtime request leaves the site: no API keys, no third-party
   tile servers. `make basemap` (`scripts/basemap.sh`) writes `var/basemap/` (kept out of git): a
@@ -754,7 +759,9 @@ A28, section 2e, are the lawn-sizes session's.)
   reach who doesn't do that job still covers the place, and the panel says how many in reach do
   it (`in_reach`, `in_reach_doing_it`). Providers signing up or suspended never cover. Cover and
   "Book again" requests follow the same rule. Uncovered requests are drawn as buttons on the map
-  (the danger red with a "!", reachable by keyboard) and listed under "Where to recruit".
+  (the danger red with a "!", reachable by keyboard; requests too close to tell apart at the
+  zoom shown share one button with their count, which zooms in, so no button covers another:
+  WCAG 2.5.8) and listed under "Where to recruit".
   (`test_map.py`: `test_uncovered_demand_is_outside_every_active_providers_radius`,
   `test_uncovered_means_the_broadcast_reaches_nobody_by_distance`.)
 - **A33. Providers are shown at their home postcode, never their address.** `Home.location`

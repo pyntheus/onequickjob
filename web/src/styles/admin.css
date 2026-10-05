@@ -97,6 +97,7 @@
 .map-list li:last-child{border-bottom:0;padding-bottom:0}
 /* Uncovered demand: a button on the map, the danger red with a "!" (never colour alone). */
 .map-uncovered{width:26px;height:26px;border-radius:50%;border:2px solid #fff;background:#a2352a;color:#fff;font:700 15px/1 var(--font-body);display:grid;place-items:center;padding:0;cursor:pointer;box-shadow:0 0 0 2px rgba(162,53,42,.35),0 2px 6px rgba(24,38,30,.35)}
+.map-uncovered.many{width:30px;height:30px;font-size:13px}
 .map-uncovered:hover,.map-uncovered.on{box-shadow:0 0 0 4px rgba(162,53,42,.45),0 2px 6px rgba(24,38,30,.35)}
 .map-uncovered:focus-visible{outline:3px solid var(--ink);outline-offset:2px}
 .map-uncovered-text{color:var(--danger)}

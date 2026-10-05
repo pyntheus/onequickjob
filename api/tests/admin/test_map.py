@@ -200,6 +200,53 @@ async def test_booked_visits_are_one_pin_per_booking_from_today_on(jo, db, catal
     assert d["hexes"]["total"] == 4 and d["hexes"]["max"] == 3, "the grid counts visits, not pins"
 
 
+async def test_a_covered_visit_shows_the_provider_covering_it(jo, db, catalogue):
+    """Time-off cover reassigns the visit (marketplace R23a): its pin names the covering provider,
+    who does it and is paid, says whom they cover for, and isn't an own customer's (A4)."""
+    customer = await make_customer(db)
+    dave = await make_provider(db, "Dave Hughes", "+447700900201", ["mowing"])
+    mike = await make_provider(db, "Mike Reynolds", "+447700900202", ["mowing"])
+    today = london_today()
+    b = await booking_at(db, customer, dave, price=3200)
+    await Bookings(db).update(b.id, {"source": "own_customer"})
+    covered = [
+        await visit_on(db, b, dave, today + timedelta(days=2)),
+        await visit_on(db, b, dave, today - timedelta(days=3), status="finished"),
+    ]
+    await visit_on(db, b, dave, today + timedelta(days=9))
+    for v in covered:
+        await Visits(db).update(
+            v.id,
+            {
+                "provider_id": mike.id,
+                "performer": Performer(
+                    kind="cover", provider_id=mike.id, user_id=mike.user_id, name=mike.short
+                ).model_dump(mode="python"),
+                "cover": {"state": "covered", "request_id": None, "original_provider_id": dave.id},
+            },
+        )
+    own = await booking_at(db, customer, dave, MARLOW, price=2800)
+    await Bookings(db).update(own.id, {"source": "own_customer"})
+    await visit_on(db, own, dave, today + timedelta(days=1))
+
+    d = await get_map(jo, layers=["booked", "completed"])
+    for layer in ("booked", "completed"):
+        pin = next(f["properties"] for f in d[layer]["features"] if f["id"] == b.id)
+        assert (pin["provider_id"], pin["provider_short"], pin["covering_for"], pin["own_customer"]) == (
+            mike.id,
+            "Mike R.",
+            "Dave H.",
+            False,
+        ), layer
+    booked = {f["id"]: f["properties"] for f in d["booked"]["features"]}
+    assert booked[b.id]["visits"] == 2, "one pin per booking, whoever does each visit"
+    assert (booked[own.id]["provider_short"], booked[own.id]["covering_for"], booked[own.id]["own_customer"]) == (
+        "Dave H.",
+        None,
+        True,
+    )
+
+
 async def test_completed_jobs_follow_the_date_range(jo, db, catalogue):
     customer = await make_customer(db)
     dave = await make_provider(db, "Dave Hughes", "+447700900201", ["mowing"])

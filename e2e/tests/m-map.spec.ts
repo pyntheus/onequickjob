@@ -18,6 +18,12 @@ const TOGGLES: [label: RegExp, shown: string][] = [
   [/^Concentration/, "hexes"],
 ];
 
+/** Requests the uncovered-demand buttons stand for: "!" is one, a group shows how many. */
+async function onMap(page: Page): Promise<number> {
+  const texts = await page.locator(".map-uncovered").allInnerTexts();
+  return texts.reduce((n, t) => n + (t.trim() === "!" ? 1 : Number(t)), 0);
+}
+
 async function shown(page: Page): Promise<string[]> {
   const attr = await page.getByRole("region", { name: /Map of requests/ }).getAttribute("data-shown");
   return (attr ?? "").split(" ").filter(Boolean).sort();
@@ -55,7 +61,7 @@ test("Jo finds where demand outruns coverage and follows it to dispatch, all fro
   // The thin areas: Princes Risborough, Longwick and Stokenchurch.
   const recruit = page.getByRole("region", { name: "Where to recruit" });
   await expect(recruit).toContainText("5 open requests outside every active provider's travel radius.");
-  await expect(page.getByRole("button", { name: /^Uncovered: / })).toHaveCount(5);
+  await expect.poll(() => onMap(page)).toBe(5);
 
   // Each layer off and on again: the map and what's asked of the API follow.
   for (const [label, name] of TOGGLES) {
@@ -72,7 +78,7 @@ test("Jo finds where demand outruns coverage and follows it to dispatch, all fro
       );
     }
   }
-  await expect(page.getByRole("button", { name: /^Uncovered: / })).toHaveCount(5);
+  await expect.poll(() => onMap(page)).toBe(5);
 
   // Completed jobs over the last two months, shaded by where they were.
   await page.getByRole("checkbox", { name: /^Completed jobs/ }).check();

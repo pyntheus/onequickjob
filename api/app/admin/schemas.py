@@ -436,9 +436,14 @@ class JobPin(BaseModel):
     category_name: str
     area: str
     district: str
-    provider_id: str
+    provider_id: str = Field(description="Who does the shown visit and is paid for it (a cover provider on a cover)")
     provider_short: str
-    own_customer: bool = Field(description="A customer the provider brought (5% fee)")
+    covering_for: str | None = Field(
+        default=None, description="The shown visit is time-off cover: the regular provider it covers for"
+    )
+    own_customer: bool = Field(
+        description="A customer the provider doing the visit brought (5% fee); never on a cover (A4)"
+    )
     visits: int = Field(description="Visits still to come (booked), or finished in the date range (completed)")
     visit_date: date = Field(description="The next visit (booked), or the latest finished in the range (completed)")
     price_pence: int = Field(description="That visit's price")

@@ -4825,12 +4825,24 @@
             "title": "Category Name",
             "type": "string"
           },
+          "covering_for": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The shown visit is time-off cover: the regular provider it covers for",
+            "title": "Covering For"
+          },
           "district": {
             "title": "District",
             "type": "string"
           },
           "own_customer": {
-            "description": "A customer the provider brought (5% fee)",
+            "description": "A customer the provider doing the visit brought (5% fee); never on a cover (A4)",
             "title": "Own Customer",
             "type": "boolean"
           },
@@ -4840,6 +4852,7 @@
             "type": "integer"
           },
           "provider_id": {
+            "description": "Who does the shown visit and is paid for it (a cover provider on a cover)",
             "title": "Provider Id",
             "type": "string"
           },

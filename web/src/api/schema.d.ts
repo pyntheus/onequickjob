@@ -4441,11 +4441,16 @@ export interface components {
             category_id: string;
             /** Category Name */
             category_name: string;
+            /**
+             * Covering For
+             * @description The shown visit is time-off cover: the regular provider it covers for
+             */
+            covering_for?: string | null;
             /** District */
             district: string;
             /**
              * Own Customer
-             * @description A customer the provider brought (5% fee)
+             * @description A customer the provider doing the visit brought (5% fee); never on a cover (A4)
              */
             own_customer: boolean;
             /**
@@ -4453,7 +4458,10 @@ export interface components {
              * @description That visit's price
              */
             price_pence: number;
-            /** Provider Id */
+            /**
+             * Provider Id
+             * @description Who does the shown visit and is paid for it (a cover provider on a cover)
+             */
             provider_id: string;
             /** Provider Short */
             provider_short: string;
