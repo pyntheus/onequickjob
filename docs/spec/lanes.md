@@ -70,7 +70,13 @@ folder show the format.
 | L1 Customer | `/srv/oqj/lane-customer` | `l1/customer` | 8001 | 5171 | `oqj_l1` |
 | L2 Provider | `/srv/oqj/lane-provider` | `l2/provider` | 8002 | 5172 | `oqj_l2` |
 | L3 Admin and payments | `/srv/oqj/lane-admin` | `l3/admin-payments` | 8003 | 5173 | `oqj_l3` |
+| Round 2: lawn sizes and minutes | `/srv/oqj/lane-sizes` | `r2/lawn-sizes-minutes` | 8001 | 5171 | `oqj_sizes` |
+| Round 2: the admin map | `/srv/oqj/lane-map` | `r2/admin-map` | 8003 | 5173 | `oqj_map` |
 
 They merged in the order L3, L1, L2, each rebased on `main`; S then resolved the contract-change
 requests (decisions A13 to A24) and I closed the rest. While they ran, no lane edited a file
 another owned: requests went through `contract-changes/<lane>.md`.
+
+In round 2 two lanes ran side by side on separate areas. The sizes lane merged first (PR #9, A26
+to A28) and was removed by the map lane, which rebased on it (A30 to A40); the map lane's
+worktree, branch and database go once its pull request (#10) is merged.
