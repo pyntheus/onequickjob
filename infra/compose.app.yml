@@ -48,6 +48,8 @@ services:
     volumes:
       - ../web:/app/web
       - /app/web/node_modules
+      # The admin map's basemap (make basemap), served at /basemap by the dev server (vite.config.ts).
+      - ../var/basemap:/app/var/basemap:ro
     depends_on: [api]
     networks: [oqj]
 

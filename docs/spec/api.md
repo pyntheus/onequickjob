@@ -151,8 +151,10 @@ in `web/src/api/schema.d.ts` come from it (`make types`).
 | Method | Path | Request | Response | Notes |
 |---|---|---|---|---|
 | `GET` | `/api/admin/overview` |  | Overview |  |
+| `GET` | `/api/admin/requests/{request_id}` |  | AdminRequestDetail | One request (A38): the customer's request and lawn size, status and age, every offer and counter, its timeline, the outbox messages about it, a raise waiting for the customer, and who could take it. Takes the request's id or its reference (R-2297). |
 | `GET` | `/api/admin/requests/{ref}/whatsapp` |  | WhatsAppText | The text for the providers' WhatsApp group, with the job link (/p/j/{ref}). |
 | `POST` | `/api/admin/requests/{ref}/raise-guide` | RaiseGuideIn | UnfilledRequest | Suggest a higher guide price for an open request (rounded to whole pounds), audit-logged. It waits for the customer's approval (A12): the request shows "Awaiting customer" until then. |
+| `GET` | `/api/admin/map` |  | MapData | What the admin map's layers need, as GeoJSON features: open requests (highlighted once waiting an hour), uncovered demand (A32), booked visits still to come, completed jobs in the date range, providers at their postcode's centroid with their travel radius (A33), and the H3 concentration grid of one job layer (A34). Customer addresses are exact: admins only. |
 | `GET` | `/api/admin/providers` |  | list[ProviderRow] |  |
 | `GET` | `/api/admin/providers/{provider_id}` |  | ProviderDetail |  |
 | `POST` | `/api/admin/providers/{provider_id}/documents/{doc_type}/verify` | VerifyDocIn | ProviderDetail | Set the expiry with services.documents.expiry_for (a basic DBS check: 12 months from its issue date); F's task reminds the provider 30 days before it lapses. |
@@ -183,4 +185,4 @@ in `web/src/api/schema.d.ts` come from it (`make types`).
 | `GET` | `/api/admin/audit` |  | list[AuditEntry] |  |
 | `POST` | `/api/payments/stripe/webhook` |  | WebhookAck | Verify the Stripe-Signature header, then handle payment_intent.*, account.updated, payout.* and charge.refunded idempotently (by event id). Webhooks are the source of truth for final payment states. |
 
-139 endpoints.
+141 endpoints.

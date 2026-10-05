@@ -16,6 +16,16 @@ export type CategoryRecord = Schemas["CategoryRecord"];
 export type OutboxItem = Schemas["OutboxItem"];
 export type AuditEntry = Schemas["AuditEntry"];
 export type ProviderFilter = "all" | "attention" | "signup";
+export type MapData = Schemas["MapData"];
+export type RequestDetail = Schemas["AdminRequestDetail"];
+export type RequestPin = Schemas["RequestPin"];
+export type JobPin = Schemas["JobPin"];
+export type ProviderPin = Schemas["ProviderPin"];
+export type HexBand = Schemas["HexBand"];
+export type MapLayerName = "open" | "uncovered" | "booked" | "completed" | "providers";
+export type ShadeBy = "open" | "booked" | "completed" | "none";
+/** What the map asks for: only the layers switched on are sent (decisions.md A30). */
+export type MapQuery = { layers: MapLayerName[]; shade: ShadeBy; from?: string; to?: string };
 
 export const adminKeys = {
   all: ["admin"] as const,
@@ -29,6 +39,8 @@ export const adminKeys = {
   category: (id: string) => ["admin", "category", id] as const,
   outbox: (q: OutboxQuery) => ["admin", "outbox", q] as const,
   audit: ["admin", "audit"] as const,
+  map: (q: MapQuery) => ["admin", "map", q] as const,
+  request: (id: string) => ["admin", "request", id] as const,
 };
 
 export function useOverview() {
@@ -85,6 +97,29 @@ export function useOutboxPage(query: OutboxQuery) {
         }),
       ),
     placeholderData: (prev) => prev,
+  });
+}
+
+export function useMapData(q: MapQuery) {
+  return useQuery({
+    queryKey: adminKeys.map(q),
+    queryFn: () =>
+      call(
+        api.GET("/api/admin/map", {
+          params: { query: { layers: q.layers, shade: q.shade, from: q.from || undefined, to: q.to || undefined } },
+        }),
+      ),
+    // Keep the layers on screen while a toggle fetches the next set.
+    placeholderData: (prev) => prev,
+    refetchInterval: 60_000,
+  });
+}
+
+export function useRequestDetail(id: string) {
+  return useQuery({
+    queryKey: adminKeys.request(id),
+    queryFn: () => call(api.GET("/api/admin/requests/{request_id}", { params: { path: { request_id: id } } })),
+    enabled: !!id,
   });
 }
 

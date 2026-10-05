@@ -1,6 +1,7 @@
-"""Open requests: the three jobs in Dave's list (PROVIDER_OFFERS) and the three waiting for
-a provider on the admin overview (UNFILLED). Priced through the real quote service and
-broadcast to whoever app.services.eligibility.alert_targets picks."""
+"""Open requests: the three jobs in Dave's list (PROVIDER_OFFERS), the three waiting for a
+provider on the admin overview (UNFILLED), and four in villages no provider reaches yet, for the
+admin map's uncovered demand (A35). Priced through the real quote service and broadcast to
+whoever app.services.eligibility.alert_targets picks."""
 
 from dataclasses import dataclass, field
 from datetime import timedelta
@@ -28,7 +29,7 @@ class SeededRequest:
 
 async def seed_requests(ctx: Ctx) -> list[SeededRequest]:
     out: list[SeededRequest] = []
-    specs = ctx.scenario["open_requests"] + ctx.scenario["unfilled_requests"]
+    specs = ctx.scenario["open_requests"] + ctx.scenario["unfilled_requests"] + ctx.scenario["outlying_requests"]
     for spec in specs:
         ref = spec["ref"]
         customer = ctx.customers[spec["customer"]]

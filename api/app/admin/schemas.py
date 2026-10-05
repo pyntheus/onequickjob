@@ -1,17 +1,18 @@
 """L3 admin API models. Owner: L3."""
 
 from datetime import date, datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field
 
 from app.models.categories import Category
-from app.models.common import DocType
+from app.models.common import Address, DocType
 from app.models.disputes import DisputeEvent, Resolution
+from app.models.job_requests import PriceChange
 from app.models.pricing_versions import ParamChange
 from app.models.providers import DocStatus, ProviderStatus
 from app.models.records import LedgerEntry
-from app.shared.schemas import In
+from app.shared.schemas import In, OutboxItem
 
 # ------------------------------------------------------------------ overview
 
@@ -374,3 +375,303 @@ class CategoryRecord(BaseModel):
 class WebhookAck(BaseModel):
     received: bool = True
     duplicate: bool = False
+
+
+# ------------------------------------------------------------------ the map (A30 to A35)
+# GeoJSON-shaped, so the web hands each layer straight to the map. Coordinates are
+# [longitude, latitude], GeoJSON's order. Customer addresses are exact here: admins only.
+
+MapLayerName = Literal["open", "uncovered", "booked", "completed", "providers"]
+ShadeBy = Literal["open", "booked", "completed", "none"]
+# A list rather than a tuple: the typed web client reads tuples as plain arrays anyway.
+LngLat = Annotated[list[float], Field(min_length=2, max_length=2)]
+
+
+class PointGeometry(BaseModel):
+    type: Literal["Point"] = "Point"
+    coordinates: LngLat = Field(description="[longitude, latitude]")
+
+
+class PolygonGeometry(BaseModel):
+    type: Literal["Polygon"] = "Polygon"
+    coordinates: list[list[LngLat]] = Field(description="One closed ring of [longitude, latitude]")
+
+
+class NearbyProvider(BaseModel):
+    """A provider who takes jobs and has a request inside their travel radius (A36)."""
+
+    provider_id: str
+    short: str
+    miles: float = Field(description="Straight-line miles from their home, as the job alerts measure it")
+    jobs: list[str] = Field(description="The job types they've chosen, by name")
+    does_it: bool = Field(description="This request's job type is one of theirs")
+    payouts_paused: bool = Field(description="Takes jobs, but payouts are paused (A37)")
+
+
+class RequestPin(BaseModel):
+    request_id: str
+    ref: str
+    category_id: str
+    category_name: str
+    area: str
+    district: str
+    created_at: datetime
+    age_text: str = Field(description='How long it has been open: "5 hours"')
+    guide_pence: int
+    waiting: bool = Field(description="Open for more than an hour without a taker, so on the dispatch list")
+    uncovered: bool = Field(description="No active provider in reach offers its job type (A36)")
+    in_reach: int = Field(description="Active providers whose travel radius covers it")
+    in_reach_doing_it: int = Field(description="Of those, how many offer its job type")
+    nearby: list[NearbyProvider] = Field(description="Those in reach, nearest first, and what they do")
+    cover: bool = Field(description="Cover for one visit of a provider's time off")
+    awaiting_customer: bool = Field(description="A raised guide is waiting for the customer (A12)")
+
+
+class RequestFeature(BaseModel):
+    type: Literal["Feature"] = "Feature"
+    id: str
+    geometry: PointGeometry
+    properties: RequestPin
+
+
+class RequestLayer(BaseModel):
+    type: Literal["FeatureCollection"] = "FeatureCollection"
+    features: list[RequestFeature]
+
+
+class JobPin(BaseModel):
+    """A booking's visits in a layer, at its address: one pin per booking, so a weekly regular
+    isn't six pins on one house (A30)."""
+
+    booking_id: str
+    booking_ref: str
+    category_id: str
+    category_name: str
+    area: str
+    district: str
+    provider_id: str = Field(description="Who does the shown visit and is paid for it (a cover provider on a cover)")
+    provider_short: str
+    covering_for: str | None = Field(
+        default=None, description="The shown visit is time-off cover: the regular provider it covers for"
+    )
+    own_customer: bool = Field(
+        description="A customer the provider doing the visit brought (5% fee); never on a cover (A4)"
+    )
+    visits: int = Field(description="Visits still to come (booked), or finished in the date range (completed)")
+    visit_date: date = Field(description="The next visit (booked), or the latest finished in the range (completed)")
+    price_pence: int = Field(description="That visit's price")
+
+
+class JobFeature(BaseModel):
+    type: Literal["Feature"] = "Feature"
+    id: str
+    geometry: PointGeometry
+    properties: JobPin
+
+
+class JobLayer(BaseModel):
+    type: Literal["FeatureCollection"] = "FeatureCollection"
+    features: list[JobFeature]
+    visits: int = Field(description="Visits in the layer, all pins together")
+
+
+class ProviderPin(BaseModel):
+    provider_id: str
+    short: str
+    initials: str
+    status: ProviderStatus
+    area: str
+    district: str
+    travel_radius_miles: int
+    placed_at: Literal["postcode", "approximate"] = Field(
+        description="postcode: their home postcode's centroid; approximate: home rounded to about 1 km (A33)"
+    )
+    covers: bool = Field(description="Counts for coverage: active, or active with payouts paused (A32, A37)")
+    payouts_paused: bool = Field(description="Takes jobs, but payouts are paused: marked on the pin (A37)")
+    status_reason: str | None = Field(description="Why, if the team gave a reason (suspended, payouts paused)")
+    jobs: list[str] = Field(description="The kinds of job they do, by name")
+
+
+class ProviderFeature(BaseModel):
+    type: Literal["Feature"] = "Feature"
+    id: str
+    geometry: PointGeometry
+    properties: ProviderPin
+
+
+class ProviderLayer(BaseModel):
+    type: Literal["FeatureCollection"] = "FeatureCollection"
+    features: list[ProviderFeature]
+
+
+class ReachArea(BaseModel):
+    provider_id: str
+    status: ProviderStatus
+    travel_radius_miles: int
+    covers: bool
+
+
+class ReachFeature(BaseModel):
+    type: Literal["Feature"] = "Feature"
+    id: str
+    geometry: PolygonGeometry
+    properties: ReachArea
+
+
+class ReachLayer(BaseModel):
+    """Each provider's travel radius as a circle around where they're shown."""
+
+    type: Literal["FeatureCollection"] = "FeatureCollection"
+    features: list[ReachFeature]
+
+
+class HexCount(BaseModel):
+    cell: str = Field(description="H3 cell index")
+    count: int
+    level: int = Field(description="Its legend band, 0 the lightest")
+
+
+class HexFeature(BaseModel):
+    type: Literal["Feature"] = "Feature"
+    id: str
+    geometry: PolygonGeometry
+    properties: HexCount
+
+
+class HexLayer(BaseModel):
+    type: Literal["FeatureCollection"] = "FeatureCollection"
+    features: list[HexFeature]
+
+
+class HexBand(BaseModel):
+    level: int
+    min: int
+    max: int
+    label: str = Field(description='"1", "3 to 4"')
+
+
+class HexGrid(BaseModel):
+    """Concentration: an H3 grid (resolution 8, cells about 1 km across) counting the chosen
+    layer's requests or visits (A34)."""
+
+    shade_by: Literal["open", "booked", "completed"]
+    resolution: int
+    total: int
+    max: int
+    legend: list[HexBand]
+    cells: HexLayer
+
+
+class MapData(BaseModel):
+    generated_at: datetime
+    from_date: date = Field(description="Completed jobs: the first London day of the range")
+    to_date: date = Field(description="Completed jobs: the last London day of the range (inclusive)")
+    waiting_after_minutes: int = Field(description="Open this long without a taker, a request is highlighted")
+    open: RequestLayer | None = None
+    uncovered: RequestLayer | None = None
+    booked: JobLayer | None = None
+    completed: JobLayer | None = None
+    providers: ProviderLayer | None = None
+    reach: ReachLayer | None = None
+    hexes: HexGrid | None = None
+
+
+# ------------------------------------------------------------------ a single request (A38)
+
+
+class AnswerRow(BaseModel):
+    question: str
+    answer: str
+
+
+class LawnRow(BaseModel):
+    given: str = Field(description='As the customer gave it: "19 × 10 strides", "40 × 30 ft"')
+    metres: str = Field(description='"19 × 10 metres"')
+    area_m2: int
+
+
+class LawnSize(BaseModel):
+    """The lawn size and the method behind it (A26, A27)."""
+
+    area_m2: int = Field(description="What the engine priced")
+    summary: str = Field(description='"a large lawn (about 190 m²)", "2 lawns paced out, about 250 m² in total"')
+    method: Literal["band", "paced", "measured"]
+    method_text: str = Field(description='"Picked a size: Large, looks about right", "Paced it out", ...')
+    estimator: str = Field(description="The AreaEstimator: manual_bands_v0 or customer_measured_v0")
+    confidence: str | None
+    lawns: list[LawnRow] = Field(description="Paced or measured: each lawn")
+
+
+class OfferRow(BaseModel):
+    id: str
+    provider_id: str
+    provider_short: str
+    price_pence: int
+    first_price_pence: int | None
+    guide_pence: int = Field(description="The guide when it was made")
+    status: str = Field(description="pending, accepted, declined, lapsed or withdrawn")
+    reasons: list[str]
+    message: str
+    created_at: datetime
+    decided_at: datetime | None
+
+
+class TimelineRow(BaseModel):
+    at: datetime
+    kind: str
+    text: str
+
+
+class BookedRow(BaseModel):
+    booking_id: str
+    booking_ref: str | None
+    provider_id: str
+    provider_short: str
+    price_pence: int
+    first_price_pence: int | None
+    via: str = Field(description="guide, counter or direct")
+    at: datetime
+
+
+class RequestCoverage(BaseModel):
+    in_reach: int
+    in_reach_doing_it: int
+    uncovered: bool = Field(description="No active provider in reach offers its job type (A36)")
+    nearby: list[NearbyProvider]
+
+
+class AdminRequestDetail(BaseModel):
+    """Everything about one request, for /admin/requests/:id (A38). The customer's address is
+    exact: admins only."""
+
+    request_id: str
+    ref: str
+    status: str = Field(description="open, booked, cancelled or expired")
+    created_at: datetime
+    age_text: str = Field(description='"5 hours" since it was made')
+    waiting: bool = Field(description="Open an hour or more with nobody taking it: on the dispatch list")
+    category_id: str
+    category_name: str
+    customer_name: str
+    customer_phone: str | None
+    address: Address
+    when_text: str = Field(description='"Weekday mornings", "Any day"')
+    frequency_text: str = Field(description='"Every 2 weeks", "One-off"')
+    unit: str
+    guide_pence: int
+    first_pence: int | None = Field(description="First-visit price, when dearer")
+    mins: int
+    first_mins: int | None
+    answers: list[AnswerRow]
+    notes: str
+    photos: list[str] = Field(description="The customer's photos as links (/files/..., behind the site's basic auth)")
+    lawn: LawnSize | None
+    cover: bool = Field(description="Cover for one visit of a provider's time off")
+    direct_provider_short: str | None = Field(description='"Book again": offered to this provider only')
+    admin_note: str | None
+    booked: BookedRow | None
+    offers: list[OfferRow] = Field(description="Every counter, newest first, with its status")
+    timeline: list[TimelineRow] = Field(description="What's happened, oldest first")
+    messages: list[OutboxItem] = Field(description="Outbox messages linked to it, newest first")
+    price_change: PriceChange | None = Field(description="A raised guide waiting for the customer (A12)")
+    coverage: RequestCoverage

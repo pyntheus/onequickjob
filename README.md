@@ -22,6 +22,7 @@ make env          # writes .env with a random SECRET_KEY, tax data key and basic
 make install      # host dependencies for lint, types and the web build (uv sync, npm ci)
 make prod-up      # the production-style stack: shared Mongo and Caddy, the built web app, the API
 make seed         # resets the demo data
+make basemap      # the admin map's streets (a Protomaps extract, fonts, sprites) into var/basemap
 make backup-timer # the nightly backup (03:00 London time), once per droplet
 ```
 
@@ -47,6 +48,8 @@ is a ten-minute tour.
 | `make test` | All tests: pytest in the API container (database `<MONGO_DB>_test`) and vitest |
 | `make test-api ARGS="tests/shared/test_marketplace.py -x"` | A subset of the API tests |
 | `make e2e` | Playwright journeys and accessibility checks at 375px and desktop against the production-style stack (re-seeds; failures leave a screenshot and page snapshot in `e2e/results/<width>`, never a trace, and API errors have the site password taken out). One browses for three minutes after typing the site password once and fails on any 401 in Caddy's access log |
+| `E2E_DEV=1 make e2e` | The same against this worktree's dev server (http://localhost:WEB_PORT, so the Secure session cookie is sent), for a session that mustn't run `prod-up`; the basic-auth journey is skipped there (no Caddy) |
+| `make basemap` | Fetch the admin map's basemap into `var/basemap` (see "The admin map's basemap") |
 | `make lint` | ruff, eslint, TypeScript, and a check that generated API types are current |
 | `make types` | Regenerate `web/src/api/schema.d.ts` from the API's OpenAPI schema |
 | `make seed` | Reset the demo: removes what demo runs created and loads the demo data (idempotent; keeps admins' pricing versions) |
@@ -66,7 +69,8 @@ The API's interactive docs are at `/api/docs` on the site.
 ```
 internet ──443/80──> Caddy (basic auth, HTTPS) ──> /srv/www: the built web app (var/www on the droplet)
                                          ├─/api──> oqj-prod-api (uvicorn, no reload; 127.0.0.1:8090 for make status)
-                                         └─/files> files volume (photos, documents)
+                                         ├─/files> files volume (photos, documents)
+                                         └─/basemap> var/basemap: the admin map's streets (make basemap)
 oqj-prod-api ──> oqj-mongo (single-node replica set rs0; no published port; private Docker network "oqj")
 ```
 
@@ -107,6 +111,38 @@ them on whatever address you're using, so they work through the tunnel too. (Saf
 the Secure session cookie on `http://localhost`; use Chrome or Firefox.)
 
 Several sessions at once? `docs/spec/lanes.md` explains worktrees and ownership.
+
+## The admin map's basemap
+
+The admin map (`/admin/map`; decisions.md A30 to A35) draws its streets from our own server, so
+nothing on it is fetched from anywhere else: no API keys, no third-party tile servers.
+`make basemap` builds `var/basemap/` (about 40 MB, kept out of git):
+
+- `oqj.pmtiles`: a [Protomaps](https://protomaps.com) basemap extract of OpenStreetMap data for
+  longitude -0.97 to -0.53 and latitude 51.50 to 51.78 (High Wycombe, Marlow, Beaconsfield,
+  Princes Risborough, with a margin), zoom 0 to 15. It's cut from Protomaps' daily planet build
+  with `go-pmtiles extract` (in Docker; only the tiles inside the box are downloaded).
+- `fonts/` (Noto Sans glyph ranges, SIL Open Font Licence) and `sprites/v4/` (the style's icons),
+  from `protomaps/basemaps-assets` at a pinned commit.
+- `VERSION`: which build and assets, and when.
+
+Caddy serves the folder at `/basemap/*` behind the site's basic auth, answering the HTTP range
+requests the map reads tiles with (`infra/caddy/Caddyfile`); a dev server serves it the same way
+(`web/vite.config.ts`). The style itself is built in our bundle (`web/src/admin/map/basemap.ts`)
+in the village colours, and the map shows "© OpenStreetMap contributors", as the licence requires.
+
+To rebuild it (to refresh the streets, or after changing the box in `scripts/basemap.sh`):
+
+```bash
+make basemap                          # the latest daily build
+BASEMAP_BUILD=20261003 make basemap   # a given day's (Protomaps keeps them for a few weeks)
+```
+
+It swaps the new files into the folder in place, so the site keeps serving while it runs and
+nothing needs restarting; browsers pick the new extract up within the hour
+(`Cache-Control: max-age=3600`). Caddy mounts `var/basemap` (`make infra-up` creates it first): a
+Caddy started before this mount existed needs recreating once, which `make infra-up` from `main`
+does. Without a basemap the admin map still works, without streets, and says so.
 
 ## Backups and restores
 

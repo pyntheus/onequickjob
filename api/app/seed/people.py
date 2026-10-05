@@ -64,7 +64,8 @@ async def seed_people(ctx: Ctx) -> None:
         admin_ids.append(u.id)
     verifier = admin_ids[0]
 
-    for c in ctx.people["customers"] + ctx.people["pool"]:
+    # outlying: customers in villages no provider reaches yet, for the admin map (A35)
+    for c in ctx.people["customers"] + ctx.people["pool"] + ctx.people["outlying"]:
         demo = c in ctx.people["customers"]
         joined = ctx.at(ctx.day(c.get("joined_days_ago", 130)), "08:30") - timedelta(hours=2)
         u = User(

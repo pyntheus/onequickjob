@@ -4,6 +4,7 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
+from app.admin import map as admin_map
 from app.core import money
 from app.models.categories import DocumentType
 from app.repos import Categories, PricingVersions, Providers, Users
@@ -214,9 +215,38 @@ async def test_dave_can_take_and_is_alerted_about_his_three_jobs(seeded):
 async def test_open_requests_and_guides(seeded):
     db, _ = seeded
     guides = {r["ref"]: r["guide_pence"] async for r in db["job_requests"].find({"status": "open"})}
-    assert guides == {"R-2291": 7200, "R-2288": 11000, "R-2284": 2800, "R-2292": 3100, "R-2293": 6100, "R-2294": 8800}
-    r2284 = await db["job_requests"].find_one({"ref": "R-2284"})
-    assert r2284["broadcast"]["provider_ids"] == [], "nobody within 4 miles of Princes Risborough"
+    assert guides == {
+        "R-2291": 7200,
+        "R-2288": 11000,
+        "R-2284": 2800,
+        "R-2292": 3100,
+        "R-2293": 6100,
+        "R-2294": 8800,
+        # A35: in villages nobody reaches yet
+        "R-2295": 2200,
+        "R-2296": 8500,
+        "R-2297": 6600,
+        "R-2298": 2800,
+    }
+    for ref in ("R-2284", "R-2295", "R-2296", "R-2297", "R-2298"):
+        req = await db["job_requests"].find_one({"ref": ref})
+        assert req["broadcast"]["provider_ids"] == [], f"nobody within reach of {req['address']['locality']}"
+
+
+async def test_the_map_has_uncovered_demand_in_the_thin_areas(seeded):
+    """A35: the admin map's uncovered-demand layer has something to show, the booked layer spreads
+    round the area, and every seeded provider has a postcode centroid (A33)."""
+    db, _ = seeded
+    start, end = admin_map.date_range(None, None, NOW.date())
+    data = await admin_map.map_data(db, {"uncovered", "booked", "completed", "providers"}, "open", start, end, NOW)
+    uncovered = {f.properties.ref: f.properties for f in data.uncovered.features}
+    assert set(uncovered) == {"R-2284", "R-2295", "R-2296", "R-2297", "R-2298"}
+    assert {p.district for p in uncovered.values()} == {"HP27", "HP14"}
+    assert [r for r, p in uncovered.items() if not p.waiting] == ["R-2295"], "25 minutes old: not yet highlighted"
+    assert len(data.booked.features) >= 10 and len({f.properties.area for f in data.booked.features}) >= 8
+    assert len(data.completed.features) >= 30
+    assert {f.properties.placed_at for f in data.providers.features} == {"postcode"}
+    assert data.hexes.total == 10
     gary = await db["offers"].find_one({"_id": sid("offer", "R-2288", "gary")})
     assert gary["status"] == "pending" and gary["price_pence"] == 15000
 

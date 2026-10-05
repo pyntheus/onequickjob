@@ -1,4 +1,4 @@
-import { Gauge, Inbox, Layers, LayoutDashboard, Scale, Users, type LucideIcon } from "lucide-react";
+import { Gauge, Inbox, Layers, LayoutDashboard, Map as MapIcon, Scale, Users, type LucideIcon } from "lucide-react";
 import { NavLink, Outlet } from "react-router";
 import { hasRole, useMe } from "../api/queries";
 import { Loading, Notice } from "../app/Status";
@@ -7,6 +7,7 @@ import { SignInForm } from "../shared/SignInForm";
 
 const NAV: [string, string, LucideIcon, boolean][] = [
   ["/admin", "Overview", LayoutDashboard, true],
+  ["/admin/map", "Map", MapIcon, false],
   ["/admin/providers", "Providers", Users, false],
   ["/admin/pricing", "Pricing", Gauge, false],
   ["/admin/disputes", "Disputes", Scale, false],

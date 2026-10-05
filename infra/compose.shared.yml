@@ -71,6 +71,8 @@ services:
       # The built web app (make prod-up writes var/www; make infra-up creates it first, so
       # Docker never makes it as root).
       - ../var/www:/srv/www:ro
+      # The admin map's basemap (make basemap writes var/basemap; make infra-up creates it first).
+      - ../var/basemap:/srv/basemap:ro
       - caddy-data:/data
       - caddy-config:/config
       - files:/srv/files:ro

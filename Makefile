@@ -27,7 +27,7 @@ TEST_ENV := -e MONGO_DB=$(MONGO_DB)_test -e TASKS_ENABLED=false -e SERVE_FILES=f
 
 .PHONY: help env check-env install dev up down infra-up infra-down logs ps test test-api test-web lint lint-api lint-web \
         fmt types types-check seed seed-reset rotate-tax-key rotate-tax-key-locked check docs shell-api mongosh \
-        prod-web prod-up prod-down prod-logs status backup-now restore-test backup-timer e2e
+        prod-web prod-up prod-down prod-logs status backup-now restore-test backup-timer e2e basemap
 
 help: ## List the targets
 	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  make %-12s %s\n", $$1, $$2}'
@@ -51,7 +51,7 @@ check-env:
 	@test -f .env || { echo "No .env here. Run: make env" >&2; exit 1; }
 
 infra-up: check-env ## Start the shared Mongo and Caddy (idempotent)
-	@mkdir -p var/www  # Caddy serves the built app from here: yours, before Docker can make it as root
+	@mkdir -p var/www var/basemap  # Caddy serves the built app and the basemap from here: yours, before Docker can make them as root
 	@$(DOCKER) network inspect oqj >/dev/null 2>&1 || $(DOCKER) network create oqj >/dev/null
 	@for v in $(CADDY_FILES_VOLUME) oqj-files-$(INSTANCE); do \
 	  $(DOCKER) volume inspect $$v >/dev/null 2>&1 || $(DOCKER) volume create $$v >/dev/null; done
@@ -62,6 +62,7 @@ infra-down: ## Stop the shared Mongo and Caddy (affects every worktree)
 
 dev: infra-up ## Bring up this worktree's API and web (and shared services)
 	@mkdir -p web/node_modules  # yours, before Docker can create the mount point as root
+	@test -s var/basemap/oqj.pmtiles || echo "No basemap yet: the admin map has no streets until you run make basemap"
 	@# The dev API shares oqj_main with the production-style API: only one of them runs the
 	@# periodic tasks (prod-up turns them off in a dev API that's already running).
 	@tasks=true; if $(DOCKER) ps -q -f name=^oqj-prod-api$$ | grep -q .; then tasks=false; \
@@ -101,6 +102,9 @@ prod-logs: ## Follow the production-style API's logs
 
 status: ## Container health, then the API's health directly and through Caddy (basic auth from .env)
 	@SITE_HOST=$(SITE_HOST) PROD_API_PORT=$(PROD_API_PORT) scripts/status.sh
+
+basemap: ## Fetch the admin map's basemap into var/basemap: a Protomaps extract (PMTiles), fonts and sprites
+	@scripts/basemap.sh
 
 e2e: ## Playwright journeys and accessibility checks at 375px and desktop, against the production-style stack (re-seeds)
 	@scripts/e2e.sh $(ARGS)

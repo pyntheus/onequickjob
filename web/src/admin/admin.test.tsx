@@ -74,6 +74,13 @@ describe("overview and dispatch", () => {
     expect(screen.getByText(/Card declined: Your card was declined\./)).toBeInTheDocument();
   });
 
+  it("links each waiting request to its page, and the districts to the map", async () => {
+    mockApi({ "GET /api/config": () => config(true), "GET /api/admin/overview": () => overview });
+    withToasts(<Overview />);
+    expect(await screen.findByRole("link", { name: "Hedge trimming in Loudwater, HP10" })).toHaveAttribute("href", "/admin/requests/r1");
+    expect(screen.getByRole("link", { name: "See where the work is on the map" })).toHaveAttribute("href", "/admin/map");
+  });
+
   it("copies the WhatsApp text, and shows it when the clipboard isn't available", async () => {
     const text = "Job going: hedge trimming in Loudwater, HP10. Take it here: https://dev.onequickjob.co.uk/p/j/R-2291";
     mockApi({

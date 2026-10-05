@@ -185,7 +185,8 @@ async def demo_switch(body: SwitchRequest, request: Request, response: Response,
 CODE = re.compile(r"\b\d{6}\b")
 
 
-def _outbox_item(m: OutboxMessage, *, redact_codes: bool = False) -> OutboxItem:
+def outbox_item(m: OutboxMessage, *, redact_codes: bool = False) -> OutboxItem:
+    """A message as staff see it: outside DEMO_MODE (redact_codes), sign-in codes are masked."""
     body = m.body
     if redact_codes and m.template_id == "login_code":
         body = CODE.sub("••••••", body)
@@ -205,7 +206,7 @@ def _outbox_item(m: OutboxMessage, *, redact_codes: bool = False) -> OutboxItem:
 @router.get("/demo/outbox", tags=["shared: demo"], dependencies=[Depends(require_demo)])
 async def demo_outbox(db: DbDep, limit: Annotated[int, Query(ge=1, le=100)] = 30) -> list[OutboxItem]:
     """The latest messages, for the Outbox drawer (login codes included: it's a prototype)."""
-    return [_outbox_item(m) for m in await Outbox(db).latest(limit)]
+    return [outbox_item(m) for m in await Outbox(db).latest(limit)]
 
 
 # ------------------------------------------------------------------------- outbox (admin)
@@ -232,7 +233,7 @@ async def admin_outbox(
         search_login_codes=s.demo_mode,
     )
     # Outside DEMO_MODE, staff never see live sign-in codes.
-    items_out = [_outbox_item(m, redact_codes=not s.demo_mode) for m in items]
+    items_out = [outbox_item(m, redact_codes=not s.demo_mode) for m in items]
     last = items[-1] if len(items) == limit else None
     return OutboxPage(items=items_out, next_before=f"{last.created_at.isoformat()}~{last.id}" if last else None)
 

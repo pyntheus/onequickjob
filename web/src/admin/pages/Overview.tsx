@@ -55,7 +55,9 @@ function Waiting({ r }: { r: UnfilledRequest }) {
           </span>
           <div className="stack" style={gap("0px")}>
             <b>
-              {r.category_name} in {r.area}, {r.district}
+              <Link to={`/admin/requests/${r.request_id}`}>
+                {r.category_name} in {r.area}, {r.district}
+              </Link>
             </b>
             <span className="small muted">
               Request {r.request_ref}, waiting {r.age_text}
@@ -108,6 +110,9 @@ function Districts({ d }: { d: OverviewData }) {
           );
         })}
       </div>
+      <Link to="/admin/map" className="small">
+        See where the work is on the map
+      </Link>
       <p className="small">
         {gaps.length
           ? `${gaps.length > 1 ? gaps.slice(0, -1).join(", ") + " and " + gaps.at(-1) : gaps[0]} ${gaps.length > 1 ? "have" : "has"} demand but no active providers. Recruit there before advertising further out.`

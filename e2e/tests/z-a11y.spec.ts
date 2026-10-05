@@ -16,6 +16,7 @@ async function screens(page: Page): Promise<Screen[]> {
   const rateable = visits.done.find((v: { can_rate: boolean }) => v.can_rate);
   await signInAs(page, "admin_jo", "/admin");
   const providers = await api(page, "GET", "/api/admin/providers");
+  const overview = await api(page, "GET", "/api/admin/overview");
   const dave = providers.find((p: { short: string }) => p.short === "Dave H.");
   // Mary's seeded invite, through the admin outbox's filter: after every journey it's no longer
   // among the drawer's latest 100 messages.
@@ -54,6 +55,8 @@ async function screens(page: Page): Promise<Screen[]> {
     { who: "tom", path: "/p", name: "provider: helper's home", provider: true },
     { who: "sarah", path: "/p/signup", name: "provider: sign-up", provider: true },
     { who: "admin_jo", path: "/admin", name: "admin: overview" },
+    { who: "admin_jo", path: "/admin/map", name: "admin: map" },
+    { who: "admin_jo", path: `/admin/requests/${overview.waiting[0].request_id}`, name: "admin: a request" },
     { who: "admin_jo", path: "/admin/providers", name: "admin: providers" },
     { who: "admin_jo", path: `/admin/providers/${dave.id}`, name: "admin: a provider" },
     { who: "admin_jo", path: "/admin/pricing", name: "admin: pricing and calibration" },
