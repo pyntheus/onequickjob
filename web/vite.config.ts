@@ -67,7 +67,18 @@ export function serveBasemap(dir = basemapDir): Connect.NextHandleFunction {
     }
     res.setHeader("Content-Length", String(end - start + 1));
     if (req.method === "HEAD" || size === 0) return res.end();
-    createReadStream(file, { start, end }).pipe(res);
+    // The file can go between the stat and the read (make basemap swaps folders in place): answer
+    // 404 if nothing has been sent yet, else cut the response short. Never let it reach the
+    // server, where an unhandled error would stop the whole dev server (Codex review).
+    const stream = createReadStream(file, { start, end });
+    stream.on("error", () => {
+      if (res.headersSent) return res.destroy();
+      for (const h of ["Content-Length", "Content-Range", "Accept-Ranges", "Cache-Control"]) res.removeHeader(h);
+      res.setHeader("Content-Type", "text/plain; charset=utf-8");
+      notFound();
+    });
+    res.on("close", () => stream.destroy());
+    stream.pipe(res);
   };
 }
 

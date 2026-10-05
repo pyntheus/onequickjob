@@ -26,7 +26,7 @@ from app.core.errors import fail
 from app.core.timeutil import utcnow
 from app.models.job_requests import JobRequest, RequestEvent
 from app.models.quotes import Measure
-from app.provider.common import answer_text, frequency_label, when_text
+from app.provider.common import answer_text, file_urls, frequency_label, when_text
 from app.repos import Bookings, Categories, Customers, JobRequests, Offers, Outbox, Providers, Users
 from app.shared.routes import outbox_item
 
@@ -168,7 +168,7 @@ async def detail(db: Db, s: Settings, key: str) -> AdminRequestDetail:
         first_mins=req.first_mins,
         answers=answers,
         notes=req.notes,
-        photos=len(req.photos),
+        photos=await file_urls(db, req.photos),
         lawn=lawn_size(req.measure),
         cover=req.cover_for_visit_id is not None,
         direct_provider_short=shorts.get(req.direct_provider_id) if req.direct_provider_id else None,

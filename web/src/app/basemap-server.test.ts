@@ -1,7 +1,7 @@
 // @vitest-environment node
 /** The dev server's /basemap (vite.config.ts): files from var/basemap with HTTP range requests,
  * as Caddy serves them on the site, and nothing outside that folder. */
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -19,11 +19,18 @@ type Answer = { status: number; headers: Record<string, string>; body: Buffer; p
 
 function get(url: string, headers: Record<string, string> = {}, method = "GET"): Promise<Answer> {
   return new Promise((resolve) => {
-    const res = new PassThrough() as PassThrough & { statusCode: number; setHeader: (k: string, v: string) => void };
+    const res = new PassThrough() as PassThrough & {
+      statusCode: number;
+      headersSent: boolean;
+      setHeader: (k: string, v: string) => void;
+      removeHeader: (k: string) => void;
+    };
     const out: Answer = { status: 200, headers: {}, body: Buffer.alloc(0), passed: false };
     const chunks: Buffer[] = [];
     res.statusCode = 200;
+    res.headersSent = false;
     res.setHeader = (k, v) => (out.headers[k.toLowerCase()] = v);
+    res.removeHeader = (k) => delete out.headers[k.toLowerCase()];
     res.on("data", (c: Buffer) => chunks.push(c));
     res.on("finish", () => resolve({ ...out, status: res.statusCode, body: Buffer.concat(chunks) }));
     res.resume();
@@ -50,6 +57,22 @@ describe("the dev server's basemap", () => {
     expect([whole.status, whole.body.length, whole.headers["content-type"]]).toEqual([200, 100, "application/octet-stream"]);
     const glyphs = await get("/fonts/0-255.pbf");
     expect([glyphs.body.toString(), glyphs.headers["content-type"]]).toEqual(["glyphs", "application/x-protobuf"]);
+  });
+
+  it("answers 404, and keeps running, when a file goes between its stat and its read", async () => {
+    // A file it can see but not open stands in for one removed in between (make basemap
+    // replaces folders): the open fails after the stat, asynchronously.
+    const gone = path.join(dir, "fonts", "gone.pbf");
+    writeFileSync(gone, "x");
+    chmodSync(gone, 0o000);
+    try {
+      if (process.getuid?.() === 0) return; // root opens anything: nothing to test
+      const answer = await get("/fonts/gone.pbf", { Range: "bytes=0-0" });
+      expect([answer.status, answer.body.toString(), answer.headers["content-range"]]).toEqual([404, "Not found", undefined]);
+      expect((await get("/fonts/0-255.pbf")).status).toBe(200); // still serving
+    } finally {
+      chmodSync(gone, 0o644);
+    }
   });
 
   it("serves nothing outside the basemap folder, and nothing that isn't there", async () => {

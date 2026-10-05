@@ -7,7 +7,8 @@ from datetime import timedelta
 
 from app.admin.views import brief_for
 from app.core.timeutil import utcnow
-from app.repos import Categories, JobRequests, Providers
+from app.models.system import StoredFile
+from app.repos import Categories, Files, JobRequests, Providers
 from app.services import marketplace
 from tests.admin.conftest import ok
 from tests.conftest import make_settings, new_client, sign_in, signed_out
@@ -83,6 +84,31 @@ async def test_the_request_its_lawn_and_where_it_stands(jo, db, catalogue):
     # Not a lawn job: no lawn.
     hedges = await make_request(db, customer, "hedges")
     assert ok(await jo.get(f"/api/admin/requests/{hedges.id}"))["lawn"] is None
+
+
+async def test_the_customers_photos_can_be_opened(jo, db, catalogue):
+    """Codex review: the photos themselves, not just how many, as links Caddy serves."""
+    customer = await make_customer(db)
+    req = await make_request(db, customer, "clearance")
+    stored = [
+        StoredFile(
+            kind="request_photo",
+            owner_user_id=customer.user_id,
+            path=f"requests/{name}.jpg",
+            url=f"/files/requests/{name}.jpg",
+            content_type="image/jpeg",
+            size=1000,
+            created_at=utcnow(),
+        )
+        for name in ("a1b2", "c3d4")
+    ]
+    for f in stored:
+        await Files(db).insert(f)
+    await JobRequests(db).update(req.id, {"photos": [f.id for f in stored] + ["0" * 24]})  # one gone since
+    d = ok(await jo.get(f"/api/admin/requests/{req.id}"))
+    assert d["photos"] == ["/files/requests/a1b2.jpg", "/files/requests/c3d4.jpg"]
+    none = await make_request(db, customer, "hedges")
+    assert ok(await jo.get(f"/api/admin/requests/{none.id}"))["photos"] == []
 
 
 async def test_offers_timeline_messages_and_a_raise_waiting_for_the_customer(jo, db, catalogue):

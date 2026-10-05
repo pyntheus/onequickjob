@@ -46,7 +46,7 @@ const detail = {
     { question: "What should happen to the clippings?", answer: "Take them away" },
   ],
   notes: "Gate code 1234",
-  photos: 2,
+  photos: ["/files/requests/a1b2.jpg", "/files/requests/c3d4.jpg"],
   lawn: {
     area_m2: 250,
     summary: "2 lawns paced out, about 250 m² in total",
@@ -156,6 +156,11 @@ describe("a request's admin page", () => {
     ]) {
       expect(asked).toHaveTextContent(text);
     }
+    // The photos themselves, each opening full size (Codex review).
+    const photos = within(asked).getByRole("list", { name: "The customer's photos" });
+    const links = within(photos).getAllByRole("link");
+    expect(links.map((a) => a.getAttribute("href"))).toEqual(["/files/requests/a1b2.jpg", "/files/requests/c3d4.jpg"]);
+    expect(within(links[0]).getByRole("img", { name: "The customer's upload 1 of 2, opens full size" })).toHaveAttribute("src", "/files/requests/a1b2.jpg");
 
     const lawn = screen.getByRole("heading", { name: "Lawn size" }).parentElement!;
     expect(lawn).toHaveTextContent("250 m²: 2 lawns paced out, about 250 m² in total");

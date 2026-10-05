@@ -512,8 +512,12 @@
             "type": "array"
           },
           "photos": {
+            "description": "The customer's photos as links (/files/..., behind the site's basic auth)",
+            "items": {
+              "type": "string"
+            },
             "title": "Photos",
-            "type": "integer"
+            "type": "array"
           },
           "price_change": {
             "anyOf": [

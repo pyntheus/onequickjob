@@ -2659,8 +2659,11 @@ export interface components {
              * @description Every counter, newest first, with its status
              */
             offers: components["schemas"]["OfferRow"][];
-            /** Photos */
-            photos: number;
+            /**
+             * Photos
+             * @description The customer's photos as links (/files/..., behind the site's basic auth)
+             */
+            photos: string[];
             /** @description A raised guide waiting for the customer (A12) */
             price_change: components["schemas"]["PriceChange"] | null;
             /** Ref */

@@ -664,7 +664,7 @@ class AdminRequestDetail(BaseModel):
     first_mins: int | None
     answers: list[AnswerRow]
     notes: str
-    photos: int
+    photos: list[str] = Field(description="The customer's photos as links (/files/..., behind the site's basic auth)")
     lawn: LawnSize | None
     cover: bool = Field(description="Cover for one visit of a provider's time off")
     direct_provider_short: str | None = Field(description='"Book again": offered to this provider only')

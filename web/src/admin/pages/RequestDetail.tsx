@@ -132,8 +132,19 @@ function TheRequest({ r }: { r: Detail }) {
           </>
         )}
         <dt>Photos</dt>
-        <dd>{r.photos ? plural(r.photos, "photo") : "None"}</dd>
+        <dd>{r.photos.length ? plural(r.photos.length, "photo") : "None"}</dd>
       </dl>
+      {r.photos.length > 0 && (
+        <ul className="a-photos" aria-label="The customer's photos">
+          {r.photos.map((url, i) => (
+            <li key={url}>
+              <a href={url} target="_blank" rel="noopener noreferrer">
+                <img src={url} alt={`The customer's upload ${i + 1} of ${r.photos.length}, opens full size`} loading="lazy" />
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
       {r.cover && <p className="small muted">Cover for one visit of a provider's time off.</p>}
       {r.direct_provider_short && <p className="small muted">"Book again": offered to {r.direct_provider_short} only.</p>}
     </div>
