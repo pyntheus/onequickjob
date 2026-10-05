@@ -104,11 +104,14 @@ const FIXTURES = new URL("../fixtures/", import.meta.url).pathname;
 
 /** The provider's Today round for a day: work through it until the visit for `customer` (their
  * first name, e.g. "Sarah") is the one on, start it (DEMO_MODE lets a future visit start now),
- * add before and after photos, and finish it, with an overrun and a flag if asked. Earlier visits
- * that day are finished plainly first. Returns the finish screen's heading ("£26.35 is on its way"). */
+ * add before and after photos, and finish it, with an overrun and a flag if asked, or typing
+ * exactly `minutes`. Earlier visits that day are finished plainly first, and what each was
+ * charged goes into `others` if given (a journey checking exact totals takes them off). Returns
+ * the finish screen's heading ("£26.35 is on its way"). */
+export type Finished = { visit_id: string; charge_status: string; price_pence: number; fee_pence: number; provider_pence: number };
 export async function finishVisit(
   page: Page,
-  opts: { day: string; customer: string; overrun?: boolean; photos?: boolean },
+  opts: { day: string; customer: string; overrun?: boolean; photos?: boolean; minutes?: number; others?: Finished[] },
 ): Promise<string> {
   await page.goto(`/p/today?date=${opts.day}`);
   for (let i = 0; i < 8; i++) {
@@ -128,20 +131,28 @@ export async function finishVisit(
     }
     await card.getByRole("button", { name: "Finish job" }).click();
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
-    if (mine && opts.overrun) {
+    if (mine && (opts.overrun || opts.minutes)) {
       const est = Number((await page.getByText(/The estimate was \d+ minutes/).innerText()).match(/estimate was (\d+)/)![1]);
-      const minutes = page.getByRole("group", { name: "Minutes taken" });
-      while (Number((await minutes.innerText()).match(/(\d+) min/)![1]) <= est * 1.1) {
-        await page.getByRole("button", { name: "More: Minutes taken" }).click();
-      }
+      // More than 10% over the estimate, typed as a provider would (the field takes any whole minute).
+      const minutes = opts.minutes ?? Math.floor(est * 1.1) + 1;
+      await page.getByRole("textbox", { name: "How long did it take?" }).fill(String(minutes));
+      const diff = minutes - est;
+      // The line under the field follows what's typed ("From your timer." only if it's the timer's).
+      const line = diff === 0 ? "spot on" : `so ${Math.abs(diff)} minutes ${diff > 0 ? "over" : "under"}`;
+      await expect(page.getByText(`The estimate was ${est} minutes`)).toHaveText(new RegExp(`The estimate was ${est} minutes, ${line}\\.$`));
+    }
+    if (mine && opts.overrun) {
       await page.getByRole("button", { name: /longer than described|bigger than described|Access was harder/ }).first().click();
     } else {
       await page.getByRole("button", { name: "Nothing, it was as described" }).click();
     }
+    const finished = page.waitForResponse((r) => r.url().endsWith("/finish") && r.request().method() === "POST");
     await page.getByRole("button", { name: "Send and get paid" }).click();
+    const out = (await (await finished).json()) as Finished;
     const heading = page.getByRole("heading", { level: 1 });
     await expect(heading).toHaveText(/is on its way|Job recorded|Done, thank you/);
     if (mine) return heading.innerText();
+    opts.others?.push(out);
     await page.goto(`/p/today?date=${opts.day}`);
   }
   throw new Error(`never reached ${opts.customer}'s visit on ${opts.day}`);

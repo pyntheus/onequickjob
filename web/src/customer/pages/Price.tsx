@@ -6,9 +6,10 @@ import { Chip } from "../../shared/Chip";
 import { FlowTop } from "../../shared/FlowTop";
 import { fmt } from "../../shared/format";
 import { Loading } from "../../app/Status";
-import { errorText, useAreaOptions, type QuoteOut } from "../api";
+import { ApiError } from "../../api/client";
+import { errorText, type QuoteOut } from "../api";
 import { FlowGuard } from "../components/FlowGuard";
-import { quoteAnswers, type Days, type Time } from "../flow";
+import { lawnInput, lawnReady, quoteAnswers, type Days, type Time } from "../flow";
 import { useQuoteStep } from "../useQuoteStep";
 
 const g = (px: number) => ({ "--g": `${px}px` }) as CSSProperties;
@@ -35,16 +36,12 @@ function Split({ label, fee }: { label?: string; fee: QuoteOut["fee"] }) {
   );
 }
 
-/** The size the customer chose, in their words (A6): never "measured". */
-function SizeLine({ m }: { m: QuoteOut["measure"] }) {
-  const { data: options } = useAreaOptions();
-  if (!m) return null;
-  const band = (options?.bands ?? []).find((b) => b.id === m.band);
-  const adj = m.adjust === "smaller" ? ", a bit smaller" : m.adjust === "bigger" ? ", a bit bigger" : "";
+/** What the price is for, in the API's words (A6, A26): never "measured". */
+function SizeLine({ text }: { text: string | null | undefined }) {
+  if (!text) return null;
   return (
     <p className="small">
-      For the lawn size you chose: <b>{band ? `${band.label.toLowerCase()}${adj}` : "your lawn"}</b>, about{" "}
-      {m.area_m2} m²{band ? ` (${band.comparison.charAt(0).toLowerCase() + band.comparison.slice(1)})` : ""}.
+      Priced for <b>{text}</b>.
     </p>
   );
 }
@@ -57,14 +54,14 @@ export default function Price() {
     ? {
         category_id: cat.id ?? "",
         answers: quoteAnswers(cat, flow),
-        lawn: cat.measure ? { band: flow.lawn.band, adjust: flow.lawn.adjust } : null,
+        lawn: cat.measure ? lawnInput(flow.lawn) : null,
         address: flow.address,
       }
     : null;
   const q = useQuery({
     queryKey: ["c", "quote", body],
     queryFn: () => call(api.POST("/api/quotes", { body: body! })),
-    enabled: !!body && !!flow.address && (!cat?.measure || !!flow.lawn.band),
+    enabled: !!body && !!flow.address && (!cat?.measure || lawnReady(flow.lawn)),
     staleTime: Infinity,
     retry: false,
   });
@@ -77,11 +74,11 @@ export default function Price() {
     <FlowGuard loading={step.loading} unknown={step.unknown} needsAddress={!flow.address}>
       <div className="c-flow">
         <FlowTop steps={steps} current="price" onBack={back} />
-        {cat?.measure && !flow.lawn.band ? (
+        {cat?.measure && !lawnReady(flow.lawn) ? (
           <div className="card stack" style={g(12)}>
             <h1 className="h2">Tell us how big the lawn is</h1>
             <button type="button" className="btn btn-primary" onClick={() => go("size")}>
-              Choose a size
+              Size your lawn
             </button>
           </div>
         ) : q.isLoading ? (
@@ -90,9 +87,15 @@ export default function Price() {
           <div className="card stack" style={g(12)}>
             <h1 className="h2">We couldn't price that</h1>
             <p className="muted">{errorText(q.error)}</p>
-            <button type="button" className="btn btn-primary" onClick={() => go("details")}>
-              Check the answers
-            </button>
+            {q.error instanceof ApiError && q.error.code.startsWith("lawn_size") ? (
+              <button type="button" className="btn btn-primary" onClick={() => go("size")}>
+                Check the lawn size
+              </button>
+            ) : (
+              <button type="button" className="btn btn-primary" onClick={() => go("details")}>
+                Check the answers
+              </button>
+            )}
           </div>
         ) : (
           <>
@@ -110,7 +113,7 @@ export default function Price() {
                   {fmt(quote.result.price_pence)} {quote.result.unit}.
                 </div>
               )}
-              <SizeLine m={quote.measure} />
+              <SizeLine text={quote.size_text} />
               <p className="muted">
                 Jobs like yours usually go for {fmt(quote.result.low_pence)} to {fmt(quote.result.high_pence)}, and take
                 about {quote.duration_text}.

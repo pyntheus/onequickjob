@@ -47,10 +47,10 @@ and integration (I) folds the accepted ones in here.
     `api/app/pricing/` as a pure function. Params live in `pricing_versions` (status
     draft | live, `created_by`, `approved_by`, `created_at`); the engine always uses the live
     version and every quote records the version it used.
-15. Lawn area comes from an `AreaEstimator`. v0 is `manual_bands_v0`: Small about 40 m²
-    ("about a double garage"), Medium about 85 m², Large about 190 m² ("about a singles tennis
-    court"), Very large about 350 m² ("bigger than a doubles tennis court"). It can be swapped
-    for a LIDAR estimator without touching callers.
+15. Lawn area comes from an `AreaEstimator`. v0 is `manual_bands_v0`: Small about 40 m², Medium
+    about 85 m², Large about 190 m², Very large about 350 m², compared with cars since A26 (the
+    tennis-court and garage comparisons are gone), alongside `customer_measured_v0` (paced out or
+    measured: A26, A27). It can be swapped for a LIDAR estimator without touching callers.
 16. Golden tests, with each category's default answers and 186 m² for mowing: mowing 3000p a
     visit; hedges 6100; clearance 11000; jet wash 8800; gutters 8500; windows 2200 a clean,
     first visit 3300; cleaning 6600 a clean, first 8800; deep clean 20400; oven 7000;
@@ -75,7 +75,7 @@ and integration (I) folds the accepted ones in here.
     reminders, payouts) is written to the `outbox` collection with channel (sms | whatsapp |
     email), recipient, template id, rendered body and related ids. Nothing is sent.
 21. **FileStore**: local disk on a mounted volume, served by Caddy behind the same basic auth.
-22. **AreaEstimator**: `manual_bands_v0` (rule 15).
+22. **AreaEstimator**: `manual_bands_v0` and `customer_measured_v0` (rule 15, A26).
 
 ### Auth and demo
 23. Sign-in by phone or email plus a 6-digit code written to the outbox; it expires in 10
@@ -145,7 +145,7 @@ and integration (I) folds the accepted ones in here.
   the lawn size you chose, so most providers accept it as it is." The confidence level stays
   high (open question Q2).
 - **R12. Medium band comparison**, missing from the brief: "About a badminton court" (13.4 m ×
-  6.1 m ≈ 82 m²). Adjustments are the prototype's: Looks smaller ×0.8, About right ×1, Looks
+  6.1 m ≈ 82 m²; replaced by A26's car comparisons). Adjustments are the prototype's: Looks smaller ×0.8, About right ×1, Looks
   bigger ×1.2, rounded half-up to whole m².
 - **R13. Answers are validated against the intake schema.** Missing answers take the field's
   default; unknown keys and invalid values are a 422. A counts job with nothing in it isn't
@@ -650,6 +650,62 @@ Decided by Hasan after the fix for the site password being asked for again (PR #
   (`test_auth.py`: `test_no_route_answers_401`, and the signed-out checks through
   `tests.conftest.signed_out`; e2e `x-basic-auth.spec.ts`: the password typed once, three minutes
   of browsing, no second sign-in box and no 401 in Caddy's access log.)
+
+## 2e. Rulings in round 2: lawn sizes and the minutes counter
+
+Made by the round-2 lane `r2/lawn-sizes-minutes` on Hasan's brief (after he tested the demo: a
+lined singles court, 196 m², and a doubles court, 261 m², are too close to anchor two bands, and
+people picture the whole fenced court, about 670 m²; parking spaces stop meaning anything beyond
+about ten; and a 5-minute stepper can't reach a timer's 6). Each has tests.
+
+- **A26. The lawn size step: three ways, one price.** The step has three tabs: "Pick a size", "Pace
+  it out" and "I know the size". Each gives a lawn area in m², and the engine prices that area
+  however it was given (190 m² is £31 a visit as the Large band, 19 × 10 strides or 19 × 10 metres;
+  the golden tests are unchanged). The area is worked out only in the API: the page asks `POST
+  /api/area/estimate` as the customer types (it stores nothing) and the quote works it out again
+  from the same answer (`AreaInput`: `method` band, paced or measured; `band` and `adjust`; `unit`
+  m or ft; `lawns`). Bands stay `manual_bands_v0`, reworded with Hasan's exact text ("About 5 × 8
+  metres (40 m²). Nearly 2 car lengths long and 1 wide." and so on; their areas, 40, 85, 190 and
+  350 m², are unchanged), and keep the Looks smaller / About right / Looks bigger nudges, which are
+  for bands only. Paced and measured lawns are a new estimator, `customer_measured_v0`
+  (`app/adapters/area/customer_measured.py`, the F interface); `make_area_estimator` returns
+  both, combined (`ThreeWays`), for `AREA_ESTIMATOR=manual_bands_v0`, so no `.env` changes. The
+  quote's `Measure` records the method, the estimator, the unit (strides, m or ft) and each lawn
+  as given, in metres and its area; the request keeps it. Confidence for all three is "medium"
+  ("Fairly close"; A2 still applies). A re-price (A10) sizes the lawn exactly as the customer
+  did (`area.base.input_for`): paced and measured lawns are worked out again from their strides
+  or sides, never at the medium band kept for plans with no size. The wording comes from one
+  place (`app/adapters/area/describe.py`): "That's about 12 × 8 metres (96 m²)", or "That's about
+  250 m² in total across 2 lawns"; the price and request pages say what the price is for ("a
+  large lawn (about 190 m²)", "2 lawns paced out, about 250 m² in total"; `size_text`); providers
+  see "About 250 m² across 2 lawns". Each band has a hand-drawn top-down drawing, and so has the
+  customer's own lawn: every drawing is 33 metres across in one shared scale (equal cells, the
+  same viewBox width), with a car outline (4.5 × 1.8 m) and a standing person (1.75 m, side on)
+  at that scale, and a house (7 × 9 m, "A house, for scale") beside Large and Very large; a lawn
+  too big for the scene (longer than about 31 m, or a stack of lawns too tall) is drawn smaller, with the
+  car and person shrunk to match, and the page says so. Bands stack in one column on phones and
+  sit two by two from 720px. (`tests/shared/test_area.py`; `test_plan_changes.py`:
+  `test_a_paced_out_lawn_is_repriced_at_the_size_the_customer_paced`; web `quote-flow.test.tsx`;
+  e2e `i-lawn-sizes.spec.ts` I1.)
+- **A27. The customer's own figures: limits and rounding.** A big stride counts as one metre and
+  strides are whole numbers. Measurements are in metres or feet (1 foot is exactly 0.3048 m), at
+  most two decimal places, worked in `Decimal`. One to four lawns. Each side must be 1 to 100
+  metres (in feet the message says 3.3 to 328 feet; the check is on the metres). Each lawn's
+  area is rounded half-up to whole m², and the total is the sum of those, so the figures on screen
+  always add up (an exact total would differ by at most 2 m² across four lawns); the total must be
+  5 to 2,000 m². Sides are shown to the nearest 10 cm, half-up. A figure that won't do is a 422
+  `lawn_size_invalid` naming the lawn and side, shown beside the field ("Lawn 2: the width must be
+  between 1 and 100 metres."); nothing usable at all is `lawn_size_needed`, as before.
+  `AreaInput` rejects unknown fields like every request body. (`test_area.py`.)
+- **A28. Minutes are typed, 1 to 600.** Wherever a provider enters minutes (the finish screen; no
+  other screen asks), the 5-minute stepper is replaced by a number field (inputmode numeric, whole
+  minutes, 1 to 600) with −1 and +1 beside it and +5 and +10 below, every target 44px or more at
+  the provider area's 17px type. It's pre-filled from the timer as before (at most 600); "From
+  your timer" shows only while the figure is the timer's, and "The estimate was 38 minutes, so 11
+  minutes over." follows what's typed. Anything else (empty, 0, 601) says "Enter the minutes it
+  took, from 1 to 600." and can't be sent. The API's limit matches (`FinishIn.minutes`, 1 to 600;
+  it was 720). (`test_finish.py`: `test_minutes_are_whole_and_1_to_600`; web `provider.test.tsx`;
+  e2e `i-lawn-sizes.spec.ts` I2.)
 
 ## 3. Open questions (for Hasan)
 

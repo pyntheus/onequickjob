@@ -10,7 +10,8 @@ from pymongo.errors import PyMongoError
 
 from app.adapters.address.base import AddressLookup, AddressLookupError, AddressSuggestion
 from app.adapters.area import make_area_estimator
-from app.adapters.area.base import AreaOptions
+from app.adapters.area.base import AreaEstimateError, AreaInput, AreaOptions
+from app.adapters.area.describe import lawn_text, result_text, size_phrase
 from app.adapters.files import FileRejected, make_file_store
 from app.core.config import Settings
 from app.core.db import Db, get_db
@@ -29,6 +30,7 @@ from app.services import wording
 from app.services.quotes import CONFIDENCE_BARS, CONFIDENCE_COPY, create_quote
 from app.shared.me import build_me, clear_session_cookie, home_path, set_session_cookie
 from app.shared.schemas import (
+    AreaEstimateOut,
     Catalogue,
     CodeRequest,
     CodeSent,
@@ -267,8 +269,19 @@ async def category(category_id: str, db: DbDep) -> Category:
 # ------------------------------------------------------------------------- quotes
 @router.get("/area/options", tags=["shared: quotes"])
 async def area_options(s: SettingsDep) -> AreaOptions:
-    """How the lawn step asks for size (manual bands for v0)."""
+    """How the lawn step asks for size: the size bands, and the limits for pacing or measuring (A26)."""
     return await make_area_estimator(s).options(None)
+
+
+@router.post("/area/estimate", tags=["shared: quotes"])
+async def area_estimate(body: AreaInput, s: SettingsDep) -> AreaEstimateOut:
+    """The lawn step's answer as an area, worked out here and never in the web app (A26). Stores
+    nothing: the quote works it out again from the same answer. 422 with the reason if it can't."""
+    try:
+        m = await make_area_estimator(s).estimate(None, body)
+    except AreaEstimateError as e:
+        fail(status.HTTP_422_UNPROCESSABLE_CONTENT, e.code, str(e), **e.extra)
+    return AreaEstimateOut(measure=m, text=result_text(m), lawn_texts=[lawn_text(lw) for lw in m.lawns])
 
 
 def _quote_out(q) -> QuoteOut:
@@ -289,6 +302,7 @@ def _quote_out(q) -> QuoteOut:
             label=label,
             note=q.result.conf_note or default_note,
         ),
+        size_text=size_phrase(q.measure),
         duration_text=wording.duration_text(q.result.mins),
         first_duration_text=wording.duration_text(q.result.first_mins) if q.result.first_mins else None,
         created_at=q.created_at,

@@ -1,9 +1,10 @@
+import { onlineManager } from "@tanstack/react-query";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 import { config, mockApi, unauthorised } from "../test/utils";
-import { FLOW_KEY, INITIAL_FLOW, type FlowState } from "./flow";
-import { address, areaOptions, catalogue, cleaningQuote, me, mowingQuote } from "./test-fixtures";
+import { FLOW_KEY, INITIAL_FLOW, INITIAL_LAWN, type FlowState } from "./flow";
+import { address, areaEstimate, areaOptions, catalogue, cleaningQuote, me, mowingQuote } from "./test-fixtures";
 import { json, renderAt } from "./test-render";
 
 const fees = { split: { mode: "standard", rate_percent: 15, price_pence: 3000, fee_pence: 450, provider_pence: 2550 } };
@@ -66,29 +67,234 @@ describe("landing", () => {
 });
 
 describe("lawn size", () => {
-  it("offers the four bands with comparisons and the three nudges, and never claims a measurement", async () => {
-    withFlow({ address, addressText: address.label });
+  const sizeApi = (extra: Record<string, Parameters<typeof mockApi>[0][string]> = {}) =>
     mockApi({
       "GET /api/config": () => config(false),
       "GET /api/auth/me": unauthorised,
       "GET /api/categories": () => catalogue,
       "GET /api/area/options": () => areaOptions,
+      ...extra,
     });
+  const box = (name: string | RegExp, within_: HTMLElement = document.body) => within(within_).getByRole("textbox", { name });
+
+  it("offers three ways; the bands compare with cars, drawn to one scale, with the nudges", async () => {
+    withFlow({ address, addressText: address.label });
+    sizeApi();
     const { router } = renderAt("/quote/mowing/size");
     expect(await screen.findByRole("heading", { name: "How big is your lawn?" })).toBeInTheDocument();
-    for (const t of ["About a double garage", "About a badminton court", "About a singles tennis court", "Bigger than a doubles tennis court"]) {
-      expect(await screen.findByText(t)).toBeInTheDocument();
-    }
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Pick a size", "Pace it out", "I know the size"]);
+    expect(screen.getByRole("tab", { name: "Pick a size" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tabpanel")).toHaveAccessibleName("Pick a size");
+    for (const b of areaOptions.bands) expect(await screen.findByText(b.comparison)).toBeInTheDocument();
+    // Four drawings, every one the same number of metres across, so their sizes compare truly;
+    // the two biggest have a house beside the lawn.
+    const figs = [...document.querySelectorAll("svg.lawn-fig")];
+    expect(figs).toHaveLength(4);
+    expect(new Set(figs.map((f) => f.getAttribute("viewBox")?.split(" ")[2]))).toEqual(new Set(["33"]));
+    expect(figs.map((f) => f.textContent?.includes("for scale"))).toEqual([false, false, true, true]);
+    expect(document.body).not.toHaveTextContent(/tennis|badminton|garage/i);
+
     const go = screen.getByRole("button", { name: "Continue" });
     expect(go).toBeDisabled();
-    await userEvent.click(screen.getByRole("button", { name: /Large, about 190 m²/ }));
+    const large = screen.getByRole("button", { name: "Large" });
+    expect(large).toHaveAccessibleDescription("About 10 × 19 metres (190 m²). 4 car lengths long and 2 wide.");
+    await userEvent.click(large);
+    expect(large).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("Large, about 190 m²")).toBeInTheDocument();
     for (const l of ["Looks smaller", "About right", "Looks bigger"]) expect(screen.getByRole("button", { name: l })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Looks bigger" }));
     expect(screen.getByRole("button", { name: "Looks bigger" })).toHaveAttribute("aria-pressed", "true");
     expect(document.body).not.toHaveTextContent(/measured|survey data|LIDAR|Environment Agency|Open Government/i);
     await userEvent.click(go);
     await waitFor(() => expect(router.state.location.pathname).toBe("/quote/mowing/details"));
-    expect(JSON.parse(sessionStorage.getItem(FLOW_KEY) ?? "{}").lawn).toEqual({ band: "large", adjust: "bigger" });
+    expect(JSON.parse(sessionStorage.getItem(FLOW_KEY) ?? "{}").lawn).toMatchObject({ method: "band", band: "large", adjust: "bigger" });
+  });
+
+  it("paces out a lawn in strides, typed or with −1 and +1; the API works out the area", async () => {
+    withFlow({ address, addressText: address.label });
+    const asked: unknown[] = [];
+    sizeApi({
+      "POST /api/area/estimate": async (_u, req) => {
+        const body = (await req.json()) as { lawns: { length: string; width: string }[] };
+        asked.push(body);
+        return areaEstimate("paced", body.lawns.map((l) => [Number(l.length), Number(l.width)]));
+      },
+    });
+    const { router } = renderAt("/quote/mowing/size");
+    await userEvent.click(await screen.findByRole("tab", { name: "Pace it out" }));
+    expect(screen.getByText("Walk the length of your lawn in big strides, about a metre each, then the width.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Looks bigger" })).not.toBeInTheDocument();
+    const go = screen.getByRole("button", { name: "Continue" });
+    await userEvent.type(box("Strides long"), "12");
+    expect(go).toBeDisabled();
+    expect(screen.getByText("Fill in the length and width to continue.")).toBeInTheDocument();
+    await userEvent.type(box("Strides wide"), "7");
+    await userEvent.click(screen.getByRole("button", { name: "Strides wide: +1" }));
+    expect(box("Strides wide")).toHaveValue("8");
+    expect(await screen.findByText("That's about 12 × 8 metres (96 m²)")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Your lawn drawn to scale, with a car and a person" })).toBeInTheDocument();
+    await waitFor(() => expect(go).toBeEnabled());
+    expect(asked.at(-1)).toEqual({ method: "paced", adjust: "right", unit: "m", lawns: [{ length: "12", width: "8" }] });
+    // Nothing was asked until both sides were filled, and what's typed is never turned into
+    // another number: "12.5" strides is pointed out here, not sent as 125 or 12.
+    expect(asked.every((b) => (b as { lawns: { width: string }[] }).lawns[0].width !== "")).toBe(true);
+    const before = asked.length;
+    await userEvent.type(box("Strides long"), ".5");
+    expect(box("Strides long")).toHaveValue("12.5");
+    expect(await screen.findByText("The length is a whole number of strides, like 12.")).toBeInTheDocument();
+    expect(box("Strides long")).toHaveAttribute("aria-invalid", "true");
+    expect(go).toBeDisabled();
+    expect(screen.queryByText(/That's about/)).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Strides long: +1" }));
+    expect(box("Strides long")).toHaveValue("14"); // from 12.5, the nearest whole number, 13, plus 1
+    await userEvent.clear(box("Strides long"));
+    await userEvent.type(box("Strides long"), "12");
+    expect(await screen.findByText("That's about 12 × 8 metres (96 m²)")).toBeInTheDocument();
+    expect(asked.slice(before).every((b) => (b as { lawns: { length: string }[] }).lawns[0].length !== "12.5")).toBe(true);
+    await waitFor(() => expect(go).toBeEnabled());
+    await userEvent.click(go);
+    await waitFor(() => expect(router.state.location.pathname).toBe("/quote/mowing/details"));
+    expect(JSON.parse(sessionStorage.getItem(FLOW_KEY) ?? "{}").lawn).toMatchObject({ method: "paced", paced: [{ length: "12", width: "8" }] });
+  });
+
+  it("adds up to four lawns, each named, and can remove one", async () => {
+    withFlow({ address, addressText: address.label });
+    sizeApi({
+      "POST /api/area/estimate": async (_u, req) => {
+        const body = (await req.json()) as { lawns: { length: string; width: string }[] };
+        return areaEstimate("paced", body.lawns.map((l) => [Number(l.length), Number(l.width)]));
+      },
+    });
+    renderAt("/quote/mowing/size");
+    await userEvent.click(await screen.findByRole("tab", { name: "Pace it out" }));
+    await userEvent.type(box("Strides long"), "12");
+    await userEvent.type(box("Strides wide"), "8");
+    await userEvent.click(screen.getByRole("button", { name: "Add another lawn" }));
+    const two = screen.getByRole("group", { name: "Lawn 2" });
+    await waitFor(() => expect(box("Strides long", two)).toHaveFocus());
+    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+    await userEvent.type(box("Strides long", two), "7");
+    await userEvent.type(box("Strides wide", two), "6");
+    expect(await screen.findByText("That's about 138 m² in total across 2 lawns")).toBeInTheDocument();
+    expect(screen.getByText("Lawn 1: about 12 × 8 metres (96 m²)")).toBeInTheDocument();
+    expect(screen.getByText("Lawn 2: about 7 × 6 metres (42 m²)")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Your lawns drawn to scale, with a car and a person" })).toHaveTextContent("Lawn 2");
+    await userEvent.click(screen.getByRole("button", { name: "Add another lawn" }));
+    await userEvent.click(screen.getByRole("button", { name: "Add another lawn" }));
+    expect(screen.getAllByRole("group", { name: /^Lawn \d$/ })).toHaveLength(4);
+    expect(screen.queryByRole("button", { name: "Add another lawn" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Remove lawn 4" }));
+    await userEvent.click(screen.getByRole("button", { name: "Remove lawn 3" }));
+    await userEvent.click(screen.getByRole("button", { name: "Remove lawn 1" }));
+    expect(screen.queryByRole("group", { name: "Lawn 1" })).not.toBeInTheDocument();
+    expect(box("Strides long")).toHaveValue("7");
+    expect(await screen.findByText("That's about 7 × 6 metres (42 m²)")).toBeInTheDocument();
+  });
+
+  it("takes metres or feet with decimals and shows the API's reason when a size won't do", async () => {
+    withFlow({ address, addressText: address.label });
+    const asked: { unit: string; lawns: { length: string; width: string }[] }[] = [];
+    sizeApi({
+      "POST /api/area/estimate": async (_u, req) => {
+        const body = (await req.json()) as (typeof asked)[number];
+        asked.push(body);
+        if (body.lawns[0].length === "400") {
+          return json(422, {
+            detail: { code: "lawn_size_invalid", message: "The length must be between 3.3 and 328 feet (1 to 100 metres).", extra: { lawn: 0, side: "length" } },
+          });
+        }
+        return { ...areaEstimate("measured", [[9, 6]], "ft"), text: "That's about 9.1 × 6.1 metres (56 m²)" };
+      },
+    });
+    renderAt("/quote/mowing/size");
+    await userEvent.click(await screen.findByRole("tab", { name: "I know the size" }));
+    expect(screen.getByRole("button", { name: "Metres" })).toHaveAttribute("aria-pressed", "true");
+    await userEvent.click(screen.getByRole("button", { name: "Feet" }));
+    await userEvent.type(box("Length"), "30,555");
+    expect(box("Length")).toHaveValue("30.555");
+    expect(await screen.findByText("The length needs to be a number like 7.5, with up to two decimal places.")).toBeInTheDocument();
+    await userEvent.type(box("Length"), "{Backspace}");
+    expect(box("Length")).toHaveValue("30.55");
+    await userEvent.type(box("Width"), "20");
+    expect(await screen.findByText("That's about 9.1 × 6.1 metres (56 m²)")).toBeInTheDocument();
+    expect(asked.at(-1)).toEqual({ method: "measured", adjust: "right", unit: "ft", lawns: [{ length: "30.55", width: "20" }] });
+    await userEvent.clear(box("Length"));
+    await userEvent.type(box("Length"), "400");
+    expect(await screen.findByText("The length must be between 3.3 and 328 feet (1 to 100 metres).")).toBeInTheDocument();
+    expect(box("Length")).toHaveAttribute("aria-invalid", "true");
+    expect(box("Length")).toHaveAccessibleDescription("The length must be between 3.3 and 328 feet (1 to 100 metres).");
+    expect(box("Width")).not.toHaveAttribute("aria-invalid");
+    expect(screen.queryByText(/That's about/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+  });
+
+  it("says so when the size can't be worked out just now, and tries again", async () => {
+    withFlow({ address, addressText: address.label });
+    let down = true;
+    sizeApi({
+      "POST /api/area/estimate": () => {
+        if (down) throw new TypeError("Failed to fetch");
+        return areaEstimate("paced", [[12, 8]]);
+      },
+    });
+    renderAt("/quote/mowing/size");
+    await userEvent.click(await screen.findByRole("tab", { name: "Pace it out" }));
+    await userEvent.type(box("Strides long"), "12");
+    await userEvent.type(box("Strides wide"), "8");
+    expect(await screen.findByText("We couldn't work out the size just now. Check your connection and try again.")).toBeInTheDocument();
+    expect(screen.queryByText("Working out the size…")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+    down = false;
+    await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText("That's about 12 × 8 metres (96 m²)")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled());
+  });
+
+  it("waits while offline, never continuing on the last lawn's figure, and carries on once back online", async () => {
+    withFlow({ address, addressText: address.label });
+    sizeApi({
+      "POST /api/area/estimate": async (_u, req) => {
+        const body = (await req.json()) as { lawns: { length: string; width: string }[] };
+        return areaEstimate("paced", body.lawns.map((l) => [Number(l.length), Number(l.width)]));
+      },
+    });
+    const offlineText = "You seem to be offline. We'll work out the size as soon as you're back online.";
+    try {
+      renderAt("/quote/mowing/size");
+      await userEvent.click(await screen.findByRole("tab", { name: "Pace it out" }));
+      const go = screen.getByRole("button", { name: "Continue" });
+      // Offline before the first estimate: it says so, rather than "Working out the size…".
+      onlineManager.setOnline(false);
+      await userEvent.type(box("Strides long"), "12");
+      await userEvent.type(box("Strides wide"), "8");
+      expect(await screen.findByText(offlineText)).toBeInTheDocument();
+      expect(screen.queryByText("Working out the size…")).not.toBeInTheDocument();
+      expect(go).toBeDisabled();
+      onlineManager.setOnline(true);
+      expect(await screen.findByText("That's about 12 × 8 metres (96 m²)")).toBeInTheDocument();
+      await waitFor(() => expect(go).toBeEnabled());
+      // Offline after an estimate: changing a side can't continue on the old figure.
+      onlineManager.setOnline(false);
+      await userEvent.clear(box("Strides wide"));
+      await userEvent.type(box("Strides wide"), "9");
+      expect(await screen.findByText(offlineText)).toBeInTheDocument();
+      await new Promise((r) => setTimeout(r, 500)); // past the pause before asking
+      expect(go).toBeDisabled();
+      onlineManager.setOnline(true);
+      expect(await screen.findByText("That's about 12 × 9 metres (108 m²)")).toBeInTheDocument();
+      await waitFor(() => expect(go).toBeEnabled());
+    } finally {
+      onlineManager.setOnline(true);
+    }
+  });
+
+  it("keeps a flow saved before the three ways", async () => {
+    sessionStorage.setItem(FLOW_KEY, JSON.stringify({ ...INITIAL_FLOW, address, lawn: { band: "large", adjust: "right" } }));
+    sizeApi();
+    renderAt("/quote/mowing/size");
+    expect(await screen.findByRole("button", { name: /^Large/ })).toHaveAttribute("aria-pressed", "true");
+    await userEvent.click(screen.getByRole("tab", { name: "Pace it out" }));
+    expect(box("Strides long")).toHaveValue("");
   });
 
   it("asks for the address first when there isn't one", async () => {
@@ -132,7 +338,7 @@ describe("questions", () => {
 
 describe("guide price", () => {
   it("shows £31 a visit for the Large band, the size chosen, confidence and the fee split", async () => {
-    withFlow({ address, lawn: { band: "large", adjust: "right" } });
+    withFlow({ address, lawn: { ...INITIAL_LAWN, band: "large" } });
     let body: Record<string, unknown> = {};
     mockApi({
       "GET /api/config": () => config(false),
@@ -147,13 +353,41 @@ describe("guide price", () => {
     renderAt("/quote/mowing/price");
     expect(await screen.findByText("£31")).toBeInTheDocument();
     expect(screen.getByText("a visit")).toBeInTheDocument();
-    expect(body).toMatchObject({ category_id: "mowing", lawn: { band: "large", adjust: "right" } });
-    expect(await screen.findByText(/For the lawn size you chose/)).toHaveTextContent("large, about 190 m² (about a singles tennis court)");
+    expect(body).toMatchObject({ category_id: "mowing", lawn: { method: "band", band: "large", adjust: "right" } });
+    expect(screen.getByText(/Priced for/)).toHaveTextContent("Priced for a large lawn (about 190 m²).");
     expect(screen.getByText(/usually go for £28 to £36, and take about 39 minutes/)).toBeInTheDocument();
     expect(screen.getByText("Fairly close.")).toBeInTheDocument();
     expect(screen.getByText("£26.35")).toBeInTheDocument();
     expect(screen.getByText("£4.65")).toBeInTheDocument();
     expect(document.body).not.toHaveTextContent(/measured|survey/i);
+  });
+
+  it("prices the lawns the customer paced out, and sends them back to the size step if the API won't", async () => {
+    withFlow({ address, lawn: { ...INITIAL_LAWN, method: "paced", paced: [{ length: "12", width: "8" }, { length: "7", width: "6" }] } });
+    const bodies: Record<string, unknown>[] = [];
+    let refuse = false;
+    mockApi({
+      "GET /api/config": () => config(false),
+      "GET /api/auth/me": unauthorised,
+      "GET /api/categories": () => catalogue,
+      "POST /api/quotes": async (_u, req) => {
+        bodies.push(await req.json());
+        if (refuse) return json(422, { detail: { code: "lawn_size_invalid", message: "That's only 4 m². Check the sizes: we can price lawns from 5 m²." } });
+        const m = areaEstimate("paced", [[12, 8], [7, 6]]).measure;
+        return json(201, { ...mowingQuote, measure: m, size_text: "2 lawns paced out, about 138 m² in total" });
+      },
+    });
+    const first = renderAt("/quote/mowing/price");
+    expect(await first.findByText(/Priced for/)).toHaveTextContent("Priced for 2 lawns paced out, about 138 m² in total.");
+    expect(bodies[0].lawn).toEqual({ method: "paced", adjust: "right", unit: "m", lawns: [{ length: "12", width: "8" }, { length: "7", width: "6" }] });
+    first.unmount();
+
+    refuse = true;
+    withFlow({ address, lawn: { ...INITIAL_LAWN, method: "paced", paced: [{ length: "2", width: "2" }] } });
+    const { router } = renderAt("/quote/mowing/price");
+    expect(await screen.findByText("That's only 4 m². Check the sizes: we can price lawns from 5 m².")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Check the lawn size" }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/quote/mowing/size"));
   });
 
   it("shows the first-visit price, its reason and both splits", async () => {
@@ -176,7 +410,7 @@ describe("guide price", () => {
 
 describe("contact", () => {
   it("signs in with the code, saves the card through the gateway, needs the agency box, then sends", async () => {
-    withFlow({ address, lawn: { band: "large", adjust: "right" }, quoteId: "q1", notes: "Gate sticks" });
+    withFlow({ address, lawn: { ...INITIAL_LAWN, band: "large" }, quoteId: "q1", notes: "Gate sticks" });
     let signedIn = false;
     let sent: Record<string, unknown> | null = null;
     mockApi({

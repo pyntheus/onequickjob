@@ -79,7 +79,7 @@ async def create_quote(
         try:
             measure = await make_area_estimator(s).estimate(address, lawn)
         except AreaEstimateError as e:
-            fail(status.HTTP_422_UNPROCESSABLE_CONTENT, "lawn_size_needed", str(e))
+            fail(status.HTTP_422_UNPROCESSABLE_CONTENT, e.code, str(e), **e.extra)
     try:
         full = validate_answers(cat, answers)
         if has_empty_counts(cat, full):

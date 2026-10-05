@@ -127,8 +127,8 @@ const STEPS = [
   {
     icon: MapPin,
     title: "Get a guide price",
-    // A6: no claim that we measure anything. The customer picks a lawn size band.
-    text: "Answer a few quick questions. For lawns, you pick roughly how big yours is. No call-backs, no account.",
+    // A6, A26: no claim that we measure anything. The customer picks a size, paces it out or gives it.
+    text: "Answer a few quick questions. For lawns, you pick roughly how big yours is, or pace it out. No call-backs, no account.",
   },
   {
     icon: Users,

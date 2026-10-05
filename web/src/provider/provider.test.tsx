@@ -202,6 +202,78 @@ describe("the provider app", () => {
     expect(posts[0]).toEqual({ minutes: 49, from_timer: true, flags: ["Access was harder"], nothing_different: false, note: "" });
   });
 
+  it("takes the minutes typed, or nudged by 1, 5 and 10, from 1 to 600, with the estimate line live", async () => {
+    const posts: { minutes: number; from_timer: boolean }[] = [];
+    const visit = {
+      id: "v1", booking_id: "b1", category_id: "mowing", category_name: "Lawn mowing", customer_name: "Sarah W.",
+      address_line: "12 Orchard Way, Hazlemere", directions_url: "https://maps", local_date: "2026-10-03",
+      scheduled_start: "2026-10-03T08:00:00Z", status: "in_progress", est_mins: 38, started_at: "2026-10-03T08:00:00Z",
+      finished_at: null, minutes_actual: null, before_photos: [], after_photos: [], note: "", thread_id: "t1",
+      price_pence: 3000, provider_pence: 2550, charge_status: "none", performer_name: "Dave H.",
+      category_name_lower: "lawn mowing", customer_first: "Sarah", summary: "", window_text: "", is_first: false,
+      performer: "provider", elapsed_seconds: 360, can_start: false, start_note: null, early_start_demo: false, flags: [],
+      flags_none: false, minutes_from_timer: false, overrun: null, fee_percent: 15,
+    };
+    mockApi({
+      "GET /api/config": () => config(false),
+      "GET /api/auth/me": () => me,
+      "GET /api/p/visits/v1": () => visit,
+      "POST /api/p/visits/v1/finish": async (_url, req) => {
+        posts.push(await req.json());
+        return {
+          visit_id: "v1", minutes_actual: 7, est_mins: 38, overrun: false, charge_status: "succeeded", price_pence: 3000,
+          fee_pence: 450, provider_pence: 2550, payout_date: "2026-10-09",
+          charge_message: "It'll reach your bank with the next payout.", customer_first: "Sarah",
+        };
+      },
+    });
+    renderAt("/p/visits/v1/finish");
+    // The timer read 6 minutes: a number the old 5-minute stepper could never reach.
+    const box = await screen.findByRole("textbox", { name: "How long did it take?" });
+    expect(box).toHaveValue("6");
+    expect(box).toHaveAttribute("inputmode", "numeric");
+    expect(screen.getByText("From your timer. The estimate was 38 minutes, so 32 minutes under.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Minutes taken: +1" }));
+    expect(box).toHaveValue("7");
+    expect(screen.getByText("The estimate was 38 minutes, so 31 minutes under.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Minutes taken: +10" }));
+    await userEvent.click(screen.getByRole("button", { name: "Minutes taken: +5" }));
+    await userEvent.click(screen.getByRole("button", { name: "Minutes taken: +5" }));
+    await userEvent.click(screen.getByRole("button", { name: "Minutes taken: −1" }));
+    expect(box).toHaveValue("26");
+    await userEvent.clear(box);
+    await userEvent.type(box, "45");
+    expect(screen.getByText("The estimate was 38 minutes, so 7 minutes over.")).toBeInTheDocument();
+    await userEvent.clear(box);
+    await userEvent.type(box, "38");
+    expect(screen.getByText("The estimate was 38 minutes, spot on.")).toBeInTheDocument();
+    const send = screen.getByRole("button", { name: "Send and get paid" });
+    // Anything but whole minutes from 1 to 600 is refused as typed, never read as another number
+    // ("45.5" isn't 455, "1000" isn't 100).
+    for (const bad of ["", "0", "601", "45.5", "1000", "45m"]) {
+      await userEvent.clear(box);
+      if (bad) await userEvent.type(box, bad);
+      expect(box).toHaveValue(bad);
+      expect(screen.getByRole("alert")).toHaveTextContent("Enter the minutes it took, in whole minutes from 1 to 600.");
+      expect(box).toHaveAttribute("aria-invalid", "true");
+      expect(send).toBeDisabled();
+    }
+    await userEvent.clear(box);
+    await userEvent.type(box, "601");
+    await userEvent.click(screen.getByRole("button", { name: "Minutes taken: +10" }));
+    expect(box).toHaveValue("600");
+    expect(screen.getByRole("button", { name: "Minutes taken: +1" })).toBeDisabled();
+    await userEvent.clear(box);
+    await userEvent.click(screen.getByRole("button", { name: "Minutes taken: +5" }));
+    expect(box).toHaveValue("5");
+    await userEvent.clear(box);
+    await userEvent.type(box, "6");
+    await userEvent.click(screen.getByRole("button", { name: "Nothing, it was as described" }));
+    await userEvent.click(send);
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect(posts[0]).toMatchObject({ minutes: 6, from_timer: true });
+  });
+
   it("starts today's job from the round", async () => {
     let started = false;
     const item = {

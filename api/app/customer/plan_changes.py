@@ -19,7 +19,7 @@ from datetime import timedelta
 
 from fastapi import status
 
-from app.adapters.area.base import AreaInput
+from app.adapters.area.base import AreaInput, input_for
 from app.core.config import Settings
 from app.core.db import Db, DbSession, transaction
 from app.core.errors import fail, not_found
@@ -131,7 +131,8 @@ async def reprice(db: Db, s: Settings, series: Series, booking: Booking, frequen
     lawn = None
     if cat.measure == "lawn":
         m = req.measure if req else None
-        lawn = AreaInput(band=m.band or DEFAULT_BAND, adjust=m.adjust or "right") if m else AreaInput(band=DEFAULT_BAND)
+        # Sized exactly as the customer did: a band, or the lawns they paced out or measured (A26).
+        lawn = input_for(m, DEFAULT_BAND) if m else AreaInput(band=DEFAULT_BAND)
 
     async def guide_at(freq: str) -> tuple[int, str]:
         q = await create_quote(

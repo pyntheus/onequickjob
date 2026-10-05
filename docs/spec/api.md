@@ -41,7 +41,8 @@ in `web/src/api/schema.d.ts` come from it (`make types`).
 | `GET` | `/api/admin/outbox` |  | OutboxPage | Every message, newest first, searchable. L3 builds the admin view on this. |
 | `GET` | `/api/categories` |  | Catalogue | Live categories with intake schemas, groups, document types and the jobs we never list. |
 | `GET` | `/api/categories/{category_id}` |  | Category |  |
-| `GET` | `/api/area/options` |  | AreaOptions | How the lawn step asks for size (manual bands for v0). |
+| `GET` | `/api/area/options` |  | AreaOptions | How the lawn step asks for size: the size bands, and the limits for pacing or measuring (A26). |
+| `POST` | `/api/area/estimate` | AreaInput | AreaEstimateOut | The lawn step's answer as an area, worked out here and never in the web app (A26). Stores nothing: the quote works it out again from the same answer. 422 with the reason if it can't. |
 | `POST` | `/api/quotes` | QuoteRequest | QuoteOut | Price a job from the live pricing version. No account needed. The quote is stored with the version used. |
 | `GET` | `/api/quotes/{quote_id}` |  | QuoteOut |  |
 | `GET` | `/api/address/search` |  | list[AddressSuggestion] | Suggestions as the customer types (free with Ideal Postcodes). |
@@ -182,4 +183,4 @@ in `web/src/api/schema.d.ts` come from it (`make types`).
 | `GET` | `/api/admin/audit` |  | list[AuditEntry] |  |
 | `POST` | `/api/payments/stripe/webhook` |  | WebhookAck | Verify the Stripe-Signature header, then handle payment_intent.*, account.updated, payout.* and charge.refunded idempotently (by event id). Webhooks are the source of truth for final payment states. |
 
-138 endpoints.
+139 endpoints.

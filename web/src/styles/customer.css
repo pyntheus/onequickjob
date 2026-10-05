@@ -37,6 +37,26 @@
 .plot-lawn{cursor:pointer}
 .plot-lawn:focus{outline:none}
 .plot-lawn:focus-visible rect{stroke-width:4px}
+/* The lawn size step (A26). Bands and results sit in one grid of equal cells, and every drawing
+   is the full width of its cell with the same viewBox width, so they all share one scale. */
+.lawn-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:12px}
+@media(min-width:720px){.lawn-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.lawn-cell{min-width:0;padding:14px 16px;border:var(--bw) solid var(--line);border-radius:var(--radius-sm);background:var(--surface)}
+.choice.band-card{flex-direction:column;align-items:stretch;gap:8px}
+.band-name{font-weight:600;font-size:17px}
+.band-words{font-size:15px;color:var(--muted);line-height:1.4}
+.lawn-fig{display:block;width:100%;height:auto;background:var(--sky);border-radius:10px}
+.lawn-label{font-family:var(--font-body);font-weight:600;fill:var(--ink)}
+.lawn-label.on-lawn{paint-order:stroke;stroke:var(--surface);stroke-width:.4px;stroke-linejoin:round}
+.lawn-result{line-height:1.25}
+.lawn-list{margin:0;padding-left:20px}
+.sides{display:grid;grid-template-columns:minmax(0,1fr);gap:12px}
+@media(min-width:720px){.sides{grid-template-columns:repeat(2,minmax(0,1fr));column-gap:28px}}
+.sides .field{flex-direction:row;align-items:center;justify-content:space-between;gap:12px}
+.sides .stepper-typed{align-self:auto}
+.sides .input-suffix{width:160px;flex:none}
+.lawn-sides+.lawn-sides{border-top:1px solid var(--hair);padding-top:14px}
+.add-lawn{align-self:flex-start}
 .price-big{font-family:var(--font-head);font-weight:var(--head-weight);letter-spacing:var(--head-track);font-size:clamp(56px,12vw,76px);line-height:.95;font-variant-numeric:tabular-nums}
 .conf{display:flex;gap:4px}
 .conf i{height:6px;width:28px;border-radius:99px;background:var(--hair)}

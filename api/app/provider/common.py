@@ -7,6 +7,7 @@ from typing import Any
 
 from fastapi import status
 
+from app.adapters.area.describe import fact_text
 from app.core.db import Db, DbSession
 from app.core.errors import fail
 from app.core.geo import miles_between
@@ -154,7 +155,7 @@ def facts_for(
     """The facts grid: lawn size first, then the customer's answers, when, and the estimate."""
     out: list[tuple[str, str]] = []
     if measure is not None:
-        out.append(("Lawn", f"About {measure.area_m2} m²"))
+        out.append(("Lawn", fact_text(measure)))
     for field in cat.intake:
         if field.key in NOT_FACTS:
             continue

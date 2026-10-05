@@ -1,9 +1,12 @@
 /** L1's data hooks: the customer endpoints (/api/c) through the generated client. */
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { ApiError, api, call, type Schemas } from "../api/client";
 
 export type Address = Schemas["Address"];
 export type AreaOptions = Schemas["AreaOptions"];
+export type AreaBand = Schemas["AreaBand"];
+export type AreaEstimate = Schemas["AreaEstimateOut"];
+export type AreaInput = Schemas["AreaInput"];
 export type Category = Schemas["Category"];
 export type IntakeField = Schemas["IntakeField"];
 export type QuoteOut = Schemas["QuoteOut"];
@@ -51,6 +54,20 @@ async function orNull<T>(p: Promise<T>): Promise<T | null> {
 
 export function useAreaOptions() {
   return useQuery({ queryKey: ck.areaOptions, queryFn: () => call(api.GET("/api/area/options")), staleTime: Infinity });
+}
+
+/** The lawn step's answer as an area: worked out by the API, never here (A26). Nothing is
+ * asked until `input` is given; a 422 carries the reason to show. The last answer stays on
+ * screen while the next is worked out. */
+export function useAreaEstimate(input: AreaInput | null) {
+  return useQuery({
+    queryKey: ["c", "area-estimate", input],
+    queryFn: () => call(api.POST("/api/area/estimate", { body: input! })),
+    enabled: !!input,
+    placeholderData: keepPreviousData,
+    staleTime: Infinity,
+    retry: false,
+  });
 }
 
 export function useFeeExample() {

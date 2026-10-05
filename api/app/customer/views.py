@@ -6,6 +6,7 @@ first-visit price) and fee splits from app.core.money only.
 
 from datetime import timedelta
 
+from app.adapters.area.describe import size_phrase
 from app.core import money
 from app.core.config import Settings
 from app.core.db import Db
@@ -48,8 +49,6 @@ from app.repos.visits import Visits
 from app.services import schedule, wording
 
 REPORT_WINDOW = timedelta(hours=48)
-BAND_LABELS = {"small": "Small", "medium": "Medium", "large": "Large", "very_large": "Very large"}
-ADJUST_TEXT = {"smaller": ", a bit smaller than that", "bigger": ", a bit bigger than that", "right": ""}
 
 
 def frequency_label(frequency: str | None) -> str | None:
@@ -59,13 +58,8 @@ def frequency_label(frequency: str | None) -> str | None:
 
 
 def size_text(measure: Measure | None) -> str | None:
-    """The lawn size the customer chose, in their words: never "measured" (decisions.md A6)."""
-    if measure is None:
-        return None
-    band = BAND_LABELS.get(measure.band or "", "")
-    if not band:
-        return f"About {measure.area_m2} m²"
-    return f"{band}{ADJUST_TEXT.get(measure.adjust or 'right', '')} (about {measure.area_m2} m²)"
+    """The lawn size the customer chose, in their words: never "measured" (decisions.md A6, A26)."""
+    return size_phrase(measure)
 
 
 def miles_text(miles: float) -> str:

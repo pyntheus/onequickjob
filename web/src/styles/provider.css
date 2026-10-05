@@ -20,6 +20,8 @@
 .p-app .btn-link{min-height:44px;padding:0 4px}
 .p-app .chip,.p-app .chip.quiet{min-height:44px}
 .p-app .stepper.sm button{width:44px;height:44px}
+.p-app .quick-add{min-width:76px;font-size:17px}
+.p-app .stepper-input{width:84px}
 .p-app .star-btn{min-width:44px;min-height:44px}
 .p-app .icon-btn{width:48px;height:48px}
 .p-app .badge{font-size:13.5px}

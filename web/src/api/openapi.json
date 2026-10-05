@@ -478,12 +478,20 @@
       "AreaBand": {
         "properties": {
           "area_m2": {
+            "description": "The area the engine prices for this band",
             "title": "Area M2",
             "type": "integer"
           },
           "comparison": {
+            "description": "The band in words: \"About 5 \u00d7 8 metres (40 m\u00b2). Nearly 2 car lengths ...\"",
             "title": "Comparison",
             "type": "string"
+          },
+          "house": {
+            "default": false,
+            "description": "Draw a house beside the lawn, for scale",
+            "title": "House",
+            "type": "boolean"
           },
           "id": {
             "title": "Id",
@@ -492,18 +500,59 @@
           "label": {
             "title": "Label",
             "type": "string"
+          },
+          "length_m": {
+            "description": "The drawing's lawn: its long side",
+            "title": "Length M",
+            "type": "number"
+          },
+          "width_m": {
+            "description": "The drawing's lawn: its short side",
+            "title": "Width M",
+            "type": "number"
           }
         },
         "required": [
           "id",
           "label",
           "area_m2",
-          "comparison"
+          "comparison",
+          "width_m",
+          "length_m"
         ],
         "title": "AreaBand",
         "type": "object"
       },
+      "AreaEstimateOut": {
+        "properties": {
+          "lawn_texts": {
+            "description": "Each lawn: \"about 12 \u00d7 8 metres (96 m\u00b2)\"",
+            "items": {
+              "type": "string"
+            },
+            "title": "Lawn Texts",
+            "type": "array"
+          },
+          "measure": {
+            "$ref": "#/components/schemas/Measure",
+            "description": "The area, how it was sized and each lawn"
+          },
+          "text": {
+            "description": "\"That's about 12 \u00d7 8 metres (96 m\u00b2)\", or \"... in total across 2 lawns\"",
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "measure",
+          "text",
+          "lawn_texts"
+        ],
+        "title": "AreaEstimateOut",
+        "type": "object"
+      },
       "AreaInput": {
+        "additionalProperties": false,
         "description": "What the customer told us on the lawn step.",
         "properties": {
           "adjust": {
@@ -526,15 +575,80 @@
               }
             ],
             "title": "Band"
+          },
+          "lawns": {
+            "description": "paced and measured: each lawn (front, back...), summed",
+            "items": {
+              "$ref": "#/components/schemas/LawnSides"
+            },
+            "maxItems": 4,
+            "title": "Lawns",
+            "type": "array"
+          },
+          "method": {
+            "default": "band",
+            "description": "band: a size band; paced: strides; measured: length x width",
+            "enum": [
+              "band",
+              "paced",
+              "measured"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "unit": {
+            "default": "m",
+            "description": "measured only: what the sides are in (paced is in strides)",
+            "enum": [
+              "m",
+              "ft"
+            ],
+            "title": "Unit",
+            "type": "string"
           }
         },
         "title": "AreaInput",
+        "type": "object"
+      },
+      "AreaLimits": {
+        "description": "What the customer's own figures must be (paced and measured).",
+        "properties": {
+          "max_lawns": {
+            "title": "Max Lawns",
+            "type": "integer"
+          },
+          "side_max_m": {
+            "title": "Side Max M",
+            "type": "integer"
+          },
+          "side_min_m": {
+            "title": "Side Min M",
+            "type": "integer"
+          },
+          "total_max_m2": {
+            "title": "Total Max M2",
+            "type": "integer"
+          },
+          "total_min_m2": {
+            "title": "Total Min M2",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "side_min_m",
+          "side_max_m",
+          "total_min_m2",
+          "total_max_m2",
+          "max_lawns"
+        ],
+        "title": "AreaLimits",
         "type": "object"
       },
       "AreaOptions": {
         "description": "What the quote flow's lawn step shows. LIDAR would add measured lawns here.",
         "properties": {
           "adjustments": {
+            "description": "The nudges, for bands only",
             "items": {
               "$ref": "#/components/schemas/AreaAdjustment"
             },
@@ -562,6 +676,30 @@
             "title": "Estimator",
             "type": "string"
           },
+          "limits": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AreaLimits"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For paced and measured lawns"
+          },
+          "methods": {
+            "description": "The ways offered, in order",
+            "items": {
+              "enum": [
+                "band",
+                "paced",
+                "measured"
+              ],
+              "type": "string"
+            },
+            "title": "Methods",
+            "type": "array"
+          },
           "tolerance_note": {
             "title": "Tolerance Note",
             "type": "string"
@@ -570,7 +708,6 @@
         "required": [
           "estimator",
           "confidence",
-          "adjustments",
           "tolerance_note"
         ],
         "title": "AreaOptions",
@@ -3365,8 +3502,8 @@
             "type": "boolean"
           },
           "minutes": {
-            "description": "Pre-filled from the timer",
-            "maximum": 720.0,
+            "description": "Whole minutes, 1 to 600 (A28); pre-filled from the timer",
+            "maximum": 600.0,
             "minimum": 1.0,
             "title": "Minutes",
             "type": "integer"
@@ -4512,6 +4649,46 @@
         ],
         "type": "string"
       },
+      "LawnSides": {
+        "additionalProperties": false,
+        "description": "One lawn's sides as the customer gave them: whole strides (paced), or metres or feet\n(measured). Sent as numbers or strings (\"7.5\"), so decimals arrive exactly.",
+        "properties": {
+          "length": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              }
+            ],
+            "title": "Length"
+          },
+          "width": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              }
+            ],
+            "title": "Width"
+          }
+        },
+        "required": [
+          "length",
+          "width"
+        ],
+        "title": "LawnSides",
+        "type": "object"
+      },
       "LedgerEntry": {
         "description": "One charge entry per charged visit (unique on visit_id + kind=charge), plus tip,\nrefund and adjustment entries. gross = what the customer paid, fee = ours,\nnet = what the provider receives; gross == fee + net always.",
         "properties": {
@@ -4894,6 +5071,7 @@
             "title": "Adjust"
           },
           "area_m2": {
+            "description": "What the engine prices: the band's area, or the lawns' areas summed",
             "title": "Area M2",
             "type": "integer"
           },
@@ -4939,9 +5117,45 @@
             "title": "Detail"
           },
           "estimator": {
-            "description": "AreaEstimator id, e.g. manual_bands_v0",
+            "description": "AreaEstimator id: manual_bands_v0 or customer_measured_v0",
             "title": "Estimator",
             "type": "string"
+          },
+          "lawns": {
+            "description": "paced and measured: each lawn, as given",
+            "items": {
+              "$ref": "#/components/schemas/MeasuredLawn"
+            },
+            "title": "Lawns",
+            "type": "array"
+          },
+          "method": {
+            "default": "band",
+            "description": "How the customer sized the lawn: picked a size band, paced it out, or gave its length and width",
+            "enum": [
+              "band",
+              "paced",
+              "measured"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "enum": [
+                  "strides",
+                  "m",
+                  "ft"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "paced: strides (a big stride counts as a metre); measured: m or ft",
+            "title": "Unit"
           }
         },
         "required": [
@@ -4949,6 +5163,43 @@
           "area_m2"
         ],
         "title": "Measure",
+        "type": "object"
+      },
+      "MeasuredLawn": {
+        "description": "One lawn the customer paced out or measured (decisions.md A26).",
+        "properties": {
+          "area_m2": {
+            "description": "length_m x width_m, rounded half-up to whole m\u00b2",
+            "title": "Area M2",
+            "type": "integer"
+          },
+          "length": {
+            "description": "As the customer gave it, in the measure's unit",
+            "title": "Length",
+            "type": "number"
+          },
+          "length_m": {
+            "title": "Length M",
+            "type": "number"
+          },
+          "width": {
+            "description": "As the customer gave it, in the measure's unit",
+            "title": "Width",
+            "type": "number"
+          },
+          "width_m": {
+            "title": "Width M",
+            "type": "number"
+          }
+        },
+        "required": [
+          "length",
+          "width",
+          "length_m",
+          "width_m",
+          "area_m2"
+        ],
+        "title": "MeasuredLawn",
         "type": "object"
       },
       "MessageOut": {
@@ -7772,6 +8023,18 @@
           },
           "result": {
             "$ref": "#/components/schemas/QuoteResult"
+          },
+          "size_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Lawns: what the price is for, e.g. \"a large lawn (about 190 m\u00b2)\"",
+            "title": "Size Text"
           }
         },
         "required": [
@@ -8662,7 +8925,7 @@
                 "type": "null"
               }
             ],
-            "description": "Lawns: the size the customer chose, e.g. \"Large (about 190 m\u00b2)\"",
+            "description": "Lawns: what the price is for, e.g. \"a large lawn (about 190 m\u00b2)\"",
             "title": "Size Text"
           },
           "status": {
@@ -13638,9 +13901,101 @@
         ]
       }
     },
+    "/api/area/estimate": {
+      "post": {
+        "description": "The lawn step's answer as an area, worked out here and never in the web app (A26). Stores\nnothing: the quote works it out again from the same answer. 422 with the reason if it can't.",
+        "operationId": "area_estimate_api_area_estimate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AreaInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AreaEstimateOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          }
+        },
+        "summary": "Area Estimate",
+        "tags": [
+          "shared: quotes"
+        ]
+      }
+    },
     "/api/area/options": {
       "get": {
-        "description": "How the lawn step asks for size (manual bands for v0).",
+        "description": "How the lawn step asks for size: the size bands, and the limits for pacing or measuring (A26).",
         "operationId": "area_options_api_area_options_get",
         "responses": {
           "200": {

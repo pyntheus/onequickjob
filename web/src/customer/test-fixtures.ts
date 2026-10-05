@@ -81,21 +81,34 @@ export const address = {
 };
 
 export const areaOptions = {
-  estimator: "manual_bands_v0",
+  estimator: "three_ways_v0",
   confidence: "medium",
+  methods: ["band", "paced", "measured"],
   bands: [
-    { id: "small", label: "Small", area_m2: 40, comparison: "About a double garage" },
-    { id: "medium", label: "Medium", area_m2: 85, comparison: "About a badminton court" },
-    { id: "large", label: "Large", area_m2: 190, comparison: "About a singles tennis court" },
-    { id: "very_large", label: "Very large", area_m2: 350, comparison: "Bigger than a doubles tennis court" },
+    { id: "small", label: "Small", area_m2: 40, comparison: "About 5 × 8 metres (40 m²). Nearly 2 car lengths long and 1 wide.", width_m: 5, length_m: 8, house: false },
+    { id: "medium", label: "Medium", area_m2: 85, comparison: "About 7 × 12 metres (85 m²). Nearly 3 car lengths long and 1½ wide.", width_m: 7, length_m: 12, house: false },
+    { id: "large", label: "Large", area_m2: 190, comparison: "About 10 × 19 metres (190 m²). 4 car lengths long and 2 wide.", width_m: 10, length_m: 19, house: true },
+    { id: "very_large", label: "Very large", area_m2: 350, comparison: "About 15 × 23 metres (350 m²). 5 car lengths long and 3 wide.", width_m: 15, length_m: 23, house: true },
   ],
   adjustments: [
     { id: "smaller", label: "Looks smaller", factor: 0.8 },
     { id: "right", label: "About right", factor: 1 },
     { id: "bigger", label: "Looks bigger", factor: 1.2 },
   ],
+  limits: { side_min_m: 1, side_max_m: 100, total_min_m2: 5, total_max_m2: 2000, max_lawns: 4 },
   tolerance_note: "Your provider sees the same figure and can suggest a different price if it's off.",
 };
+
+/** What POST /api/area/estimate answers for lawns of whole metres (the API's arithmetic, for tests). */
+export function areaEstimate(method: "paced" | "measured", sides: [number, number][], unit: "strides" | "m" | "ft" = "strides") {
+  const lawns = sides.map(([l, w]) => ({ length: l, width: w, length_m: l, width_m: w, area_m2: l * w }));
+  const total = lawns.reduce((t, l) => t + l.area_m2, 0);
+  return {
+    measure: { estimator: "customer_measured_v0", method, area_m2: total, confidence: "medium", band: null, adjust: null, unit, lawns, detail: null },
+    text: lawns.length > 1 ? `That's about ${total} m² in total across ${lawns.length} lawns` : `That's about ${sides[0][0]} × ${sides[0][1]} metres (${total} m²)`,
+    lawn_texts: lawns.map((l) => `about ${l.length} × ${l.width} metres (${l.area_m2} m²)`),
+  };
+}
 
 const split = (price: number, fee: number) => ({ mode: "standard", rate_percent: 15, price_pence: price, fee_pence: fee, provider_pence: price - fee });
 
@@ -103,7 +116,8 @@ export const mowingQuote = {
   id: "q1",
   category_id: "mowing",
   answers: { grassState: "kept", frequency: "fortnightly" },
-  measure: { estimator: "manual_bands_v0", area_m2: 190, confidence: "medium", band: "large", adjust: "right", detail: null },
+  measure: { estimator: "manual_bands_v0", method: "band", area_m2: 190, confidence: "medium", band: "large", adjust: "right", unit: null, lawns: [], detail: null },
+  size_text: "a large lawn (about 190 m²)",
   pricing_version: 1,
   pricing_version_id: "pv1",
   result: { price_pence: 3100, first_pence: null, first_reason: null, mins: 39, first_mins: null, low_pence: 2800, high_pence: 3600, spread: [0.9, 1.15], confidence: "medium", unit: "a visit", note: null, conf_note: "Based on the lawn size you chose, so most providers accept it as it is." },

@@ -3,7 +3,7 @@ import { FlowTop } from "../../shared/FlowTop";
 import { useToast } from "../../shared/toast-context";
 import { FlowGuard } from "../components/FlowGuard";
 import { IntakeField } from "../components/IntakeField";
-import { answersFor, emptyCounts } from "../flow";
+import { answersFor, emptyCounts, lawnReady } from "../flow";
 import { useQuoteStep } from "../useQuoteStep";
 
 /** "A few quick questions": every question comes from the category's intake schema. */
@@ -12,7 +12,7 @@ export default function Details() {
   const { flow, update, cat, steps, go, back, photos, setPhotos } = step;
   const notify = useToast();
   const notesId = useId();
-  const needsLawn = !!cat?.measure && !flow.lawn.band;
+  const needsLawn = !!cat?.measure && !lawnReady(flow.lawn);
 
   return (
     <FlowGuard loading={step.loading} unknown={step.unknown} needsAddress={!flow.address}>
@@ -66,7 +66,7 @@ export default function Details() {
               disabled={empty}
               onClick={() => {
                 if (needsLawn) {
-                  notify("Choose your lawn size first.");
+                  notify("Tell us how big your lawn is first.");
                   go("size");
                 } else go("price");
               }}

@@ -1,4 +1,4 @@
-/** Finish a job: minutes taken (from the timer), what was different, a note; then the visit is
+/** Finish a job: minutes taken (from the timer, typed or nudged), what was different, a note; then the visit is
  * charged and the provider sees what's on its way. Owned by L2. Lifted from the prototype's
  * FinishScreen. The recorded times and flags are how guide prices get fixed. */
 import { useQueryClient } from "@tanstack/react-query";
@@ -10,7 +10,8 @@ import { Loading } from "../../app/Status";
 import { Button } from "../../shared/Button";
 import { Chip } from "../../shared/Chip";
 import { fmt } from "../../shared/format";
-import { Stepper } from "../../shared/Stepper";
+import { NumberField } from "../../shared/NumberField";
+import { wholeNumber } from "../../shared/number-text";
 import { pKeys, useHelperMode, useProviderMutation, useVisit, type FinishOut, type ProviderVisit } from "../api";
 import { BackLink, ErrorNote } from "../components";
 import { css } from "../util";
@@ -49,11 +50,19 @@ function Done({ out, helper }: { out: FinishOut; helper: boolean }) {
   );
 }
 
+/** Whole minutes, 1 to 600 (decisions.md A28): typed, or nudged with −1, +1, +5 and +10. */
+const MAX_MINS = 600;
+
 function FinishForm({ v, timerMinutes, onDone }: { v: ProviderVisit; timerMinutes: number | null; onDone: (o: FinishOut) => void }) {
   const qc = useQueryClient();
   const fromTimer = timerMinutes !== null && timerMinutes >= 1;
   const start = fromTimer ? timerMinutes : v.est_mins;
-  const [mins, setMins] = useState(Math.min(720, Math.max(1, start)));
+  const [typed, setTyped] = useState(String(Math.min(MAX_MINS, Math.max(1, start))));
+  // Exactly what's typed: "45.5" or "1000" is refused, never read as some other number.
+  const whole = wholeNumber(typed);
+  const mins = whole ?? Number.NaN;
+  const valid = whole !== null && whole >= 1 && whole <= MAX_MINS;
+  const add = (n: number) => setTyped(String(Math.min(MAX_MINS, Math.max(1, (whole ?? 0) + n))));
   const [flags, setFlags] = useState<string[]>([]);
   const [note, setNote] = useState("");
   const options = [...(FLAGS[v.category_id] ?? INSIDE), NONE];
@@ -88,14 +97,37 @@ function FinishForm({ v, timerMinutes, onDone }: { v: ProviderVisit; timerMinute
       <BackLink to="/p/today">Today</BackLink>
       <h1 className="h1">Nice work. How did it go?</h1>
       <div className="card stack" style={css(12)}>
-        <span className="label" id="mins-label">
+        <label className="label" htmlFor="mins-taken">
           How long did it take?
-        </span>
-        <Stepper value={mins} onChange={setMins} min={1} max={720} step={5} label="Minutes taken" format={(x) => `${x} min`} />
-        <span className="small muted">
-          {fromTimer && mins === start ? "From your timer. " : ""}The estimate was {v.est_mins} minutes
-          {diff === 0 ? ", spot on." : `, so ${Math.abs(diff)} minutes ${diff > 0 ? "over" : "under"}.`}
-        </span>
+        </label>
+        <NumberField
+          id="mins-taken"
+          label="Minutes taken"
+          value={typed}
+          onChange={setTyped}
+          min={1}
+          max={MAX_MINS}
+          unit="min"
+          invalid={!valid}
+          describedBy="mins-note"
+        />
+        <div className="row" style={css(10)}>
+          {[5, 10].map((n) => (
+            <button key={n} type="button" className="btn btn-ghost quick-add" aria-label={`Minutes taken: +${n}`} onClick={() => add(n)}>
+              +{n}
+            </button>
+          ))}
+        </div>
+        {valid ? (
+          <span className="small muted" id="mins-note" aria-live="polite">
+            {fromTimer && mins === start ? "From your timer. " : ""}The estimate was {v.est_mins} minutes
+            {diff === 0 ? ", spot on." : `, so ${Math.abs(diff)} minutes ${diff > 0 ? "over" : "under"}.`}
+          </span>
+        ) : (
+          <span className="field-error" id="mins-note" role="alert">
+            Enter the minutes it took, in whole minutes from 1 to {MAX_MINS}.
+          </span>
+        )}
       </div>
       <div className="stack" style={css(10)}>
         <span className="label">Was anything different from the description?</span>
@@ -130,7 +162,7 @@ function FinishForm({ v, timerMinutes, onDone }: { v: ProviderVisit; timerMinute
         </span>
       </div>
       <ErrorNote error={finish.error} />
-      <Button variant="cta" size="lg" block disabled={finish.isPending} onClick={() => finish.mutate()}>
+      <Button variant="cta" size="lg" block disabled={finish.isPending || !valid} onClick={() => finish.mutate()}>
         {finish.isPending ? "Sending…" : "Send and get paid"}
       </Button>
     </>

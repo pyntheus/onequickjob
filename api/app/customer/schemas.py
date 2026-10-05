@@ -115,7 +115,7 @@ class RequestDetail(RequestSummary):
     booked_first_price_pence: int | None = Field(default=None, description="First-visit price agreed, if different")
     alerted: int = Field(default=0, description="How many providers the request was sent to")
     size_text: str | None = Field(
-        default=None, description='Lawns: the size the customer chose, e.g. "Large (about 190 m²)"'
+        default=None, description='Lawns: what the price is for, e.g. "a large lawn (about 190 m²)"'
     )
     notes: str = ""
     simulating: bool = Field(default=False, description="DEMO_MODE: a simulation is running for this request")

@@ -136,6 +136,12 @@ class QuoteRequest(In):
     address: Address | None = Field(default=None, description="From /api/address/{id}, if chosen already")
 
 
+class AreaEstimateOut(BaseModel):
+    measure: Measure = Field(description="The area, how it was sized and each lawn")
+    text: str = Field(description='"That\'s about 12 × 8 metres (96 m²)", or "... in total across 2 lawns"')
+    lawn_texts: list[str] = Field(description='Each lawn: "about 12 × 8 metres (96 m²)"')
+
+
 class ConfidenceCopy(BaseModel):
     level: Literal["high", "medium", "low"]
     bars: int = Field(ge=1, le=3)
@@ -154,6 +160,9 @@ class QuoteOut(BaseModel):
     fee: FeeSplit
     first_fee: FeeSplit | None
     confidence: ConfidenceCopy
+    size_text: str | None = Field(
+        default=None, description='Lawns: what the price is for, e.g. "a large lawn (about 190 m²)"'
+    )
     duration_text: str = Field(description='How long it usually takes: "38 minutes", "1½ hours"')
     first_duration_text: str | None
     created_at: datetime

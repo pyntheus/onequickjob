@@ -33,7 +33,10 @@ Two buttons float at the bottom left on every screen:
 
 1. On the home page, keep **Lawn mowing**, type `Orchard` in **Your address** and pick
    *12 Orchard Way, Hazlemere*. Click **See my price**.
-2. Choose **Large** ("about a singles tennis court") and **Continue**.
+2. Under **Pick a size**, choose **Large** ("About 10 × 19 metres (190 m²). 4 car lengths long
+   and 2 wide", drawn beside a car, a person and a house, all to one scale) and **Continue**.
+   (**Pace it out** and **I know the size** are the other two ways: strides, or metres or feet,
+   for up to four lawns. The same 190 m² gives the same price whichever way it's given.)
 3. Leave the answers (recently cut, take the clippings away, side gate, every 2 weeks) and
    click **See my price**.
 
@@ -64,8 +67,8 @@ two can never book the same job.
 1. In Dave's app tap **Today**, then the day of Sarah's visit in the row of days.
 2. On her visit tap **Demo: start it now** (the demo lets a future visit start today). A timer
    runs. Add a **Before photo** and an **After photo** if you like (any picture).
-3. Tap **Finish job**. Raise **Minutes taken** past the estimate, tick **Grass was longer than
-   described**, and tap **Send and get paid**.
+3. Tap **Finish job**. Type the minutes it took past the estimate (or use **+1**, **+5** and
+   **+10**), tick **Grass was longer than described**, and tap **Send and get paid**.
 
 **What it shows:** "£26.35 is on its way": the card was charged, the money split, the
 provider's share is due in Friday's payout, and Sarah's receipt (with the after photo) is in the

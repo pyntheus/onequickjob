@@ -3,7 +3,7 @@
 // gateway with the standard split (15%); Sarah rates it with a tip; Dave's ledger and tax pack
 // move by exactly those amounts; admin calibration shows the new point.
 import { expect, test } from "@playwright/test";
-import { acceptAtGuide, api, finishVisit, message, PHONES, signInAs } from "./helpers";
+import { acceptAtGuide, api, finishVisit, message, PHONES, signInAs, type Finished } from "./helpers";
 
 test("A: request, accept at guide, finish with an overrun, charged with the right split, rated with a tip", async ({ page }) => {
   // Before: Dave's tax year and the admin's calibration points, to compare afterwards.
@@ -42,8 +42,10 @@ test("A: request, accept at guide, finish with an overrun, charged with the righ
     await expect(page.getByText(/It's yours|Booked|yours/).first()).toBeVisible();
   });
 
+  // Dave's other visits that day, if any come first, are finished too: the totals below leave them out.
+  const others: Finished[] = [];
   await test.step("on Today he starts, adds photos and finishes with an overrun flag; he's paid 85%", async () => {
-    const heading = await finishVisit(page, { day, customer: "Sarah", overrun: true });
+    const heading = await finishVisit(page, { day, customer: "Sarah", overrun: true, others });
     expect(heading).toBe("£26.35 is on its way"); // £31 less the 15% fee (£4.65)
     const receipt = await message(page, "visit_done_customer", PHONES.sarah);
     expect(receipt.body).toContain("£31");
@@ -61,9 +63,11 @@ test("A: request, accept at guide, finish with an overrun, charged with the righ
   await test.step("Dave's tax pack moves by the charge and the tip; his earnings show it", async () => {
     await signInAs(page, "dave", "/p/earnings");
     const tax = await api(page, "GET", "/api/p/tax");
-    expect(tax.turnover_pence - taxBefore.turnover_pence).toBe(3100 + 200);
-    expect(tax.fees_pence - taxBefore.fees_pence).toBe(465); // tips carry no fee
-    expect(tax.received_pence - taxBefore.received_pence).toBe(2635 + 200);
+    const charged = others.filter((o) => o.charge_status === "succeeded");
+    const sum = (k: "price_pence" | "fee_pence" | "provider_pence") => charged.reduce((t, o) => t + o[k], 0);
+    expect(tax.turnover_pence - taxBefore.turnover_pence - sum("price_pence")).toBe(3100 + 200);
+    expect(tax.fees_pence - taxBefore.fees_pence - sum("fee_pence")).toBe(465); // tips carry no fee
+    expect(tax.received_pence - taxBefore.received_pence - sum("provider_pence")).toBe(2635 + 200);
     await page.goto("/p/tax");
     await expect(page.getByText(new RegExp(`£${(tax.turnover_pence / 100).toLocaleString("en-GB")}`)).first()).toBeVisible();
     const tip = await message(page, "tip_received", PHONES.dave);
@@ -73,8 +77,8 @@ test("A: request, accept at guide, finish with an overrun, charged with the righ
   await test.step("admin calibration shows the new, overrunning point", async () => {
     await signInAs(page, "admin_jo", "/admin/pricing");
     const cal = await api(page, "GET", "/api/admin/pricing/calibration");
-    expect(cal.points.length).toBe(calBefore.points.length + 1);
-    const known = new Set(calBefore.points.map((p: { visit_id: string }) => p.visit_id));
+    expect(cal.points.length).toBe(calBefore.points.length + 1 + others.length);
+    const known = new Set([...calBefore.points.map((p: { visit_id: string }) => p.visit_id), ...others.map((o) => o.visit_id)]);
     const point = cal.points.find((p: { visit_id: string }) => !known.has(p.visit_id));
     expect(point.actual_mins).toBeGreaterThan(point.est_mins * 1.1);
     await expect(page.getByRole("img", { name: new RegExp(`for ${cal.points.length} timed jobs`) })).toBeVisible();

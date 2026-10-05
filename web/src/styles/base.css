@@ -87,6 +87,18 @@ textarea.input{height:auto;min-height:96px;padding:12px 14px;resize:vertical;lin
 .stepper button{width:52px;height:52px;border:0;background:var(--soft);display:grid;place-items:center}
 .stepper button[disabled]{opacity:.35;cursor:not-allowed}
 .stepper-val{min-width:108px;text-align:center;font-family:var(--font-head);font-weight:var(--head-weight);font-size:22px;padding:0 8px;font-variant-numeric:tabular-nums}
+/* NumberField: a stepper you can type into (−1 and +1 beside it), or a decimal with its unit. */
+.stepper-typed{align-self:flex-start}
+.stepper-typed button{font-weight:700;font-size:17px;color:var(--ink)}
+.stepper-input{width:78px;height:52px;border:0;background:var(--surface);text-align:center;font-family:var(--font-head);font-weight:var(--head-weight);font-size:22px;color:var(--ink);font-variant-numeric:tabular-nums;padding:0 4px}
+.stepper-input:focus{outline:none}
+.stepper-input:focus-visible{outline:3px solid var(--primary);outline-offset:-3px;border-radius:4px}
+.stepper-unit{padding:0 10px 0 2px;color:var(--muted);font-size:16px}
+.stepper.invalid,.input.invalid{border-color:var(--danger)}
+.input-suffix{display:flex;align-items:center;padding:0}
+.input-suffix input{flex:1;min-width:0;height:100%;border:0;background:transparent;padding:0 14px;font-size:16px;color:inherit}
+.input-suffix input:focus{outline:none}
+.input-suffix span{padding:0 14px 0 4px;color:var(--muted)}
 .toggle-row{display:flex;align-items:center;gap:14px;width:100%;padding:12px 0;background:none;border:0;text-align:left}
 .switch{width:50px;height:30px;border-radius:99px;background:var(--hair);position:relative;flex:none;transition:background .2s;box-shadow:inset 0 0 0 1px var(--line)}
 .switch i{position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);transition:transform .2s}
