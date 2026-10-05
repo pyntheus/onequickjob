@@ -356,7 +356,8 @@ export default function RequestDetail() {
                 <Offers r={r} />
                 <Messages r={r} />
               </div>
-              <div className="stack" style={gap("18px")}>
+              {/* Where it stands and the actions come first on a phone (admin.css). */}
+              <div className="stack a-side-first" style={gap("18px")}>
                 {r.status === "open" && <Actions r={r} />}
                 <Standing r={r} />
                 <Timeline r={r} />

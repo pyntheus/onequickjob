@@ -58,6 +58,7 @@ async def test_the_request_its_lawn_and_where_it_stands(jo, db, catalogue):
     assert d["mins"] == req.mins and d["unit"] == req.unit
     questions = {a["question"]: a["answer"] for a in d["answers"]}
     assert questions["How long is the grass right now?"] == "Getting long"
+    assert "How often?" not in questions and d["frequency_text"] == ("Every 2 weeks" if req.recurring else "One-off")
     assert d["lawn"] == {
         "area_m2": 250,
         "summary": "2 lawns paced out, about 250 m² in total",

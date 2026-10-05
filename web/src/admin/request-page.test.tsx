@@ -43,7 +43,7 @@ const detail = {
   first_mins: 60,
   answers: [
     { question: "How long is the grass right now?", answer: "Recently cut" },
-    { question: "How often?", answer: "Every 2 weeks" },
+    { question: "What should happen to the clippings?", answer: "Take them away" },
   ],
   notes: "Gate code 1234",
   photos: 2,

@@ -140,7 +140,7 @@ async def detail(db: Db, s: Settings, key: str) -> AdminRequestDetail:
     answers = []
     if cat is not None:
         for field in cat.intake:
-            if field.type == "photos":
+            if field.type == "photos" or field.key == "frequency":  # photos and "How often" have their own rows
                 continue
             text = answer_text(field, req.answers.get(field.key, field.default))
             if text:
