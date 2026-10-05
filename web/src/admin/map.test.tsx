@@ -9,7 +9,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mockApi, renderWithProviders } from "../test/utils";
 import { basemapStyle } from "./map/basemap";
-import { LAYER_IDS } from "./map/layers";
+import { dataLayers, LAYER_IDS } from "./map/layers";
 import MapPage from "./pages/Map";
 
 // vi.mock factories are hoisted above the imports, so the stand-ins are too.
@@ -145,10 +145,13 @@ const request = (ref: string, over: Record<string, unknown> = {}) => ({
     guide_pence: 2800,
     waiting: true,
     uncovered: true,
-    in_reach: 0,
     in_reach_doing_it: 0,
     cover: false,
     awaiting_customer: false,
+    nearby: [
+      { provider_id: "p-kasia", short: "Kasia N.", miles: 3.2, jobs: ["Regular cleaning", "Deep clean"], does_it: false, payouts_paused: false },
+    ],
+    in_reach: 1,
     ...over,
   },
 });
@@ -176,6 +179,8 @@ const provider = {
     travel_radius_miles: 4,
     placed_at: "postcode",
     covers: true,
+    payouts_paused: false,
+    status_reason: null,
     jobs: ["Lawn mowing", "Hedge trimming"],
   },
 };
@@ -228,7 +233,16 @@ function serveMap() {
       const next = { ...request("R-2295", { category_name: "Window cleaning" }), geometry: point(-0.8335, 51.7245) };
       const uncs = server.neighbour ? [unc, next] : [unc];
       const here = (ref: string) => !server.gone.has(ref);
-      const dave = { ...provider, properties: { ...provider.properties, status: server.daveStatus, covers: server.daveStatus === "active" } };
+      const dave = {
+        ...provider,
+        properties: {
+          ...provider.properties,
+          status: server.daveStatus,
+          covers: ["active", "payouts_paused"].includes(server.daveStatus),
+          payouts_paused: server.daveStatus === "payouts_paused",
+          status_reason: server.daveStatus === "payouts_paused" ? "Tax details missing" : null,
+        },
+      };
       const done = { ...booking, id: "b2", properties: { ...booking.properties, booking_id: "b2", visits: 2, visit_date: "2026-09-20" } };
       return {
         generated_at: "2026-10-04T21:45:00Z",
@@ -348,8 +362,12 @@ describe("the admin map", () => {
     expect(within(panel).getByRole("heading", { name: "Lawn mowing in Princes Risborough, HP27" })).toBeInTheDocument();
     expect(panel).toHaveTextContent("Open 26 hours, nobody's taken it yet");
     expect(panel).toHaveTextContent("£28");
-    expect(panel).toHaveTextContent("Outside every active provider's travel radius");
-    expect(within(panel).getByRole("link", { name: "Open R-2284 in dispatch" })).toHaveAttribute("href", "/admin#request-R-2284");
+    expect(panel).toHaveTextContent("No active provider in reach does lawn mowing (1 provider in reach does other jobs)");
+    // Who is in reach, and what they do (A36).
+    expect(within(panel).getByRole("list", { name: "Active providers in reach" })).toHaveTextContent(
+      "Kasia N., 3.2 mi: Regular cleaning, Deep clean",
+    );
+    expect(within(panel).getByRole("link", { name: "Open R-2284" })).toHaveAttribute("href", "/admin/requests/id-R-2284");
 
     // The button stays the same one (so keyboard focus stays on it), marked as the one shown.
     const marker = screen.getByRole("button", { name: "Uncovered: Lawn mowing in Princes Risborough, HP27 (R-2284)" });
@@ -402,6 +420,21 @@ describe("the admin map", () => {
     expect(panel).toHaveTextContent("ProviderMike R., covering for Dave H.");
     expect(panel).toHaveTextContent("Booked: 3 visits to come, the next on 6 Oct 2026");
     expect(within(panel).getByRole("link", { name: "Mike R.'s page" })).toHaveAttribute("href", "/admin/providers/p-mike");
+  });
+
+  it("marks a provider whose payouts are paused, who still counts as cover (A37)", async () => {
+    server.daveStatus = "payouts_paused";
+    serveMap();
+    renderWithProviders(<MapPage />, { path: "/admin/map" });
+    await waitFor(() => expect(map()?.sources.providers?.data.features).toHaveLength(1));
+    const mark = dataLayers().find((l) => l.id === "providers-paused");
+    expect(mark && "filter" in mark ? mark.filter : null).toEqual(["==", ["get", "payouts_paused"], true]);
+    expect(map().visible("providers-paused")).toBe(true);
+    map().hits = [{ layer: { id: "providers-disc", source: "providers" }, properties: { provider_id: "p-dave" }, geometry: provider.geometry }];
+    await act(() => map().click());
+    const panel = screen.getByRole("region", { name: "Details" });
+    expect(within(panel).getByText("Payouts paused")).toHaveClass("badge");
+    expect(panel).toHaveTextContent("Active, payouts paused. They still take jobs, so they count as cover. (Tax details missing)");
   });
 
   it("keeps the details in step with the latest data, and closes them when the marker has gone", async () => {

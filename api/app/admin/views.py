@@ -68,7 +68,8 @@ def brief_for(cat: Category, answers: dict, measure: Measure | None) -> str:
     """A one-line description of a job from its answers, rendered from the intake schema."""
     parts: list[str] = []
     if measure is not None:
-        parts.append(f"About {measure.area_m2} m² lawn")
+        across = f" across {len(measure.lawns)} lawns" if len(measure.lawns) > 1 else ""  # A39
+        parts.append(f"About {measure.area_m2} m² lawn{across}")
     for f in cat.intake:
         value = answers.get(f.key)
         if value in (None, "", [], {}) or f.type in ("photos", "text"):

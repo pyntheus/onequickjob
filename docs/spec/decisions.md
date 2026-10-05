@@ -730,10 +730,9 @@ A28, section 2e, are the lawn-sizes session's.)
   never shown as an own customer's (A4; Codex re-check). A visit whose booking can't be found
   has no address and is left out.
   Pins carry the area and district, never the street, postcode or customer (the exact position
-  is the marker itself). There is no admin page for a single request, so a request links to its
-  card on Overview's dispatch list (`/admin#request-R-2297`, scrolled to and focused), which is
-  where its actions are (WhatsApp text, raise the guide); a request open less than an hour isn't
-  on that list yet and the panel says so. Jobs and providers link to the provider's page. The details panel
+  is the marker itself). A request links to its own page, `/admin/requests/:id` (A38; at first,
+  before that page, to its card on Overview's dispatch list). Jobs and providers link to the
+  provider's page. The details panel
   keeps the marker by identity and always shows it as the latest data has it, closing when it's
   gone (booked meanwhile, out of the dates chosen) or its layer is switched off (Codex review).
   (`tests/admin/test_map.py`; `web/src/admin/map.test.tsx`; e2e `m-map.spec.ts`.)
@@ -755,9 +754,9 @@ A28, section 2e, are the lawn-sizes session's.)
   (`eligibility.TAKES_JOBS`: active, or active with payouts paused) has it within their travel
   radius, measured as the broadcast measures it: `eligibility.within_reach`, straight-line miles
   from their home to the address, up to and including the radius (`alert_targets` now calls the
-  same function). It's geography only, because the question is where to recruit: a provider in
-  reach who doesn't do that job still covers the place, and the panel says how many in reach do
-  it (`in_reach`, `in_reach_doing_it`). Providers signing up or suspended never cover. Cover and
+  same function), and offers its job type (A36; at first it was geography only). The panel says
+  how many in reach there are and how many do it (`in_reach`, `in_reach_doing_it`). Providers
+  signing up or suspended never cover. Cover and
   "Book again" requests follow the same rule. Uncovered requests are drawn as buttons on the map
   (the danger red with a "!", reachable by keyboard; requests too close to tell apart at the
   zoom shown share one button with their count, which zooms in, so no button covers another:
@@ -795,6 +794,48 @@ A28, section 2e, are the lawn-sizes session's.)
   other seeded one, so no existing reference moves. `make seed` stays idempotent.
   (`test_seed.py`: `test_open_requests_and_guides`, `test_the_map_has_uncovered_demand_in_the_thin_areas`,
   `test_seeding_twice_changes_nothing`.)
+
+## 2g. Rulings after the map report
+
+Decided by Hasan after reviewing the map session's report (PR #10); each has tests.
+
+- **A36. Uncovered means nobody in reach does the job.** An open request is uncovered when no
+  provider who takes jobs (A32, A37) has it within reach, by the job alerts' own test
+  (`eligibility.within_reach`), and offers its job type among the job types they've chosen
+  (`Provider.skills`, A24). A provider in reach who doesn't do that job no longer covers it.
+  The panel, and the request's page, still list who is in reach, nearest first, with their
+  distance and the job types they do, marking any who do this one (`RequestPin.nearby`,
+  `NearbyProvider`). The seeded uncovered requests are the same five. (`test_map.py`:
+  `test_uncovered_demand_means_no_active_provider_in_reach_does_the_job`;
+  `test_request_page.py`: `test_who_could_take_it`; web `map.test.tsx`.)
+- **A37. Payouts paused still covers, and is marked.** A provider whose payouts are paused still
+  takes jobs, so still counts as cover. Their pin carries a small amber mark at the disc's
+  shoulder (`providers-paused`), the legend explains it, and the panel shows a "Payouts paused"
+  badge, says they still count as cover and gives the reason if there is one
+  (`ProviderPin.payouts_paused`, `status_reason`). In the lists of who's in reach they're marked
+  "payouts paused" too. (`test_a_provider_with_payouts_paused_still_covers_and_is_marked`; web
+  `map.test.tsx`.)
+- **A38. A page for each request.** `/admin/requests/:id` (`GET /api/admin/requests/{id}`,
+  admins only; the request's id or its reference) shows the customer's request (category, the
+  answers to each question, the lawn size and the method behind it: the band and nudge, or each
+  lawn paced out or measured as given and in metres, the estimator and its confidence; the full
+  address; the customer's name and phone; the chosen days and times, how often, the guide and
+  first-visit prices and estimates; notes and photos), its status and age, every offer and
+  counter with its status, its timeline in plain words, the outbox messages linked to it
+  (newest first; sign-in codes masked outside DEMO_MODE as on the admin outbox), any raise
+  waiting for the customer, who could take it (A36), and while it's open the dispatch actions,
+  Copy WhatsApp message and Raise guide 10%, through the existing endpoints, so A12's approval
+  by the customer is unchanged. Booked, it says by whom, at what price and the booking's
+  reference. Map pins for requests and the dispatch list on Overview link to it; the earlier
+  `#request-` anchor on Overview is gone. (`test_request_page.py`; web `request-page.test.tsx`,
+  `admin.test.tsx`; e2e `m-map.spec.ts`, `z-a11y.spec.ts`.)
+- **A39. The admin job summary counts lawns.** Admin's one-line summary of a lawn job (the
+  dispatch list's brief, `admin.views.brief_for`) says "About 250 m² lawn across 2 lawns" when
+  the customer gave more than one lawn (A26), as providers' facts do; one lawn reads as before.
+  (`test_the_admin_summary_says_across_how_many_lawns`, `test_the_dispatch_list_shows_the_lawns_too`.)
+- **A40. Official postcode centroids are parked until the pilot.** A33's demo lookup stays as
+  it is; loading the free OS Code-Point Open / ONS postcode data for the pilot's districts, with
+  its attribution, is on the pre-pilot list (`docs/pre-pilot.md`).
 
 ## 3. Open questions (for Hasan)
 

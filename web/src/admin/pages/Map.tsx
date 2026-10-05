@@ -119,7 +119,7 @@ export function MapPage() {
               <span aria-hidden="true" className="map-dot bang" style={{ background: UNCOVERED }}>
                 !
               </span>
-              <span className="xs muted">Open requests outside every active provider's travel radius</span>
+              <span className="xs muted">Open requests no active provider in reach does that job for</span>
             </Layer>
             <Layer t="booked" on={on.booked} flip={flip} label="Booked visits" count={count("booked")}>
               <span aria-hidden="true" className="map-dot" style={{ background: COLOURS.booked }} />
@@ -157,7 +157,8 @@ export function MapPage() {
               <span className="xs muted">
                 At their home postcode, with their travel radius.{" "}
                 <span aria-hidden="true" className="map-dot sm provider signing" /> signing up,{" "}
-                <span aria-hidden="true" className="map-dot sm provider suspended" /> suspended
+                <span aria-hidden="true" className="map-dot sm provider suspended" /> suspended,{" "}
+                <span aria-hidden="true" className="map-dot xs paused" /> payouts paused (still cover)
               </span>
             </Layer>
             <Layer t="hexes" on={on.hexes} flip={flip} label="Concentration" count={null}>
@@ -212,11 +213,11 @@ export function MapPage() {
                 Where to recruit
               </h2>
               {uncovered.length === 0 ? (
-                <p className="small muted">Every open request is inside an active provider's travel radius.</p>
+                <p className="small muted">Every open request has an active provider in reach who does that job.</p>
               ) : (
                 <>
                   <p className="small muted">
-                    {plural(uncovered.length, "open request")} outside every active provider's travel radius.
+                    {plural(uncovered.length, "open request")} that no active provider in reach does the job for.
                   </p>
                   <ul className="map-list">
                     {uncovered.map((f) => {

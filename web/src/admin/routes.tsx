@@ -6,6 +6,7 @@ import type { ScreenEntry } from "../shared/screens";
 export const ADMIN_SCREENS: ScreenEntry[] = [
   { id: "overview", label: "Overview and dispatch", path: "/admin", lane: "L3" },
   { id: "map", label: "Map", path: "/admin/map", lane: "L3" },
+  { id: "request", label: "Request", path: "/admin/requests/:requestId", lane: "L3" },
   { id: "providers", label: "Providers", path: "/admin/providers", lane: "L3" },
   { id: "provider", label: "Provider", path: "/admin/providers/:providerId", lane: "L3" },
   { id: "calibration", label: "Pricing and calibration", path: "/admin/pricing", lane: "L3" },
@@ -20,6 +21,7 @@ export const adminRoutes: RouteObject = {
   children: [
     { index: true, lazy: page(() => import("./pages/Overview")) },
     { path: "map", lazy: page(() => import("./pages/Map")) },
+    { path: "requests/:requestId", lazy: page(() => import("./pages/RequestDetail")) },
     { path: "providers", lazy: page(() => import("./pages/Providers")) },
     { path: "providers/:providerId", lazy: page(() => import("./pages/ProviderDetail")) },
     { path: "pricing", lazy: page(() => import("./pages/Pricing")) },

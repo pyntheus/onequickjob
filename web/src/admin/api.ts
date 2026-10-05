@@ -17,6 +17,7 @@ export type OutboxItem = Schemas["OutboxItem"];
 export type AuditEntry = Schemas["AuditEntry"];
 export type ProviderFilter = "all" | "attention" | "signup";
 export type MapData = Schemas["MapData"];
+export type RequestDetail = Schemas["AdminRequestDetail"];
 export type RequestPin = Schemas["RequestPin"];
 export type JobPin = Schemas["JobPin"];
 export type ProviderPin = Schemas["ProviderPin"];
@@ -39,6 +40,7 @@ export const adminKeys = {
   outbox: (q: OutboxQuery) => ["admin", "outbox", q] as const,
   audit: ["admin", "audit"] as const,
   map: (q: MapQuery) => ["admin", "map", q] as const,
+  request: (id: string) => ["admin", "request", id] as const,
 };
 
 export function useOverview() {
@@ -110,6 +112,14 @@ export function useMapData(q: MapQuery) {
     // Keep the layers on screen while a toggle fetches the next set.
     placeholderData: (prev) => prev,
     refetchInterval: 60_000,
+  });
+}
+
+export function useRequestDetail(id: string) {
+  return useQuery({
+    queryKey: adminKeys.request(id),
+    queryFn: () => call(api.GET("/api/admin/requests/{request_id}", { params: { path: { request_id: id } } })),
+    enabled: !!id,
   });
 }
 

@@ -82,6 +82,9 @@
 .map-dot.provider.sm{width:12px;height:12px}
 .map-dot.provider.signing{background:var(--warn-soft);border-color:var(--warn)}
 .map-dot.provider.suspended{background:var(--soft);border-color:#98a39a}
+.map-dot.xs.paused{width:10px;height:10px;background:var(--warn);border:1.5px solid var(--surface);box-shadow:0 0 0 1px var(--line)}
+.map-near{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:3px;font-size:13.5px;line-height:1.35}
+.map-paused{align-self:flex-start}
 .map-dot.hex{border-radius:3px;clip-path:polygon(25% 5%,75% 5%,100% 50%,75% 95%,25% 95%,0 50%);border:0;box-shadow:none;width:16px;height:16px}
 .map-dates{padding-left:30px}
 .map-dates label{flex:1;min-width:130px}
@@ -112,8 +115,14 @@
 .map-facts dd{margin:0}
 .map-canvas .maplibregl-ctrl-attrib{font-size:11px;background:rgba(255,255,255,.85)}
 .map-canvas .maplibregl-ctrl-attrib a{color:var(--ink)}
-/* A request the map linked to, on Overview (/admin#request-R-2297). */
-.req:focus{outline:none}
-.req.linked{box-shadow:inset 4px 0 0 var(--accent);padding-left:14px}
+/* One request (/admin/requests/:id, A38) */
+.a-facts{display:grid;grid-template-columns:minmax(110px,max-content) 1fr;gap:6px 16px;margin:0;font-size:14.5px}
+.a-facts dt{color:var(--muted)}
+.a-facts dd{margin:0;overflow-wrap:anywhere}
+.a-subhead{font-size:15px;font-weight:600;margin:4px 0 0}
+.a-near{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px;font-size:14.5px}
+.a-near li{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px}
+.a-timeline{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px;font-size:14.5px}
+@media(max-width:520px){.a-facts{grid-template-columns:1fr;gap:0}.a-facts dd{margin-bottom:8px}}
 @media(max-width:1100px){.map-layout{grid-template-columns:minmax(0,1fr)}.map-canvas{height:62vh;min-height:360px}}
 @media(max-width:860px){.map-panel{position:relative;left:auto;bottom:auto;width:auto;margin-top:12px;box-shadow:none}.map-canvas{height:58vh;min-height:320px}.map-recruit{order:-1}}

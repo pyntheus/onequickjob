@@ -44,6 +44,15 @@ has to be done before a real person's job, money or details go into it. Each lin
   if wanted, and an email service), with the sender name, opt-outs and quiet hours tested.
   *Why:* with DEMO_MODE off nobody can sign in today: sign-in codes only appear in the Outbox
   drawer, and job alerts, booking confirmations and receipts reach nobody.
+- [ ] **Official postcode centroids for the admin map**: load the free OS Code-Point Open (or
+  the ONS Postcode Directory) centroids for the pilot's districts into the lookup the map uses
+  (`app/services/postcodes.py`), and show its attribution where they're used ("Contains OS data
+  © Crown copyright and database right" and, for the ONS data, "Contains Royal Mail data ©
+  Royal Mail copyright and database right" and "Source: Office for National Statistics
+  licensed under the Open Government Licence v.3.0").
+  *Why:* the admin map plots each provider at their home postcode's centre, never their address
+  (decisions.md A33). Today only the demo's postcodes are in its table; any other postcode falls
+  back to the home rounded to about 1 km, which is safe but vague (A40).
 
 ## Turning DEMO_MODE off
 

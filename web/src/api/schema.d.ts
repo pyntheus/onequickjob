@@ -595,6 +595,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/requests/{request_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Request Detail
+         * @description One request (A38): the customer's request and lawn size, status and age, every offer and
+         *     counter, its timeline, the outbox messages about it, a raise waiting for the customer, and
+         *     who could take it. Takes the request's id or its reference (R-2297).
+         */
+        get: operations["request_detail_api_admin_requests__request_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/visits/{visit_id}/refund": {
         parameters: {
             query?: never;
@@ -2567,6 +2589,107 @@ export interface components {
             /** User Id */
             user_id: string;
         };
+        /**
+         * AdminRequestDetail
+         * @description Everything about one request, for /admin/requests/:id (A38). The customer's address is
+         *     exact: admins only.
+         */
+        AdminRequestDetail: {
+            address: components["schemas"]["Address"];
+            /** Admin Note */
+            admin_note: string | null;
+            /**
+             * Age Text
+             * @description "5 hours" since it was made
+             */
+            age_text: string;
+            /** Answers */
+            answers: components["schemas"]["AnswerRow"][];
+            booked: components["schemas"]["BookedRow"] | null;
+            /** Category Id */
+            category_id: string;
+            /** Category Name */
+            category_name: string;
+            /**
+             * Cover
+             * @description Cover for one visit of a provider's time off
+             */
+            cover: boolean;
+            coverage: components["schemas"]["RequestCoverage"];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Customer Name */
+            customer_name: string;
+            /** Customer Phone */
+            customer_phone: string | null;
+            /**
+             * Direct Provider Short
+             * @description "Book again": offered to this provider only
+             */
+            direct_provider_short: string | null;
+            /** First Mins */
+            first_mins: number | null;
+            /**
+             * First Pence
+             * @description First-visit price, when dearer
+             */
+            first_pence: number | null;
+            /**
+             * Frequency Text
+             * @description "Every 2 weeks", "One-off"
+             */
+            frequency_text: string;
+            /** Guide Pence */
+            guide_pence: number;
+            lawn: components["schemas"]["LawnSize"] | null;
+            /**
+             * Messages
+             * @description Outbox messages linked to it, newest first
+             */
+            messages: components["schemas"]["OutboxItem"][];
+            /** Mins */
+            mins: number;
+            /** Notes */
+            notes: string;
+            /**
+             * Offers
+             * @description Every counter, newest first, with its status
+             */
+            offers: components["schemas"]["OfferRow"][];
+            /** Photos */
+            photos: number;
+            /** @description A raised guide waiting for the customer (A12) */
+            price_change: components["schemas"]["PriceChange"] | null;
+            /** Ref */
+            ref: string;
+            /** Request Id */
+            request_id: string;
+            /**
+             * Status
+             * @description open, booked, cancelled or expired
+             */
+            status: string;
+            /**
+             * Timeline
+             * @description What's happened, oldest first
+             */
+            timeline: components["schemas"]["TimelineRow"][];
+            /** Unit */
+            unit: string;
+            /**
+             * Waiting
+             * @description Open an hour or more with nobody taking it: on the dispatch list
+             */
+            waiting: boolean;
+            /**
+             * When Text
+             * @description "Weekday mornings", "Any day"
+             */
+            when_text: string;
+        };
         /** AffectedVisit */
         AffectedVisit: {
             /** Area */
@@ -2622,6 +2745,13 @@ export interface components {
              * @default false
              */
             whatsapp: boolean;
+        };
+        /** AnswerRow */
+        AnswerRow: {
+            /** Answer */
+            answer: string;
+            /** Question */
+            question: string;
         };
         /** AreaAdjustment */
         AreaAdjustment: {
@@ -2882,6 +3012,31 @@ export interface components {
             request_id?: string | null;
             /** Visit Id */
             visit_id?: string | null;
+        };
+        /** BookedRow */
+        BookedRow: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Booking Id */
+            booking_id: string;
+            /** Booking Ref */
+            booking_ref: string | null;
+            /** First Price Pence */
+            first_price_pence: number | null;
+            /** Price Pence */
+            price_pence: number;
+            /** Provider Id */
+            provider_id: string;
+            /** Provider Short */
+            provider_short: string;
+            /**
+             * Via
+             * @description guide, counter or direct
+             */
+            via: string;
         };
         /** BookingCard */
         BookingCard: {
@@ -4498,6 +4653,21 @@ export interface components {
         };
         /** @enum {string} */
         Lane: "F" | "L1" | "L2" | "L3";
+        /** LawnRow */
+        LawnRow: {
+            /** Area M2 */
+            area_m2: number;
+            /**
+             * Given
+             * @description As the customer gave it: "19 × 10 strides", "40 × 30 ft"
+             */
+            given: string;
+            /**
+             * Metres
+             * @description "19 × 10 metres"
+             */
+            metres: string;
+        };
         /**
          * LawnSides
          * @description One lawn's sides as the customer gave them: whole strides (paced), or metres or feet
@@ -4508,6 +4678,44 @@ export interface components {
             length: number | string;
             /** Width */
             width: number | string;
+        };
+        /**
+         * LawnSize
+         * @description The lawn size and the method behind it (A26, A27).
+         */
+        LawnSize: {
+            /**
+             * Area M2
+             * @description What the engine priced
+             */
+            area_m2: number;
+            /** Confidence */
+            confidence: string | null;
+            /**
+             * Estimator
+             * @description The AreaEstimator: manual_bands_v0 or customer_measured_v0
+             */
+            estimator: string;
+            /**
+             * Lawns
+             * @description Paced or measured: each lawn
+             */
+            lawns: components["schemas"]["LawnRow"][];
+            /**
+             * Method
+             * @enum {string}
+             */
+            method: "band" | "paced" | "measured";
+            /**
+             * Method Text
+             * @description "Picked a size: Large, looks about right", "Paced it out", ...
+             */
+            method_text: string;
+            /**
+             * Summary
+             * @description "a large lawn (about 190 m²)", "2 lawns paced out, about 250 m² in total"
+             */
+            summary: string;
         };
         /**
          * LedgerEntry
@@ -4822,6 +5030,36 @@ export interface components {
              */
             route_text: string;
         };
+        /**
+         * NearbyProvider
+         * @description A provider who takes jobs and has a request inside their travel radius (A36).
+         */
+        NearbyProvider: {
+            /**
+             * Does It
+             * @description This request's job type is one of theirs
+             */
+            does_it: boolean;
+            /**
+             * Jobs
+             * @description The job types they've chosen, by name
+             */
+            jobs: string[];
+            /**
+             * Miles
+             * @description Straight-line miles from their home, as the job alerts measure it
+             */
+            miles: number;
+            /**
+             * Payouts Paused
+             * @description Takes jobs, but payouts are paused (A37)
+             */
+            payouts_paused: boolean;
+            /** Provider Id */
+            provider_id: string;
+            /** Short */
+            short: string;
+        };
         /** NewMessage */
         NewMessage: {
             /** Body */
@@ -4927,6 +5165,40 @@ export interface components {
              * Format: date-time
              */
             updated_at?: string;
+        };
+        /** OfferRow */
+        OfferRow: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Decided At */
+            decided_at: string | null;
+            /** First Price Pence */
+            first_price_pence: number | null;
+            /**
+             * Guide Pence
+             * @description The guide when it was made
+             */
+            guide_pence: number;
+            /** Id */
+            id: string;
+            /** Message */
+            message: string;
+            /** Price Pence */
+            price_pence: number;
+            /** Provider Id */
+            provider_id: string;
+            /** Provider Short */
+            provider_short: string;
+            /** Reasons */
+            reasons: string[];
+            /**
+             * Status
+             * @description pending, accepted, declined, lapsed or withdrawn
+             */
+            status: string;
         };
         /** OnboardingLink */
         OnboardingLink: {
@@ -5371,6 +5643,61 @@ export interface components {
             type: "Polygon";
         };
         /**
+         * PriceChange
+         * @description A raised guide price waiting for the customer's approval (ruling A12). Only on approval
+         *     does the request's guide change and its job alerts go out again.
+         */
+        PriceChange: {
+            /** Decided At */
+            decided_at?: string | null;
+            /**
+             * First Pence
+             * @description Scaled by the same ratio (scaled_first_price)
+             */
+            first_pence?: number | null;
+            /** From First Pence */
+            from_first_pence?: number | null;
+            /**
+             * From Guide Pence
+             * @description Integer pence
+             */
+            from_guide_pence: number;
+            /**
+             * Guide Pence
+             * @description Integer pence
+             */
+            guide_pence: number;
+            /**
+             * Id
+             * @description Answers name it, so a stale page can't approve a newer one
+             */
+            id?: string;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            /** Percent */
+            percent?: number | null;
+            /**
+             * Proposed At
+             * Format: date-time
+             */
+            proposed_at: string;
+            /**
+             * Proposed By
+             * @description Admin user id
+             */
+            proposed_by?: string | null;
+            /**
+             * Status
+             * @description withdrawn: the request was booked while it waited (A16)
+             * @default pending
+             * @enum {string}
+             */
+            status: "pending" | "approved" | "declined" | "withdrawn";
+        };
+        /**
          * PriceChangeAnswer
          * @description The customer's answer to a raised guide (A12), naming the proposal they saw.
          */
@@ -5713,7 +6040,7 @@ export interface components {
             area: string;
             /**
              * Covers
-             * @description Counts for coverage: active, or active with payouts paused (A32)
+             * @description Counts for coverage: active, or active with payouts paused (A32, A37)
              */
             covers: boolean;
             /** District */
@@ -5725,6 +6052,11 @@ export interface components {
              * @description The kinds of job they do, by name
              */
             jobs: string[];
+            /**
+             * Payouts Paused
+             * @description Takes jobs, but payouts are paused: marked on the pin (A37)
+             */
+            payouts_paused: boolean;
             /**
              * Placed At
              * @description postcode: their home postcode's centroid; approximate: home rounded to about 1 km (A33)
@@ -5740,6 +6072,11 @@ export interface components {
              * @enum {string}
              */
             status: "signing_up" | "active" | "payouts_paused" | "suspended";
+            /**
+             * Status Reason
+             * @description Why, if the team gave a reason (suspended, payouts paused)
+             */
+            status_reason: string | null;
             /** Travel Radius Miles */
             travel_radius_miles: number;
         };
@@ -6268,6 +6605,20 @@ export interface components {
              */
             status: "missing" | "pending" | "verified" | "rejected" | "expired";
         };
+        /** RequestCoverage */
+        RequestCoverage: {
+            /** In Reach */
+            in_reach: number;
+            /** In Reach Doing It */
+            in_reach_doing_it: number;
+            /** Nearby */
+            nearby: components["schemas"]["NearbyProvider"][];
+            /**
+             * Uncovered
+             * @description No active provider in reach offers its job type (A36)
+             */
+            uncovered: boolean;
+        };
         /** RequestDetail */
         RequestDetail: {
             /**
@@ -6415,16 +6766,21 @@ export interface components {
             in_reach: number;
             /**
              * In Reach Doing It
-             * @description Of those, how many do this kind of job
+             * @description Of those, how many offer its job type
              */
             in_reach_doing_it: number;
+            /**
+             * Nearby
+             * @description Those in reach, nearest first, and what they do
+             */
+            nearby: components["schemas"]["NearbyProvider"][];
             /** Ref */
             ref: string;
             /** Request Id */
             request_id: string;
             /**
              * Uncovered
-             * @description Outside every active provider's travel radius (A32)
+             * @description No active provider in reach offers its job type (A36)
              */
             uncovered: boolean;
             /**
@@ -6881,6 +7237,18 @@ export interface components {
             kind: "sent" | "viewing" | "counter" | "accepted" | "declined" | "cancelled" | "note";
             offer?: components["schemas"]["CounterOfferView"] | null;
             provider?: components["schemas"]["ProviderCard"] | null;
+            /** Text */
+            text: string;
+        };
+        /** TimelineRow */
+        TimelineRow: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Kind */
+            kind: string;
             /** Text */
             text: string;
         };
@@ -9560,6 +9928,82 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WhatsAppText"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    request_detail_api_admin_requests__request_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminRequestDetail"];
                 };
             };
             /** @description Bad Request */

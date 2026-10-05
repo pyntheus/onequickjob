@@ -6,12 +6,13 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, Field
 
 from app.models.categories import Category
-from app.models.common import DocType
+from app.models.common import Address, DocType
 from app.models.disputes import DisputeEvent, Resolution
+from app.models.job_requests import PriceChange
 from app.models.pricing_versions import ParamChange
 from app.models.providers import DocStatus, ProviderStatus
 from app.models.records import LedgerEntry
-from app.shared.schemas import In
+from app.shared.schemas import In, OutboxItem
 
 # ------------------------------------------------------------------ overview
 
@@ -396,6 +397,17 @@ class PolygonGeometry(BaseModel):
     coordinates: list[list[LngLat]] = Field(description="One closed ring of [longitude, latitude]")
 
 
+class NearbyProvider(BaseModel):
+    """A provider who takes jobs and has a request inside their travel radius (A36)."""
+
+    provider_id: str
+    short: str
+    miles: float = Field(description="Straight-line miles from their home, as the job alerts measure it")
+    jobs: list[str] = Field(description="The job types they've chosen, by name")
+    does_it: bool = Field(description="This request's job type is one of theirs")
+    payouts_paused: bool = Field(description="Takes jobs, but payouts are paused (A37)")
+
+
 class RequestPin(BaseModel):
     request_id: str
     ref: str
@@ -407,9 +419,10 @@ class RequestPin(BaseModel):
     age_text: str = Field(description='How long it has been open: "5 hours"')
     guide_pence: int
     waiting: bool = Field(description="Open for more than an hour without a taker, so on the dispatch list")
-    uncovered: bool = Field(description="Outside every active provider's travel radius (A32)")
+    uncovered: bool = Field(description="No active provider in reach offers its job type (A36)")
     in_reach: int = Field(description="Active providers whose travel radius covers it")
-    in_reach_doing_it: int = Field(description="Of those, how many do this kind of job")
+    in_reach_doing_it: int = Field(description="Of those, how many offer its job type")
+    nearby: list[NearbyProvider] = Field(description="Those in reach, nearest first, and what they do")
     cover: bool = Field(description="Cover for one visit of a provider's time off")
     awaiting_customer: bool = Field(description="A raised guide is waiting for the customer (A12)")
 
@@ -473,7 +486,9 @@ class ProviderPin(BaseModel):
     placed_at: Literal["postcode", "approximate"] = Field(
         description="postcode: their home postcode's centroid; approximate: home rounded to about 1 km (A33)"
     )
-    covers: bool = Field(description="Counts for coverage: active, or active with payouts paused (A32)")
+    covers: bool = Field(description="Counts for coverage: active, or active with payouts paused (A32, A37)")
+    payouts_paused: bool = Field(description="Takes jobs, but payouts are paused: marked on the pin (A37)")
+    status_reason: str | None = Field(description="Why, if the team gave a reason (suspended, payouts paused)")
     jobs: list[str] = Field(description="The kinds of job they do, by name")
 
 
@@ -559,3 +574,104 @@ class MapData(BaseModel):
     providers: ProviderLayer | None = None
     reach: ReachLayer | None = None
     hexes: HexGrid | None = None
+
+
+# ------------------------------------------------------------------ a single request (A38)
+
+
+class AnswerRow(BaseModel):
+    question: str
+    answer: str
+
+
+class LawnRow(BaseModel):
+    given: str = Field(description='As the customer gave it: "19 × 10 strides", "40 × 30 ft"')
+    metres: str = Field(description='"19 × 10 metres"')
+    area_m2: int
+
+
+class LawnSize(BaseModel):
+    """The lawn size and the method behind it (A26, A27)."""
+
+    area_m2: int = Field(description="What the engine priced")
+    summary: str = Field(description='"a large lawn (about 190 m²)", "2 lawns paced out, about 250 m² in total"')
+    method: Literal["band", "paced", "measured"]
+    method_text: str = Field(description='"Picked a size: Large, looks about right", "Paced it out", ...')
+    estimator: str = Field(description="The AreaEstimator: manual_bands_v0 or customer_measured_v0")
+    confidence: str | None
+    lawns: list[LawnRow] = Field(description="Paced or measured: each lawn")
+
+
+class OfferRow(BaseModel):
+    id: str
+    provider_id: str
+    provider_short: str
+    price_pence: int
+    first_price_pence: int | None
+    guide_pence: int = Field(description="The guide when it was made")
+    status: str = Field(description="pending, accepted, declined, lapsed or withdrawn")
+    reasons: list[str]
+    message: str
+    created_at: datetime
+    decided_at: datetime | None
+
+
+class TimelineRow(BaseModel):
+    at: datetime
+    kind: str
+    text: str
+
+
+class BookedRow(BaseModel):
+    booking_id: str
+    booking_ref: str | None
+    provider_id: str
+    provider_short: str
+    price_pence: int
+    first_price_pence: int | None
+    via: str = Field(description="guide, counter or direct")
+    at: datetime
+
+
+class RequestCoverage(BaseModel):
+    in_reach: int
+    in_reach_doing_it: int
+    uncovered: bool = Field(description="No active provider in reach offers its job type (A36)")
+    nearby: list[NearbyProvider]
+
+
+class AdminRequestDetail(BaseModel):
+    """Everything about one request, for /admin/requests/:id (A38). The customer's address is
+    exact: admins only."""
+
+    request_id: str
+    ref: str
+    status: str = Field(description="open, booked, cancelled or expired")
+    created_at: datetime
+    age_text: str = Field(description='"5 hours" since it was made')
+    waiting: bool = Field(description="Open an hour or more with nobody taking it: on the dispatch list")
+    category_id: str
+    category_name: str
+    customer_name: str
+    customer_phone: str | None
+    address: Address
+    when_text: str = Field(description='"Weekday mornings", "Any day"')
+    frequency_text: str = Field(description='"Every 2 weeks", "One-off"')
+    unit: str
+    guide_pence: int
+    first_pence: int | None = Field(description="First-visit price, when dearer")
+    mins: int
+    first_mins: int | None
+    answers: list[AnswerRow]
+    notes: str
+    photos: int
+    lawn: LawnSize | None
+    cover: bool = Field(description="Cover for one visit of a provider's time off")
+    direct_provider_short: str | None = Field(description='"Book again": offered to this provider only')
+    admin_note: str | None
+    booked: BookedRow | None
+    offers: list[OfferRow] = Field(description="Every counter, newest first, with its status")
+    timeline: list[TimelineRow] = Field(description="What's happened, oldest first")
+    messages: list[OutboxItem] = Field(description="Outbox messages linked to it, newest first")
+    price_change: PriceChange | None = Field(description="A raised guide waiting for the customer (A12)")
+    coverage: RequestCoverage

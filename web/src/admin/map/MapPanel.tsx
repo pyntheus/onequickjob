@@ -7,6 +7,7 @@ import { fmt } from "../../shared/format";
 import { shortDate } from "../util";
 import type { Selected } from "./MapCanvas";
 
+const NEARBY_SHOWN = 4;
 const STATUS: Record<string, string> = {
   active: "Active",
   payouts_paused: "Active, payouts paused",
@@ -57,7 +58,10 @@ function RequestDetails({ s }: { s: Extract<Selected, { kind: "request" }> }) {
         <dt>Coverage</dt>
         <dd>
           {p.uncovered ? (
-            <b className="map-uncovered-text">Outside every active provider's travel radius</b>
+            <b className="map-uncovered-text">
+              No active provider in reach does {p.category_name.toLowerCase()}
+              {p.in_reach ? ` (${plural(p.in_reach, "provider")} in reach ${p.in_reach === 1 ? "does" : "do"} other jobs)` : ""}
+            </b>
           ) : (
             `In reach of ${plural(p.in_reach, "active provider")}, ${p.in_reach_doing_it} doing this job`
           )}
@@ -69,15 +73,20 @@ function RequestDetails({ s }: { s: Extract<Selected, { kind: "request" }> }) {
           </>
         )}
       </dl>
-      {p.waiting ? (
-        <Link className="btn btn-primary btn-sm" to={`/admin#request-${p.ref}`}>
-          Open {p.ref} in dispatch
-        </Link>
-      ) : (
-        <p className="small muted">
-          Request {p.ref}. It joins the dispatch list on Overview once it has been open an hour.
-        </p>
+      {p.nearby.length > 0 && (
+        <ul className="map-near" aria-label="Active providers in reach">
+          {p.nearby.slice(0, NEARBY_SHOWN).map((n) => (
+            <li key={n.provider_id}>
+              <b>{n.short}</b>
+              {n.payouts_paused ? " (payouts paused)" : ""}, {n.miles} mi: {n.jobs.join(", ") || "no jobs chosen"}
+            </li>
+          ))}
+          {p.nearby.length > NEARBY_SHOWN && <li className="muted">and {p.nearby.length - NEARBY_SHOWN} more</li>}
+        </ul>
       )}
+      <Link className="btn btn-primary btn-sm" to={`/admin/requests/${p.request_id}`}>
+        Open {p.ref}
+      </Link>
     </>
   );
 }
@@ -123,11 +132,14 @@ function ProviderDetails({ s }: { s: Extract<Selected, { kind: "provider" }> }) 
   return (
     <>
       <h2 className="h3">{p.short}</h2>
+      {p.payouts_paused && <span className="badge warn map-paused">Payouts paused</span>}
       <dl className="map-facts">
         <dt>Status</dt>
         <dd>
           {STATUS[p.status] ?? p.status}
           {p.covers ? "" : ": their radius covers no one yet"}
+          {p.payouts_paused ? ". They still take jobs, so they count as cover." : ""}
+          {p.status_reason ? ` (${p.status_reason})` : ""}
         </dd>
         <dt>Home area</dt>
         <dd>

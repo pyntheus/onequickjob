@@ -1,7 +1,7 @@
 /** Overview and dispatch (the prototype's AdminOverview), on real data. Owned by L3. */
 import { Calendar, Copy } from "lucide-react";
-import { useEffect, useState } from "react";
-import { Link, useLocation } from "react-router";
+import { useState } from "react";
+import { Link } from "react-router";
 import { api, call } from "../../api/client";
 import { useConfig } from "../../api/queries";
 import { CatIcon } from "../../shared/CatIcon";
@@ -15,7 +15,7 @@ function plural(n: number, one: string, many = one + "s") {
   return `${n} ${n === 1 ? one : many}`;
 }
 
-function Waiting({ r, linked }: { r: UnfilledRequest; linked: boolean }) {
+function Waiting({ r }: { r: UnfilledRequest }) {
   const notify = useToast();
   const [text, setText] = useState<string | null>(null);
   const raise = useAdminAction((ref: string) =>
@@ -47,7 +47,7 @@ function Waiting({ r, linked }: { r: UnfilledRequest; linked: boolean }) {
     }
   };
   return (
-    <div className={"req" + (linked ? " linked" : "")} id={`request-${r.request_ref}`} tabIndex={-1}>
+    <div className="req">
       <div className="row between top" style={gap("12px")}>
         <div className="row top" style={gap("12px")}>
           <span className="cat-ico sm">
@@ -55,7 +55,9 @@ function Waiting({ r, linked }: { r: UnfilledRequest; linked: boolean }) {
           </span>
           <div className="stack" style={gap("0px")}>
             <b>
-              {r.category_name} in {r.area}, {r.district}
+              <Link to={`/admin/requests/${r.request_id}`}>
+                {r.category_name} in {r.area}, {r.district}
+              </Link>
             </b>
             <span className="small muted">
               Request {r.request_ref}, waiting {r.age_text}
@@ -264,15 +266,6 @@ function Payments({ d }: { d: OverviewData }) {
 
 export default function Overview() {
   const { data: d, isLoading, error } = useOverview();
-  const { hash } = useLocation();
-  // The map links a request here (/admin#request-R-2284): bring its card into view once it's drawn.
-  useEffect(() => {
-    if (!d || !hash.startsWith("#request-")) return;
-    const card = document.getElementById(decodeURIComponent(hash.slice(1)));
-    if (!card) return;
-    card.scrollIntoView({ block: "center" });
-    card.focus({ preventScroll: true });
-  }, [d, hash]);
   return (
     <>
       <AdminHeader
@@ -299,7 +292,7 @@ export default function Overview() {
                   </div>
                   {d.waiting.length === 0 && <p className="small muted">Nothing has been waiting more than an hour.</p>}
                   {d.waiting.map((r) => (
-                    <Waiting key={r.request_id} r={r} linked={hash === `#request-${r.request_ref}`} />
+                    <Waiting key={r.request_id} r={r} />
                   ))}
                 </div>
                 <Payments d={d} />

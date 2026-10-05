@@ -40,7 +40,7 @@ export const CLUSTERED: SourceId[] = ["completed", "booked", "open"];
 /** Map layer ids under each toggle; uncovered demand is drawn as markers (buttons), not a layer. */
 export const LAYER_IDS: Record<Exclude<Toggle, "uncovered">, string[]> = {
   hexes: ["hexes-fill", "hexes-line"],
-  providers: ["reach-fill", "reach-line", "reach-dash", "providers-disc", "providers-label"],
+  providers: ["reach-fill", "reach-line", "reach-dash", "providers-disc", "providers-label", "providers-paused"],
   completed: ["completed-clusters", "completed-count", "completed-points"],
   booked: ["booked-clusters", "booked-count", "booked-points"],
   open: ["open-clusters", "open-count", "open-points"],
@@ -183,6 +183,20 @@ export function dataLayers(): AddLayerObject[] {
         "text-ignore-placement": true,
       },
       paint: { "text-color": ["case", status("suspended"), "#56645b", INK] },
+    },
+    {
+      // Payouts paused: still cover (A37), with a small amber mark at the disc's shoulder.
+      id: "providers-paused",
+      type: "circle",
+      source: "providers",
+      filter: ["==", ["get", "payouts_paused"], true],
+      paint: {
+        "circle-radius": 5,
+        "circle-color": PROVIDER.signing_up,
+        "circle-stroke-color": SURFACE,
+        "circle-stroke-width": 1.5,
+        "circle-translate": [10, -10],
+      },
     },
     ...points("completed"),
     ...points("booked"),

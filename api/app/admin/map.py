@@ -24,6 +24,7 @@ from app.admin.schemas import (
     LngLat,
     MapData,
     MapLayerName,
+    NearbyProvider,
     PointGeometry,
     PolygonGeometry,
     ProviderFeature,
@@ -48,7 +49,7 @@ from app.models.job_requests import JobRequest
 from app.models.providers import Provider
 from app.models.visits import Visit
 from app.repos import Bookings, Categories, JobRequests, Providers, Visits
-from app.services.eligibility import TAKES_JOBS, within_reach
+from app.services.eligibility import TAKES_JOBS, distance_miles, within_reach
 from app.services.postcodes import place_home
 
 HEX_RESOLUTION = 8  # cells about 1 km across (0.74 km²)
@@ -84,21 +85,43 @@ def date_range(start: date | None, end: date | None, today: date | None = None) 
 
 @dataclass(frozen=True)
 class Coverage:
-    in_reach: int
-    doing_it: int
+    category_id: str
+    nearby: list[tuple[Provider, float]]  # who takes jobs and has it in reach, nearest first, with miles
+
+    @property
+    def in_reach(self) -> int:
+        return len(self.nearby)
+
+    @property
+    def doing_it(self) -> int:
+        return sum(self.category_id in p.skills for p, _ in self.nearby)
 
     @property
     def uncovered(self) -> bool:
-        return self.in_reach == 0
+        return self.doing_it == 0
 
 
 def coverage(request: JobRequest, providers: list[Provider]) -> Coverage:
-    """How many providers who take jobs (active, or active with payouts paused) have the request
-    inside their travel radius, measured as the broadcast measures it. None: uncovered demand.
-    It's geography only: a nearby provider who doesn't do this job still covers the place (the
-    panel says how many in reach do it)."""
-    near = [p for p in providers if p.status in TAKES_JOBS and within_reach(p, request)]
-    return Coverage(in_reach=len(near), doing_it=sum(request.category_id in p.skills for p in near))
+    """Who could take the request: providers who take jobs (active, or active with payouts
+    paused) with it inside their travel radius, measured as the job alerts measure it
+    (eligibility.within_reach). It's uncovered when none of them offers its job type, among the
+    job types they've chosen (A36): that's where to recruit, even if someone lives nearby."""
+    near = [(p, distance_miles(p, request)) for p in providers if p.status in TAKES_JOBS and within_reach(p, request)]
+    return Coverage(category_id=request.category_id, nearby=sorted(near, key=lambda pm: (pm[1], pm[0].short)))
+
+
+def nearby_pins(cov: Coverage, names: dict[str, str]) -> list[NearbyProvider]:
+    return [
+        NearbyProvider(
+            provider_id=p.id,
+            short=p.short,
+            miles=round(miles, 1),
+            jobs=[names[s] for s in p.skills if s in names],
+            does_it=cov.category_id in p.skills,
+            payouts_paused=p.status == "payouts_paused",
+        )
+        for p, miles in cov.nearby
+    ]
 
 
 # ---------------------------------------------------------------- concentration (A34)
@@ -196,6 +219,7 @@ async def _requests(db: Db, providers: list[Provider], names: dict[str, str], no
                     uncovered=cov.uncovered,
                     in_reach=cov.in_reach,
                     in_reach_doing_it=cov.doing_it,
+                    nearby=nearby_pins(cov, names),
                     cover=r.cover_for_visit_id is not None,
                     awaiting_customer=pending_raise,
                 ),
@@ -279,6 +303,8 @@ def _providers(providers: list[Provider], names: dict[str, str]) -> tuple[Provid
                     travel_radius_miles=p.travel_radius_miles,
                     placed_at=placed,
                     covers=covers,
+                    payouts_paused=p.status == "payouts_paused",
+                    status_reason=p.status_reason,
                     jobs=[names[s] for s in p.skills if s in names],
                 ),
             )

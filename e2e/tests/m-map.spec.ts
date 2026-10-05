@@ -60,7 +60,7 @@ test("Jo finds where demand outruns coverage and follows it to dispatch, all fro
 
   // The thin areas: Princes Risborough, Longwick and Stokenchurch.
   const recruit = page.getByRole("region", { name: "Where to recruit" });
-  await expect(recruit).toContainText("5 open requests outside every active provider's travel radius.");
+  await expect(recruit).toContainText("5 open requests that no active provider in reach does the job for.");
   await expect.poll(() => onMap(page)).toBe(5);
 
   // Each layer off and on again: the map and what's asked of the API follow.
@@ -100,19 +100,32 @@ test("Jo finds where demand outruns coverage and follows it to dispatch, all fro
   await expect(panel.getByRole("heading", { name: "Regular cleaning in Stokenchurch, HP14" })).toBeVisible();
   await expect(panel).toContainText("Open 2 days, nobody's taken it yet");
   await expect(panel).toContainText("£66");
-  await expect(panel).toContainText("Outside every active provider's travel radius");
-  await panel.getByRole("link", { name: "Open R-2297 in dispatch" }).click();
+  await expect(panel).toContainText("No active provider in reach does regular cleaning");
+  await panel.getByRole("link", { name: "Open R-2297" }).click();
 
-  // Software WebGL (SwiftShader) on a phone-sized canvas can hold the page for a while after the
-  // map has flown somewhere, so the move to Overview gets longer than the usual 15 seconds.
-  await expect(page).toHaveURL(/\/admin#request-R-2297$/, { timeout: 60_000 });
-  await expect(page.getByRole("heading", { level: 1, name: "This week" })).toBeVisible({ timeout: 60_000 });
-  const card = page.locator("#request-R-2297");
-  await expect(card).toBeFocused();
-  await expect(card).toHaveClass(/\blinked\b/);
-  await expect(card).toBeInViewport();
-  await expect(card).toContainText("Regular cleaning in Stokenchurch, HP14");
-  await expect(card).toContainText("No providers in reach were alerted. Nobody has seen it.");
+  // Its own page (A38). Software WebGL (SwiftShader) on a phone-sized canvas can hold the page for
+  // a while after the map has flown somewhere, so the move gets longer than the usual 15 seconds.
+  await expect(page).toHaveURL(/\/admin\/requests\/[0-9a-f]{24}$/, { timeout: 60_000 });
+  const title = page.getByRole("heading", { level: 1, name: "Regular cleaning in Stokenchurch, HP14" });
+  await expect(title).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByText(/^Request R-2297, made /)).toBeVisible();
+  const request = page.locator(".card", { has: page.getByRole("heading", { name: "What the customer asked for" }) });
+  await expect(request).toContainText("Olivia Hart, 07700 900162");
+  await expect(request).toContainText("40 Wycombe Road, Stokenchurch, High Wycombe, HP14 3RR");
+  await expect(request).toContainText("£66 a clean");
+  const standing = page.locator(".card", { has: page.getByRole("heading", { name: "Where it stands" }) });
+  await expect(standing).toContainText("Open 2 days, nobody's taken it yet. It's on the dispatch list.");
+  await expect(standing).toContainText("No active provider in reach does regular cleaning.");
+  const timeline = page.locator(".card", { has: page.getByRole("heading", { name: "What's happened" }) });
+  await expect(timeline).toContainText("No provider was alerted");
+  await expect(page.getByRole("button", { name: "Raise guide 10%" })).toBeVisible();
+
+  // Overview's dispatch list links to the same pages.
+  await page.getByRole("link", { name: "Overview and dispatch" }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "This week" })).toBeVisible();
+  await page.getByRole("link", { name: "Gutter clearing in Longwick, HP27" }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Gutter clearing in Longwick, HP27" })).toBeVisible();
+  await expect(page.getByText(/^Request R-2296, made /)).toBeVisible();
 
   page.context().off("request", watch);
   expect(offsite, "requests that left the site").toEqual([]);

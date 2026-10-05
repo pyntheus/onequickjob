@@ -74,16 +74,10 @@ describe("overview and dispatch", () => {
     expect(screen.getByText(/Card declined: Your card was declined\./)).toBeInTheDocument();
   });
 
-  it("brings the request the map linked to into view (/admin#request-R-2291)", async () => {
+  it("links each waiting request to its page, and the districts to the map", async () => {
     mockApi({ "GET /api/config": () => config(true), "GET /api/admin/overview": () => overview });
-    const scroll = vi.fn();
-    Element.prototype.scrollIntoView = scroll;
-    renderWithProviders(<ToastProvider><Overview /></ToastProvider>, { path: "/admin#request-R-2291" });
-    const card = (await screen.findByText("Request R-2291, waiting 5 hours")).closest(".req");
-    expect(card).toHaveAttribute("id", "request-R-2291");
-    expect(card).toHaveClass("linked");
-    await waitFor(() => expect(card).toHaveFocus());
-    expect(scroll).toHaveBeenCalledWith({ block: "center" });
+    withToasts(<Overview />);
+    expect(await screen.findByRole("link", { name: "Hedge trimming in Loudwater, HP10" })).toHaveAttribute("href", "/admin/requests/r1");
     expect(screen.getByRole("link", { name: "See where the work is on the map" })).toHaveAttribute("href", "/admin/map");
   });
 

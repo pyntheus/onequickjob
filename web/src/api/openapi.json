@@ -358,6 +358,246 @@
         "title": "AdminHelper",
         "type": "object"
       },
+      "AdminRequestDetail": {
+        "description": "Everything about one request, for /admin/requests/:id (A38). The customer's address is\nexact: admins only.",
+        "properties": {
+          "address": {
+            "$ref": "#/components/schemas/Address"
+          },
+          "admin_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Admin Note"
+          },
+          "age_text": {
+            "description": "\"5 hours\" since it was made",
+            "title": "Age Text",
+            "type": "string"
+          },
+          "answers": {
+            "items": {
+              "$ref": "#/components/schemas/AnswerRow"
+            },
+            "title": "Answers",
+            "type": "array"
+          },
+          "booked": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookedRow"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "category_id": {
+            "title": "Category Id",
+            "type": "string"
+          },
+          "category_name": {
+            "title": "Category Name",
+            "type": "string"
+          },
+          "cover": {
+            "description": "Cover for one visit of a provider's time off",
+            "title": "Cover",
+            "type": "boolean"
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/RequestCoverage"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "customer_name": {
+            "title": "Customer Name",
+            "type": "string"
+          },
+          "customer_phone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Phone"
+          },
+          "direct_provider_short": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\"Book again\": offered to this provider only",
+            "title": "Direct Provider Short"
+          },
+          "first_mins": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Mins"
+          },
+          "first_pence": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "First-visit price, when dearer",
+            "title": "First Pence"
+          },
+          "frequency_text": {
+            "description": "\"Every 2 weeks\", \"One-off\"",
+            "title": "Frequency Text",
+            "type": "string"
+          },
+          "guide_pence": {
+            "title": "Guide Pence",
+            "type": "integer"
+          },
+          "lawn": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LawnSize"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "messages": {
+            "description": "Outbox messages linked to it, newest first",
+            "items": {
+              "$ref": "#/components/schemas/OutboxItem"
+            },
+            "title": "Messages",
+            "type": "array"
+          },
+          "mins": {
+            "title": "Mins",
+            "type": "integer"
+          },
+          "notes": {
+            "title": "Notes",
+            "type": "string"
+          },
+          "offers": {
+            "description": "Every counter, newest first, with its status",
+            "items": {
+              "$ref": "#/components/schemas/OfferRow"
+            },
+            "title": "Offers",
+            "type": "array"
+          },
+          "photos": {
+            "title": "Photos",
+            "type": "integer"
+          },
+          "price_change": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PriceChange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A raised guide waiting for the customer (A12)"
+          },
+          "ref": {
+            "title": "Ref",
+            "type": "string"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "status": {
+            "description": "open, booked, cancelled or expired",
+            "title": "Status",
+            "type": "string"
+          },
+          "timeline": {
+            "description": "What's happened, oldest first",
+            "items": {
+              "$ref": "#/components/schemas/TimelineRow"
+            },
+            "title": "Timeline",
+            "type": "array"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          },
+          "waiting": {
+            "description": "Open an hour or more with nobody taking it: on the dispatch list",
+            "title": "Waiting",
+            "type": "boolean"
+          },
+          "when_text": {
+            "description": "\"Weekday mornings\", \"Any day\"",
+            "title": "When Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "ref",
+          "status",
+          "created_at",
+          "age_text",
+          "waiting",
+          "category_id",
+          "category_name",
+          "customer_name",
+          "customer_phone",
+          "address",
+          "when_text",
+          "frequency_text",
+          "unit",
+          "guide_pence",
+          "first_pence",
+          "mins",
+          "first_mins",
+          "answers",
+          "notes",
+          "photos",
+          "lawn",
+          "cover",
+          "direct_provider_short",
+          "admin_note",
+          "booked",
+          "offers",
+          "timeline",
+          "messages",
+          "price_change",
+          "coverage"
+        ],
+        "title": "AdminRequestDetail",
+        "type": "object"
+      },
       "AffectedVisit": {
         "properties": {
           "area": {
@@ -445,6 +685,24 @@
           }
         },
         "title": "AlertSettings",
+        "type": "object"
+      },
+      "AnswerRow": {
+        "properties": {
+          "answer": {
+            "title": "Answer",
+            "type": "string"
+          },
+          "question": {
+            "title": "Question",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question",
+          "answer"
+        ],
+        "title": "AnswerRow",
         "type": "object"
       },
       "AreaAdjustment": {
@@ -1003,6 +1261,70 @@
           "kind"
         ],
         "title": "Body_upload_file_api_files_post",
+        "type": "object"
+      },
+      "BookedRow": {
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "booking_id": {
+            "title": "Booking Id",
+            "type": "string"
+          },
+          "booking_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Ref"
+          },
+          "first_price_pence": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Price Pence"
+          },
+          "price_pence": {
+            "title": "Price Pence",
+            "type": "integer"
+          },
+          "provider_id": {
+            "title": "Provider Id",
+            "type": "string"
+          },
+          "provider_short": {
+            "title": "Provider Short",
+            "type": "string"
+          },
+          "via": {
+            "description": "guide, counter or direct",
+            "title": "Via",
+            "type": "string"
+          }
+        },
+        "required": [
+          "booking_id",
+          "booking_ref",
+          "provider_id",
+          "provider_short",
+          "price_pence",
+          "first_price_pence",
+          "via",
+          "at"
+        ],
+        "title": "BookedRow",
         "type": "object"
       },
       "BookingCard": {
@@ -4940,6 +5262,31 @@
         ],
         "type": "string"
       },
+      "LawnRow": {
+        "properties": {
+          "area_m2": {
+            "title": "Area M2",
+            "type": "integer"
+          },
+          "given": {
+            "description": "As the customer gave it: \"19 \u00d7 10 strides\", \"40 \u00d7 30 ft\"",
+            "title": "Given",
+            "type": "string"
+          },
+          "metres": {
+            "description": "\"19 \u00d7 10 metres\"",
+            "title": "Metres",
+            "type": "string"
+          }
+        },
+        "required": [
+          "given",
+          "metres",
+          "area_m2"
+        ],
+        "title": "LawnRow",
+        "type": "object"
+      },
       "LawnSides": {
         "additionalProperties": false,
         "description": "One lawn's sides as the customer gave them: whole strides (paced), or metres or feet\n(measured). Sent as numbers or strings (\"7.5\"), so decimals arrive exactly.",
@@ -4978,6 +5325,70 @@
           "width"
         ],
         "title": "LawnSides",
+        "type": "object"
+      },
+      "LawnSize": {
+        "description": "The lawn size and the method behind it (A26, A27).",
+        "properties": {
+          "area_m2": {
+            "description": "What the engine priced",
+            "title": "Area M2",
+            "type": "integer"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "estimator": {
+            "description": "The AreaEstimator: manual_bands_v0 or customer_measured_v0",
+            "title": "Estimator",
+            "type": "string"
+          },
+          "lawns": {
+            "description": "Paced or measured: each lawn",
+            "items": {
+              "$ref": "#/components/schemas/LawnRow"
+            },
+            "title": "Lawns",
+            "type": "array"
+          },
+          "method": {
+            "enum": [
+              "band",
+              "paced",
+              "measured"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "method_text": {
+            "description": "\"Picked a size: Large, looks about right\", \"Paced it out\", ...",
+            "title": "Method Text",
+            "type": "string"
+          },
+          "summary": {
+            "description": "\"a large lawn (about 190 m\u00b2)\", \"2 lawns paced out, about 250 m\u00b2 in total\"",
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "area_m2",
+          "summary",
+          "method",
+          "method_text",
+          "estimator",
+          "confidence",
+          "lawns"
+        ],
+        "title": "LawnSize",
         "type": "object"
       },
       "LedgerEntry": {
@@ -5678,6 +6089,52 @@
         "title": "MileageDay",
         "type": "object"
       },
+      "NearbyProvider": {
+        "description": "A provider who takes jobs and has a request inside their travel radius (A36).",
+        "properties": {
+          "does_it": {
+            "description": "This request's job type is one of theirs",
+            "title": "Does It",
+            "type": "boolean"
+          },
+          "jobs": {
+            "description": "The job types they've chosen, by name",
+            "items": {
+              "type": "string"
+            },
+            "title": "Jobs",
+            "type": "array"
+          },
+          "miles": {
+            "description": "Straight-line miles from their home, as the job alerts measure it",
+            "title": "Miles",
+            "type": "number"
+          },
+          "payouts_paused": {
+            "description": "Takes jobs, but payouts are paused (A37)",
+            "title": "Payouts Paused",
+            "type": "boolean"
+          },
+          "provider_id": {
+            "title": "Provider Id",
+            "type": "string"
+          },
+          "short": {
+            "title": "Short",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider_id",
+          "short",
+          "miles",
+          "jobs",
+          "does_it",
+          "payouts_paused"
+        ],
+        "title": "NearbyProvider",
+        "type": "object"
+      },
       "NewMessage": {
         "additionalProperties": false,
         "properties": {
@@ -5889,6 +6346,90 @@
           "guide_pence"
         ],
         "title": "Offer",
+        "type": "object"
+      },
+      "OfferRow": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "decided_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided At"
+          },
+          "first_price_pence": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Price Pence"
+          },
+          "guide_pence": {
+            "description": "The guide when it was made",
+            "title": "Guide Pence",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "price_pence": {
+            "title": "Price Pence",
+            "type": "integer"
+          },
+          "provider_id": {
+            "title": "Provider Id",
+            "type": "string"
+          },
+          "provider_short": {
+            "title": "Provider Short",
+            "type": "string"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "status": {
+            "description": "pending, accepted, declined, lapsed or withdrawn",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "provider_id",
+          "provider_short",
+          "price_pence",
+          "first_price_pence",
+          "guide_pence",
+          "status",
+          "reasons",
+          "message",
+          "created_at",
+          "decided_at"
+        ],
+        "title": "OfferRow",
         "type": "object"
       },
       "OnboardingLink": {
@@ -6969,6 +7510,119 @@
         "title": "PolygonGeometry",
         "type": "object"
       },
+      "PriceChange": {
+        "description": "A raised guide price waiting for the customer's approval (ruling A12). Only on approval\ndoes the request's guide change and its job alerts go out again.",
+        "properties": {
+          "decided_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided At"
+          },
+          "first_pence": {
+            "anyOf": [
+              {
+                "description": "Integer pence",
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Scaled by the same ratio (scaled_first_price)",
+            "title": "First Pence"
+          },
+          "from_first_pence": {
+            "anyOf": [
+              {
+                "description": "Integer pence",
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From First Pence"
+          },
+          "from_guide_pence": {
+            "description": "Integer pence",
+            "minimum": 0.0,
+            "title": "From Guide Pence",
+            "type": "integer"
+          },
+          "guide_pence": {
+            "description": "Integer pence",
+            "minimum": 0.0,
+            "title": "Guide Pence",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Answers name it, so a stale page can't approve a newer one",
+            "title": "Id",
+            "type": "string"
+          },
+          "note": {
+            "default": "",
+            "title": "Note",
+            "type": "string"
+          },
+          "percent": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Percent"
+          },
+          "proposed_at": {
+            "format": "date-time",
+            "title": "Proposed At",
+            "type": "string"
+          },
+          "proposed_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Admin user id",
+            "title": "Proposed By"
+          },
+          "status": {
+            "default": "pending",
+            "description": "withdrawn: the request was booked while it waited (A16)",
+            "enum": [
+              "pending",
+              "approved",
+              "declined",
+              "withdrawn"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "guide_pence",
+          "from_guide_pence",
+          "proposed_at"
+        ],
+        "title": "PriceChange",
+        "type": "object"
+      },
       "PriceChangeAnswer": {
         "additionalProperties": false,
         "description": "The customer's answer to a raised guide (A12), naming the proposal they saw.",
@@ -7881,7 +8535,7 @@
             "type": "string"
           },
           "covers": {
-            "description": "Counts for coverage: active, or active with payouts paused (A32)",
+            "description": "Counts for coverage: active, or active with payouts paused (A32, A37)",
             "title": "Covers",
             "type": "boolean"
           },
@@ -7900,6 +8554,11 @@
             },
             "title": "Jobs",
             "type": "array"
+          },
+          "payouts_paused": {
+            "description": "Takes jobs, but payouts are paused: marked on the pin (A37)",
+            "title": "Payouts Paused",
+            "type": "boolean"
           },
           "placed_at": {
             "description": "postcode: their home postcode's centroid; approximate: home rounded to about 1 km (A33)",
@@ -7928,6 +8587,18 @@
             "title": "Status",
             "type": "string"
           },
+          "status_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why, if the team gave a reason (suspended, payouts paused)",
+            "title": "Status Reason"
+          },
           "travel_radius_miles": {
             "title": "Travel Radius Miles",
             "type": "integer"
@@ -7943,6 +8614,8 @@
           "travel_radius_miles",
           "placed_at",
           "covers",
+          "payouts_paused",
+          "status_reason",
           "jobs"
         ],
         "title": "ProviderPin",
@@ -9416,6 +10089,38 @@
         "title": "RenewalOut",
         "type": "object"
       },
+      "RequestCoverage": {
+        "properties": {
+          "in_reach": {
+            "title": "In Reach",
+            "type": "integer"
+          },
+          "in_reach_doing_it": {
+            "title": "In Reach Doing It",
+            "type": "integer"
+          },
+          "nearby": {
+            "items": {
+              "$ref": "#/components/schemas/NearbyProvider"
+            },
+            "title": "Nearby",
+            "type": "array"
+          },
+          "uncovered": {
+            "description": "No active provider in reach offers its job type (A36)",
+            "title": "Uncovered",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "in_reach",
+          "in_reach_doing_it",
+          "uncovered",
+          "nearby"
+        ],
+        "title": "RequestCoverage",
+        "type": "object"
+      },
       "RequestDetail": {
         "properties": {
           "alerted": {
@@ -9734,9 +10439,17 @@
             "type": "integer"
           },
           "in_reach_doing_it": {
-            "description": "Of those, how many do this kind of job",
+            "description": "Of those, how many offer its job type",
             "title": "In Reach Doing It",
             "type": "integer"
+          },
+          "nearby": {
+            "description": "Those in reach, nearest first, and what they do",
+            "items": {
+              "$ref": "#/components/schemas/NearbyProvider"
+            },
+            "title": "Nearby",
+            "type": "array"
           },
           "ref": {
             "title": "Ref",
@@ -9747,7 +10460,7 @@
             "type": "string"
           },
           "uncovered": {
-            "description": "Outside every active provider's travel radius (A32)",
+            "description": "No active provider in reach offers its job type (A36)",
             "title": "Uncovered",
             "type": "boolean"
           },
@@ -9771,6 +10484,7 @@
           "uncovered",
           "in_reach",
           "in_reach_doing_it",
+          "nearby",
           "cover",
           "awaiting_customer"
         ],
@@ -10868,6 +11582,30 @@
           "text"
         ],
         "title": "TimelineEvent",
+        "type": "object"
+      },
+      "TimelineRow": {
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "at",
+          "kind",
+          "text"
+        ],
+        "title": "TimelineRow",
         "type": "object"
       },
       "TodayRound": {
@@ -14661,6 +15399,99 @@
           }
         },
         "summary": "Whatsapp Message",
+        "tags": [
+          "L3 admin"
+        ]
+      }
+    },
+    "/api/admin/requests/{request_id}": {
+      "get": {
+        "description": "One request (A38): the customer's request and lawn size, status and age, every offer and\ncounter, its timeline, the outbox messages about it, a raise waiting for the customer, and\nwho could take it. Takes the request's id or its reference (R-2297).",
+        "operationId": "request_detail_api_admin_requests__request_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminRequestDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          }
+        },
+        "summary": "Request Detail",
         "tags": [
           "L3 admin"
         ]

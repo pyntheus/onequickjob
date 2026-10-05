@@ -347,7 +347,9 @@ async def test_shading_open_requests(jo, db, catalogue):
 # ---------------------------------------------------------------- uncovered demand (A32)
 
 
-async def test_uncovered_demand_is_outside_every_active_providers_radius(jo, db, catalogue):
+async def test_uncovered_demand_means_no_active_provider_in_reach_does_the_job(jo, db, catalogue):
+    """A36: uncovered is no provider who takes jobs, within reach by the job alerts' own test,
+    offering the request's job type among the ones they've chosen."""
     customer = await make_customer(db)
     near = await request_at(db, customer, HAZLEMERE)
     far = await request_at(db, customer, RISBOROUGH, category="hedges")
@@ -362,27 +364,52 @@ async def test_uncovered_demand_is_outside_every_active_providers_radius(jo, db,
     got, uncovered = await pins()
     assert uncovered == [far.ref]
     assert (got[near.ref]["uncovered"], got[near.ref]["in_reach"], got[near.ref]["in_reach_doing_it"]) == (False, 1, 1)
-    assert (got[far.ref]["uncovered"], got[far.ref]["in_reach"]) == (True, 0)
+    assert got[near.ref]["nearby"] == [
+        {
+            "provider_id": dave.id,
+            "short": "Dave H.",
+            "miles": 0.2,
+            "jobs": ["Lawn mowing"],
+            "does_it": True,
+            "payouts_paused": False,
+        }
+    ]
+    assert (got[far.ref]["uncovered"], got[far.ref]["in_reach"], got[far.ref]["nearby"]) == (True, 0, [])
 
-    # Providers who can't take new jobs don't cover anywhere, however close they live.
+    # Someone in reach who doesn't do hedges doesn't cover it; the pin still says who's there.
     in_risborough = {"home.location": {"lat": 51.725, "lng": -0.83}, "home.postcode": "HP27 0AA"}
-    for i, status in enumerate(("suspended", "signing_up")):
-        p = await make_provider(db, f"Pat Smith{i}", f"+44770090030{i}", ["hedges"], status=status)
-        await Providers(db).update(p.id, in_risborough)
-    assert (await pins())[1] == [far.ref]
-
-    # Payouts paused still takes jobs, so it covers; one who doesn't do hedges still counts.
     jan = await make_provider(db, "Jan Kowalski", "+447700900211", ["mowing"], status="payouts_paused")
     await Providers(db).update(jan.id, in_risborough)
     got, uncovered = await pins()
-    assert uncovered == [] and (got[far.ref]["in_reach"], got[far.ref]["in_reach_doing_it"]) == (1, 0)
+    assert uncovered == [far.ref]
+    assert (got[far.ref]["in_reach"], got[far.ref]["in_reach_doing_it"]) == (1, 0)
+    [there] = got[far.ref]["nearby"]
+    assert (there["short"], there["jobs"], there["does_it"], there["payouts_paused"]) == (
+        "Jan K.",
+        ["Lawn mowing"],
+        False,
+        True,
+    )
 
-    # A wider radius reaches further.
+    # Once they do hedges, they cover it, payouts paused or not (A37).
+    await Providers(db).update(jan.id, {"skills": ["mowing", "hedges"]})
+    got, uncovered = await pins()
+    assert uncovered == [] and (got[far.ref]["in_reach"], got[far.ref]["in_reach_doing_it"]) == (1, 1)
+
+    # Providers who can't take new jobs never cover, however close and whatever they do.
     await Providers(db).update(jan.id, {"status": "suspended"})
-    assert (await pins())[1] == [far.ref]
+    for i, status in enumerate(("signing_up", "suspended")):
+        p = await make_provider(db, f"Pat Smith{i}", f"+44770090030{i}", ["hedges"], status=status)
+        await Providers(db).update(p.id, in_risborough)
+    got, uncovered = await pins()
+    assert uncovered == [far.ref] and got[far.ref]["in_reach"] == 0
+
+    # A wider radius reaches further, but only covers it if they do the job.
     await Providers(db).update(dave.id, {"travel_radius_miles": 8})
     got, uncovered = await pins()
-    assert uncovered == [] and got[far.ref]["in_reach"] == 1
+    assert uncovered == [far.ref] and (got[far.ref]["in_reach"], got[far.ref]["in_reach_doing_it"]) == (1, 0)
+    await Providers(db).update(dave.id, {"skills": ["mowing", "hedges"]})
+    assert (await pins())[1] == []
 
 
 async def test_uncovered_means_the_broadcast_reaches_nobody_by_distance(db, catalogue):
@@ -427,11 +454,14 @@ async def test_providers_sit_at_their_postcodes_centroid_never_their_address(jo,
     assert pins[ken.id]["geometry"]["coordinates"] == [-0.72, 51.66]
     assert pins[ken.id]["geometry"]["coordinates"] != [ken.home.location.lng, ken.home.location.lat]
     assert pins[ken.id]["properties"]["placed_at"] == "approximate"
-    statuses = {p["properties"]["short"]: (p["properties"]["status"], p["properties"]["covers"]) for p in pins.values()}
+    statuses = {
+        pin["short"]: (pin["status"], pin["covers"], pin["payouts_paused"])
+        for pin in (p["properties"] for p in pins.values())
+    }
     assert statuses == {
-        "Dave H.": ("active", True),
-        "Ken A.": ("signing_up", False),
-        "Gary T.": ("suspended", False),
+        "Dave H.": ("active", True, False),
+        "Ken A.": ("signing_up", False, False),
+        "Gary T.": ("suspended", False, False),
     }
     reach = {f["id"]: f for f in d["reach"]["features"]}
     assert set(reach) == set(pins)
@@ -444,6 +474,26 @@ async def test_providers_sit_at_their_postcodes_centroid_never_their_address(jo,
         "travel_radius_miles": 4,
         "covers": False,
     }
+
+
+async def test_a_provider_with_payouts_paused_still_covers_and_is_marked(jo, db, catalogue):
+    """A37: payouts paused still takes jobs, so still covers; the pin says so, with the reason."""
+    customer = await make_customer(db)
+    req = await request_at(db, customer)
+    jan = await make_provider(db, "Jan Kowalski", "+447700900211", ["mowing"], status="payouts_paused")
+    await Providers(db).update(jan.id, {"status_reason": "Tax details missing"})
+    d = await get_map(jo, layers=["open", "providers"])
+    [pin] = d["providers"]["features"]
+    assert {k: pin["properties"][k] for k in ("status", "covers", "payouts_paused", "status_reason")} == {
+        "status": "payouts_paused",
+        "covers": True,
+        "payouts_paused": True,
+        "status_reason": "Tax details missing",
+    }
+    [reach] = d["reach"]["features"]
+    assert reach["properties"]["covers"] is True
+    [request] = d["open"]["features"]
+    assert request["properties"]["ref"] == req.ref and request["properties"]["uncovered"] is False
 
 
 def test_place_home():

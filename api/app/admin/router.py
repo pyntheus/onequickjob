@@ -17,7 +17,9 @@ from fastapi import APIRouter, Depends, Query, Response, status
 from app.adapters.payments.base import PaymentGateway
 from app.admin import catalogue, disputes, export, overview, pricing, providers
 from app.admin import map as admin_map
+from app.admin import requests as admin_requests
 from app.admin.schemas import (
+    AdminRequestDetail,
     Calibration,
     CategoryAdminRow,
     CategoryRecord,
@@ -88,6 +90,14 @@ async def gateway_errors() -> AsyncIterator[None]:
 @router.get("/overview")
 async def overview_(admin: Admin, db: DbDep) -> Overview:
     return await overview.overview(db)
+
+
+@router.get("/requests/{request_id}")
+async def request_detail(request_id: str, admin: Admin, db: DbDep, s: SettingsDep) -> AdminRequestDetail:
+    """One request (A38): the customer's request and lawn size, status and age, every offer and
+    counter, its timeline, the outbox messages about it, a raise waiting for the customer, and
+    who could take it. Takes the request's id or its reference (R-2297)."""
+    return await admin_requests.detail(db, s, request_id)
 
 
 @router.get("/requests/{ref}/whatsapp")
