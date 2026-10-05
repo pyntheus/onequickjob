@@ -105,11 +105,13 @@ const FIXTURES = new URL("../fixtures/", import.meta.url).pathname;
 /** The provider's Today round for a day: work through it until the visit for `customer` (their
  * first name, e.g. "Sarah") is the one on, start it (DEMO_MODE lets a future visit start now),
  * add before and after photos, and finish it, with an overrun and a flag if asked, or typing
- * exactly `minutes`. Earlier visits that day are finished plainly first. Returns the finish
- * screen's heading ("£26.35 is on its way"). */
+ * exactly `minutes`. Earlier visits that day are finished plainly first, and what each was
+ * charged goes into `others` if given (a journey checking exact totals takes them off). Returns
+ * the finish screen's heading ("£26.35 is on its way"). */
+export type Finished = { visit_id: string; charge_status: string; price_pence: number; fee_pence: number; provider_pence: number };
 export async function finishVisit(
   page: Page,
-  opts: { day: string; customer: string; overrun?: boolean; photos?: boolean; minutes?: number },
+  opts: { day: string; customer: string; overrun?: boolean; photos?: boolean; minutes?: number; others?: Finished[] },
 ): Promise<string> {
   await page.goto(`/p/today?date=${opts.day}`);
   for (let i = 0; i < 8; i++) {
@@ -144,10 +146,13 @@ export async function finishVisit(
     } else {
       await page.getByRole("button", { name: "Nothing, it was as described" }).click();
     }
+    const finished = page.waitForResponse((r) => r.url().endsWith("/finish") && r.request().method() === "POST");
     await page.getByRole("button", { name: "Send and get paid" }).click();
+    const out = (await (await finished).json()) as Finished;
     const heading = page.getByRole("heading", { level: 1 });
     await expect(heading).toHaveText(/is on its way|Job recorded|Done, thank you/);
     if (mine) return heading.innerText();
+    opts.others?.push(out);
     await page.goto(`/p/today?date=${opts.day}`);
   }
   throw new Error(`never reached ${opts.customer}'s visit on ${opts.day}`);
