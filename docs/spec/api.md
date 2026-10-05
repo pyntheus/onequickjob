@@ -184,4 +184,4 @@ in `web/src/api/schema.d.ts` come from it (`make types`).
 | `GET` | `/api/admin/audit` |  | list[AuditEntry] |  |
 | `POST` | `/api/payments/stripe/webhook` |  | WebhookAck | Verify the Stripe-Signature header, then handle payment_intent.*, account.updated, payout.* and charge.refunded idempotently (by event id). Webhooks are the source of truth for final payment states. |
 
-139 endpoints.
+140 endpoints.
